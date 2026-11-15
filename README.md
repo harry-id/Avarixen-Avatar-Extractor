@@ -41,6 +41,17 @@ ROBLOX_API_KEY=your_roblox_api_key_here
 # CORS_ORIGINS=http://localhost:3001
 ```
 
+### Create a Roblox API key
+
+1. Go to https://create.roblox.com/dashboard/credentials?activeTab=ApiKeysTab
+2. Click **Create API Key**
+3. Enter a name (e.g. `AAE Avatar Extractor`)
+4. Under **Access Permissions**, add:
+   - `thumbnails:read` — required for avatar metadata
+   - `users.advanced:read` — optional, for user lookup
+5. Click **Save & Generate**
+6. Copy the key into `backend/.env` as `ROBLOX_API_KEY`
+
 Notes:
 - `ROBLOX_API_KEY` is required for avatar metadata and download endpoints.
 - `CORS_ORIGINS` is optional (comma-separated). If unset, CORS is permissive by default; set explicit origins for production.
