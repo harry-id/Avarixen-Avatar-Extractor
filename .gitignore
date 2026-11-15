@@ -16,6 +16,10 @@ backend/downloads/*
 # Backup files
 *.backup
 
+# Editor swap files
+*.swp
+*.swo
+
 # Test assets
 frontend/test-avatar*
 frontend/test-texture*
