@@ -1,0 +1,66 @@
+const MESSAGES = {
+    id: {
+        "user.empty": "Username tidak boleh kosong.",
+        "user.invalid": "Username tidak valid.",
+        "user.not_found": "Username tidak ditemukan.",
+        "user.lookup_failed": "Gagal mencari akun Roblox.",
+        "user.upstream_failed": "Gagal menghubungi layanan Roblox.",
+        "user.timeout": "Permintaan ke Roblox melebihi batas waktu.",
+        "avatar.invalid_user_id": "User ID tidak valid.",
+        "avatar.not_configured": "Roblox API Key belum dikonfigurasi.",
+        "avatar.upstream_failed": "Gagal mengambil metadata avatar dari Roblox.",
+        "avatar.timeout": "Permintaan ke Roblox melebihi batas waktu.",
+        "avatar.failed": "Gagal mengambil avatar 3D.",
+        "download.invalid_user_id": "User ID tidak valid.",
+        "download.not_configured": "Roblox API Key belum dikonfigurasi.",
+        "download.upstream_avatar_failed": "Gagal mengambil informasi avatar dari Roblox.",
+        "download.metadata_url_missing": "Metadata URL avatar tidak ditemukan.",
+        "download.metadata_failed": "Gagal mengunduh metadata avatar.",
+        "download.metadata_invalid": "Metadata avatar tidak valid.",
+        "download.metadata_incomplete": "Metadata avatar tidak lengkap atau tidak valid.",
+        "download.timeout": "Permintaan ke Roblox melebihi batas waktu.",
+        "download.failed": "Gagal mengunduh aset avatar.",
+        "download.success": "Avatar berhasil diunduh.",
+        "rate_limited": "Terlalu banyak permintaan. Coba lagi nanti."
+    },
+    en: {
+        "user.empty": "Username cannot be empty.",
+        "user.invalid": "Invalid username.",
+        "user.not_found": "Roblox account not found.",
+        "user.lookup_failed": "Failed to look up Roblox account.",
+        "user.upstream_failed": "Failed to contact Roblox service.",
+        "user.timeout": "Request to Roblox timed out.",
+        "avatar.invalid_user_id": "Invalid user ID.",
+        "avatar.not_configured": "Roblox API Key not configured.",
+        "avatar.upstream_failed": "Failed to fetch avatar metadata from Roblox.",
+        "avatar.timeout": "Request to Roblox timed out.",
+        "avatar.failed": "Failed to fetch 3D avatar.",
+        "download.invalid_user_id": "Invalid user ID.",
+        "download.not_configured": "Roblox API Key not configured.",
+        "download.upstream_avatar_failed": "Failed to fetch avatar information from Roblox.",
+        "download.metadata_url_missing": "Avatar metadata URL not found.",
+        "download.metadata_failed": "Failed to download avatar metadata.",
+        "download.metadata_invalid": "Avatar metadata is invalid.",
+        "download.metadata_incomplete": "Avatar metadata is incomplete or invalid.",
+        "download.timeout": "Request to Roblox timed out.",
+        "download.failed": "Failed to download avatar assets.",
+        "download.success": "Avatar downloaded successfully.",
+        "rate_limited": "Too many requests. Try again later."
+    }
+};
+
+const DEFAULT_LANG = "id";
+
+function getLang(req) {
+    const header = req.headers["accept-language"] || "";
+    const first = header.split(",")[0];
+    const primary = first.split("-")[0].trim().toLowerCase();
+    return MESSAGES[primary] ? primary : DEFAULT_LANG;
+}
+
+function t(lang, key) {
+    const dict = MESSAGES[lang] || MESSAGES[DEFAULT_LANG];
+    return dict[key] || dict[Object.keys(dict)[0]] || key;
+}
+
+module.exports = { getLang, t, DEFAULT_LANG, MESSAGES };
