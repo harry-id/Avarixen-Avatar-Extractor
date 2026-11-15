@@ -11,5 +11,5 @@ path.join(__dirname, "../downloads")
 app.use(express.static(__dirname));
 
 app.listen(PORT, () => {
-console.log("AAE Frontend running on port ${PORT}");
+console.log(`AAE Frontend running on port ${PORT}`);
 });
