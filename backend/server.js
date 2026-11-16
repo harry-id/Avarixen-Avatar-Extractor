@@ -218,6 +218,21 @@ app.get("/api/roblox/avatar/:userId", async (req, res) => {
     }
 });
 
-app.listen(PORT, () => {
+const server = app.listen(PORT);
+
+server.on("listening", () => {
     console.log(`AAE Server running on port ${PORT}`);
+});
+
+server.on("error", (error) => {
+    if (error.code === "EADDRINUSE") {
+        console.error(
+            `AAE Server failed: port ${PORT} is already in use. ` +
+            `Stop the process using it (or set PORT to a free port) and try again.`
+        );
+    } else {
+        console.error("AAE Server failed to start:", error.message);
+    }
+
+    process.exit(1);
 });
