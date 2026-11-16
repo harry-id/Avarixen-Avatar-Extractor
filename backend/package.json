@@ -7,9 +7,12 @@
     "start": "node server.js"
   },
   "dependencies": {
+    "@comfyorg/fbx-exporter-three": "^1.0.2",
     "cors": "^2.8.5",
     "dotenv": "^18.0.9",
     "express": "^5.1.0",
-    "obj2gltf": "^3.2.0"
+    "obj2gltf": "^3.2.0",
+    "pngjs": "^7.0.0",
+    "three": "^0.180.0"
   }
 }
