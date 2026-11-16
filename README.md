@@ -95,9 +95,11 @@ The download control is a split button: clicking the main button downloads OBJ (
 | OBJ (ZIP) | Frontend-side | Bundles OBJ, MTL, and textures into a ZIP |
 | GLB | `GET /api/roblox/convert/:userId/glb` | Binary GLTF, backend-converted via `obj2gltf` |
 | GLTF | `GET /api/roblox/convert/:userId/gltf` | JSON GLTF, backend-converted via `obj2gltf` |
-| FBX | `GET /api/roblox/convert/:userId/fbx` | ASCII FBX 7.4, written by the built-in exporter (`backend/fbx-exporter.js`) with embedded textures |
+| FBX | `GET /api/roblox/convert/:userId/fbx` | Binary FBX 7.4, written by the built-in exporter (`backend/fbx-exporter.js`) with embedded textures — importable in Blender 3.6+, Unity, Unreal, and F3D |
 
 The conversion requires the avatar to be downloaded first (so the OBJ/MTL/texture files exist under `downloads/<userId>/`).
+
+Downloaded files are named `{safeName}_{userId}.{format}` (e.g. `Roblox_11159567260.fbx`), where `safeName` is the Roblox display name/username with filesystem-illegal characters replaced.
 
 ## Notes
 
