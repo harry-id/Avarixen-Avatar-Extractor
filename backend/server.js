@@ -3,6 +3,7 @@ require("dotenv").config();
 const express = require("express");
 const cors = require("cors");
 const { getLang, t } = require("./i18n");
+const { fetchAvatar3D } = require("./avatar-metadata");
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -177,24 +178,18 @@ app.get("/api/roblox/avatar/:userId", async (req, res) => {
             });
         }
 
-        const response = await fetchWithTimeout(
-            `https://thumbnails.roblox.com/v1/users/avatar-3d?userId=${encodeURIComponent(userId)}`,
-            {
-                headers: {
-                    "x-api-key": apiKey
-                }
-            }
+        const metadata = await fetchAvatar3D(
+            fetchWithTimeout,
+            apiKey,
+            userId
         );
 
-        let result = null;
-        try {
-            result = await response.json();
-        } catch {
-            result = null;
-        }
-
-        if (!response.ok) {
-            console.error("Roblox avatar API failed:", response.status);
+        if (!metadata.ok) {
+            console.error(
+                "Roblox avatar API failed:",
+                metadata.status,
+                `after ${metadata.attempts} attempt(s)`
+            );
             return res.status(502).json({
                 success: false,
                 message: t(lang, "avatar.upstream_failed")
@@ -203,7 +198,7 @@ app.get("/api/roblox/avatar/:userId", async (req, res) => {
 
         res.json({
             success: true,
-            avatar: result
+            avatar: metadata.result
         });
 
     } catch (error) {
