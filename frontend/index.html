@@ -701,7 +701,7 @@ function loadModel(userId = null, bustCache = false) {
                     camera.position.set(
                         0,
                         0,
-                        maxSize * 2.5
+                        -maxSize * 2.5
                     );
 
                     camera.lookAt(0, 0, 0);
@@ -1129,7 +1129,7 @@ async function downloadZip() {
     link.href = url;
 
     const zipName = String(currentDisplayName || "Avarixen-Avatar").replace(/[\\/:*?"<>|]/g, "_").trim().replace(/[. ]+$/g, "") || "Avarixen-Avatar";
-    link.download = `${safeName}.zip`;
+    link.download = `${safeName}_${currentUserId}.zip`;
 
     document.body.appendChild(link);
 
@@ -1170,7 +1170,7 @@ async function downloadConverted(format) {
 
     const link = document.createElement("a");
     link.href = url;
-    link.download = `${safeName}.${format}`;
+    link.download = `${safeName}_${currentUserId}.${format}`;
 
     document.body.appendChild(link);
     link.click();
