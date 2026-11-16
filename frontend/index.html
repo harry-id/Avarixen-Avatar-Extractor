@@ -144,6 +144,60 @@
             gap: 10px;
         }
 
+        .dropdown {
+            position: relative;
+            display: inline-block;
+        }
+
+        .dropdown button {
+            min-width: 150px;
+            justify-content: space-between;
+            display: flex;
+            align-items: center;
+        }
+
+        .dropdown .arrow {
+            margin-left: 8px;
+            font-size: 12px;
+        }
+
+        .dropdown-content {
+            display: none;
+            position: absolute;
+            background-color: #191e2b;
+            min-width: 200px;
+            box-shadow: 0 8px 16px rgba(0, 0, 0, 0.5);
+            border-radius: 8px;
+            border: 1px solid #39445c;
+            z-index: 100;
+            right: 0;
+            top: 110%;
+        }
+
+        .dropdown-content.show {
+            display: block;
+        }
+
+        .dropdown-content button {
+            width: 100%;
+            padding: 10px 16px;
+            text-align: left;
+            background: none;
+            border: none;
+            color: white;
+            cursor: pointer;
+            font-size: 14px;
+        }
+
+        .dropdown-content button:hover {
+            background: #202738;
+        }
+
+        .dropdown-content button.disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
         @media (max-width: 600px) {
             .search-box {
                 flex-direction: column;
@@ -213,9 +267,26 @@
             Muat Ulang Model
         </button>
 
-        <button id="downloadZip" data-i18n="downloadButton">
-            Unduh Avatar (ZIP)
-        </button>
+        <div class="dropdown">
+            <button id="downloadButton" data-i18n="downloadButton">
+                Unduh Avatar
+                <span class="arrow">▼</span>
+            </button>
+            <div id="downloadDropdown" class="dropdown-content">
+                <button class="dropdown-item" data-format="zip" data-i18n="downloadZip">
+                    Unduh Avatar (ZIP)
+                </button>
+                <button class="dropdown-item" data-format="glb" data-i18n="downloadGlb">
+                    Unduh Avatar (GLB)
+                </button>
+                <button class="dropdown-item" data-format="gltf" data-i18n="downloadGltf">
+                    Unduh Avatar (GLTF)
+                </button>
+                <button class="dropdown-item" data-format="fbx" data-i18n="downloadFbx">
+                    Unduh Avatar (FBX)
+                </button>
+            </div>
+        </div>
     </div>
 
 </main>
@@ -274,7 +345,13 @@ const LANG = {
         errorNoAvatarZip: "Cari avatar Roblox terlebih dahulu.",
         errorZipFetch: "Gagal mengambil {{file}}",
         alertZipFailed: "Gagal membuat ZIP: {{message}}",
-        btnDownloadZipFinal: "Unduh Avatar (ZIP)"
+        btnDownloadZipFinal: "Unduh Avatar (ZIP)",
+        downloadGlb: "Unduh Avatar (GLB)",
+        downloadGltf: "Unduh Avatar (GLTF)",
+        downloadFbx: "Unduh Avatar (FBX)",
+        errorFbxNotSupported: "Ekspor FBX tidak didukung di JavaScript murni. Gunakan GLB, GLTF, atau OBJ.",
+        errorConvertFailed: "Konversi gagal: {{message}}",
+        statusConverting: "Mengonversi model ke {{format}}..."
     },
     en: {
         appTitle: "Avarixen Avatar Extractor",
@@ -310,7 +387,13 @@ const LANG = {
         errorNoAvatarZip: "Please search for a Roblox avatar first.",
         errorZipFetch: "Failed to fetch {{file}}",
         alertZipFailed: "Failed to create ZIP: {{message}}",
-        btnDownloadZipFinal: "Download Avatar (ZIP)"
+        btnDownloadZipFinal: "Download Avatar (ZIP)",
+        downloadGlb: "Download Avatar (GLB)",
+        downloadGltf: "Download Avatar (GLTF)",
+        downloadFbx: "Download Avatar (FBX)",
+        errorFbxNotSupported: "FBX export is not supported in pure JavaScript. Use GLB, GLTF, or OBJ instead.",
+        errorConvertFailed: "Conversion failed: {{message}}",
+        statusConverting: "Converting model to {{format}}..."
     }
 };
 
@@ -397,7 +480,13 @@ const accountInfo =
     document.getElementById("accountInfo");
 
 const downloadButton =
-    document.getElementById("downloadZip");
+    document.getElementById("downloadButton");
+
+const downloadDropdown =
+    document.getElementById("downloadDropdown");
+
+const dropdownItems =
+    document.querySelectorAll(".dropdown-item");
 
 const reloadButton =
     document.getElementById("reloadButton");
@@ -778,135 +867,189 @@ reloadButton.addEventListener(
 );
 
 
-// DOWNLOAD ZIP
+// DROPDOWN TOGGLE
 
-downloadButton.addEventListener(
-    "click",
-    async () => {
+downloadButton.addEventListener("click", (e) => {
+    e.stopPropagation();
+    downloadDropdown.classList.toggle("show");
+});
+
+document.addEventListener("click", () => {
+    downloadDropdown.classList.remove("show");
+});
+
+// DOWNLOAD / CONVERT
+
+downloadButton.addEventListener("click", async () => {
+    // Handled by dropdown items below
+});
+
+dropdownItems.forEach((item) => {
+    item.addEventListener("click", async (e) => {
+        e.stopPropagation();
+
+        const format = item.dataset.format;
+
+        if (format === "fbx") {
+            alert(t("errorFbxNotSupported"));
+            downloadDropdown.classList.remove("show");
+            return;
+        }
+
+        if (!currentUserId) {
+            alert(t("errorNoAvatarZip"));
+            downloadDropdown.classList.remove("show");
+            return;
+        }
 
         downloadButton.disabled = true;
-
-        downloadButton.textContent =
-            t("downloadCreating");
+        downloadDropdown.classList.remove("show");
 
         try {
 
-            if (!currentUserId) {
-                throw new Error(
-                    t("errorNoAvatarZip")
-                );
+            if (format === "zip") {
+                await downloadZip();
+            } else if (format === "glb" || format === "gltf") {
+                await downloadConverted(format);
             }
-
-            const assetPath =
-                `/assets/${encodeURIComponent(currentUserId)}/`;
-
-            const safeName = String(currentDisplayName || "Avarixen").replace(/[\\/:*?"<>|]/g, "_").trim().replace(/[. ]+$/g, "") || "Avarixen";
-            const baseName = safeName.toLowerCase();
-
-            const files = [
-                "avatar.obj",
-                "avatar.mtl"
-            ];
-
-            let textureIndex = 1;
-
-            while (true) {
-                const filename = `texture${textureIndex}.png`;
-
-                const check = await fetch(assetPath + filename, {
-                    method: "HEAD"
-                });
-
-                if (!check.ok) break;
-
-                files.push(filename);
-                textureIndex++;
-            }
-
-            const zip = new JSZip();
-
-            for (const file of files) {
-
-                const response = await fetch(
-                    assetPath + file
-                );
-
-                if (!response.ok) {
-
-                    throw new Error(
-                        t("errorZipFetch", { file })
-                    );
-
-                }
-
-                let content = await response.blob();
-
-                if (file === "avatar.obj") {
-                    let objText = await content.text();
-                    objText = objText.replace(/^mtllib\s+.*$/m, `mtllib ${baseName}.mtl`);
-                    content = new Blob([objText], { type: "text/plain" });
-                }
-
-                if (file === "avatar.mtl") {
-                    content = new Blob(
-                        [await content.text()],
-                        { type: "text/plain" }
-                    );
-                }
-
-                const zipFileName =
-                    file === "avatar.obj" ? `${baseName}.obj` :
-                    file === "avatar.mtl" ? `${baseName}.mtl` :
-                    file;
-
-                zip.file(
-                    `${safeName}/${zipFileName}`,
-                    content
-                );
-
-            }
-
-            const blob = await zip.generateAsync({
-                type: "blob"
-            });
-
-            const url = URL.createObjectURL(blob);
-
-            const link = document.createElement("a");
-
-            link.href = url;
-
-            const zipName = String(currentDisplayName || "Avarixen-Avatar").replace(/[\\/:*?"<>|]/g, "_").trim().replace(/[. ]+$/g, "") || "Avarixen-Avatar";
-            link.download = `${safeName}.zip`;
-
-            document.body.appendChild(link);
-
-            link.click();
-
-            link.remove();
-
-            setTimeout(
-                () => URL.revokeObjectURL(url),
-                1000
-            );
 
         } catch (error) {
-
-            alert(
-                t("alertZipFailed", { message: error.message })
-            );
-
+            alert(t("errorConvertFailed", { message: error.message }));
         } finally {
-
             downloadButton.disabled = false;
+        }
+    });
+});
 
-            downloadButton.textContent =
-                t("btnDownloadZipFinal");
+async function downloadZip() {
+
+    downloadButton.textContent = t("downloadCreating");
+
+    const assetPath =
+        `/assets/${encodeURIComponent(currentUserId)}/`;
+
+    const safeName = String(currentDisplayName || "Avarixen").replace(/[\\/:*?"<>|]/g, "_").trim().replace(/[. ]+$/g, "") || "Avarixen";
+    const baseName = safeName.toLowerCase();
+
+    const files = [
+        "avatar.obj",
+        "avatar.mtl"
+    ];
+
+    let textureIndex = 1;
+
+    while (true) {
+        const filename = `texture${textureIndex}.png`;
+
+        const check = await fetch(assetPath + filename, {
+            method: "HEAD"
+        });
+
+        if (!check.ok) break;
+
+        files.push(filename);
+        textureIndex++;
+    }
+
+    const zip = new JSZip();
+
+    for (const file of files) {
+
+        const response = await fetch(
+            assetPath + file
+        );
+
+        if (!response.ok) {
+
+            throw new Error(
+                t("errorZipFetch", { file })
+            );
 
         }
 
+        let content = await response.blob();
+
+        if (file === "avatar.obj") {
+            let objText = await content.text();
+            objText = objText.replace(/^mtllib\s+.*$/m, `mtllib ${baseName}.mtl`);
+            content = new Blob([objText], { type: "text/plain" });
+        }
+
+        if (file === "avatar.mtl") {
+            content = new Blob(
+                [await content.text()],
+                { type: "text/plain" }
+            );
+        }
+
+        const zipFileName =
+            file === "avatar.obj" ? `${baseName}.obj` :
+            file === "avatar.mtl" ? `${baseName}.mtl` :
+            file;
+
+        zip.file(
+            `${safeName}/${zipFileName}`,
+            content
+        );
+
     }
-);
+
+    const blob = await zip.generateAsync({
+        type: "blob"
+    });
+
+    const url = URL.createObjectURL(blob);
+
+    const link = document.createElement("a");
+
+    link.href = url;
+
+    const zipName = String(currentDisplayName || "Avarixen-Avatar").replace(/[\\/:*?"<>|]/g, "_").trim().replace(/[. ]+$/g, "") || "Avarixen-Avatar";
+    link.download = `${safeName}.zip`;
+
+    document.body.appendChild(link);
+
+    link.click();
+
+    link.remove();
+
+    setTimeout(
+        () => URL.revokeObjectURL(url),
+        1000
+    );
+
+    downloadButton.textContent = t("btnDownloadZipFinal");
+}
+
+async function downloadConverted(format) {
+
+    setStatus("statusConverting", { format: format.toUpperCase() });
+
+    const convertUrl = `${BACKEND_URL}/api/roblox/convert/${encodeURIComponent(currentUserId)}/${format}`;
+
+    const response = await fetch(convertUrl, {
+        headers: apiHeaders()
+    });
+
+    if (!response.ok) {
+        const err = await response.json();
+        throw new Error(err.message || t("errorConvertFailed", { message: "Unknown error" }));
+    }
+
+    const blob = await response.blob();
+    const url = URL.createObjectURL(blob);
+
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `${currentUserId}.${format}`;
+
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    setStatus("statusDownloaded");
+}
 
 
 // RESPONSIVE VIEWER
