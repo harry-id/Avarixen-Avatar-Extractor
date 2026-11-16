@@ -72,7 +72,7 @@
         }
 
         main {
-            max-width: 1100px;
+            max-width: 1400px;
             margin: auto;
             padding: 20px;
         }
@@ -130,6 +130,171 @@
             background: #202738;
             border-radius: 14px;
             overflow: hidden;
+        }
+
+        /* Viewer + model explorer sidebar layout */
+        .viewer-layout {
+            display: flex;
+            gap: 12px;
+            align-items: stretch;
+        }
+
+        .viewer-layout #viewer {
+            flex: 1;
+            min-width: 0;
+        }
+
+        #explorer {
+            width: 240px;
+            flex-shrink: 0;
+            background: #191e2b;
+            border: 1px solid #30394d;
+            border-radius: 14px;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        .explorer-header {
+            padding: 12px 14px;
+            border-bottom: 1px solid #30394d;
+            font-size: 13px;
+            font-weight: bold;
+            color: #aab4c8;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .explorer-header .explorer-count {
+            font-weight: normal;
+            color: #6c7a94;
+            font-size: 12px;
+        }
+
+        .explorer-tree {
+            flex: 1;
+            overflow-y: auto;
+            padding: 8px 0;
+            font-size: 13px;
+        }
+
+        .explorer-empty {
+            padding: 20px 14px;
+            color: #6c7a94;
+            text-align: center;
+            font-size: 13px;
+            line-height: 1.6;
+        }
+
+        .explorer-node {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            padding: 5px 12px;
+            cursor: default;
+            white-space: nowrap;
+        }
+
+        .explorer-node:hover {
+            background: #202738;
+        }
+
+        .explorer-node .node-icon {
+            width: 8px;
+            height: 8px;
+            border-radius: 2px;
+            flex-shrink: 0;
+        }
+
+        .explorer-node .node-icon.player {
+            background: #4285f4;
+        }
+
+        .explorer-node .node-icon.handle {
+            background: #a142f4;
+        }
+
+        .explorer-node .node-icon.other {
+            background: #6c7a94;
+        }
+
+        .explorer-node .node-name {
+            flex: 1;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .explorer-node .node-meta {
+            color: #6c7a94;
+            font-size: 11px;
+            flex-shrink: 0;
+        }
+
+        .explorer-section-label {
+            padding: 10px 12px 4px;
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            color: #6c7a94;
+        }
+
+        /* Download options (checkboxes) */
+        .options {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 16px;
+            margin-bottom: 12px;
+            padding: 12px 14px;
+            background: #191e2b;
+            border: 1px solid #30394d;
+            border-radius: 10px;
+        }
+
+        .option-checkbox {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 14px;
+            color: #d0d8e8;
+            cursor: pointer;
+            user-select: none;
+        }
+
+        .option-checkbox input[type="checkbox"] {
+            width: 16px;
+            height: 16px;
+            accent-color: #4285f4;
+            cursor: pointer;
+        }
+
+        .option-checkbox .experimental-badge {
+            font-size: 10px;
+            padding: 2px 6px;
+            border-radius: 4px;
+            background: #3a2a1a;
+            color: #f0a030;
+            font-weight: bold;
+        }
+
+        .option-checkbox .legacy-badge {
+            font-size: 10px;
+            padding: 2px 6px;
+            border-radius: 4px;
+            background: #2a2a2a;
+            color: #999;
+            font-weight: bold;
+        }
+
+        @media (max-width: 900px) {
+            .viewer-layout {
+                flex-direction: column;
+            }
+
+            #explorer {
+                width: 100%;
+                max-height: 200px;
+            }
         }
 
         .status {
@@ -262,10 +427,35 @@
 
     <div id="accountInfo"></div>
 
-    <div id="viewer"></div>
+    <div class="viewer-layout">
+        <div id="viewer"></div>
+        <aside id="explorer">
+            <div class="explorer-header">
+                <span data-i18n="explorerTitle">Model Explorer</span>
+                <span class="explorer-count" id="explorerCount"></span>
+            </div>
+            <div class="explorer-tree" id="explorerTree">
+                <div class="explorer-empty" data-i18n="explorerEmpty">
+                    Load an avatar to see its parts.
+                </div>
+            </div>
+        </aside>
+    </div>
 
     <div class="status" id="status" data-i18n="statusWaiting">
         Masukkan username Roblox untuk memuat pratinjau 3D.
+    </div>
+
+    <div class="options">
+        <label class="option-checkbox">
+            <input type="checkbox" id="separateAssets">
+            <span data-i18n="optionSeparateAssets">Separate assets</span>
+        </label>
+        <label class="option-checkbox">
+            <input type="checkbox" id="autoRig">
+            <span data-i18n="optionAutoRig">Auto-rig (R6/R15)</span>
+            <span class="experimental-badge">Experimental</span>
+        </label>
     </div>
 
     <div class="controls">
@@ -299,7 +489,7 @@
                     Unduh Avatar (GLTF)
                 </button>
                 <button class="dropdown-item" data-format="fbx" data-i18n="downloadFbx">
-                    Unduh Avatar (FBX)
+                    Unduh Avatar (FBX) (Legacy)
                 </button>
             </div>
         </div>
@@ -365,9 +555,18 @@ const LANG = {
         alertZipFailed: "Gagal membuat ZIP: {{message}}",
         downloadGlb: "Unduh Avatar (GLB)",
         downloadGltf: "Unduh Avatar (GLTF)",
-        downloadFbx: "Unduh Avatar (FBX)",
+        downloadFbx: "Unduh Avatar (FBX) (Legacy)",
         errorConvertFailed: "Konversi gagal: {{message}}",
-        statusConverting: "Mengonversi model ke {{format}}..."
+        statusConverting: "Mengonversi model ke {{format}}...",
+        explorerTitle: "Penjelajah Model",
+        explorerEmpty: "Muat avatar untuk melihat bagian-bagiannya.",
+        explorerPlayers: "Player (Tubuh)",
+        explorerHandles: "Handle (Aksesori)",
+        explorerOther: "Lainnya",
+        optionSeparateAssets: "Pisahkan aset",
+        optionAutoRig: "Auto-rig (R6/R15)",
+        statusRigging: "Membuat rig otomatis...",
+        verticesLabel: "vertices"
     },
     en: {
         appTitle: "Avarixen Avatar Extractor",
@@ -407,9 +606,18 @@ const LANG = {
         alertZipFailed: "Failed to create ZIP: {{message}}",
         downloadGlb: "Download Avatar (GLB)",
         downloadGltf: "Download Avatar (GLTF)",
-        downloadFbx: "Download Avatar (FBX)",
+        downloadFbx: "Download Avatar (FBX) (Legacy)",
         errorConvertFailed: "Conversion failed: {{message}}",
-        statusConverting: "Converting model to {{format}}..."
+        statusConverting: "Converting model to {{format}}...",
+        explorerTitle: "Model Explorer",
+        explorerEmpty: "Load an avatar to see its parts.",
+        explorerPlayers: "Player (Body)",
+        explorerHandles: "Handle (Accessories)",
+        explorerOther: "Other",
+        optionSeparateAssets: "Separate assets",
+        optionAutoRig: "Auto-rig (R6/R15)",
+        statusRigging: "Building auto-rig...",
+        verticesLabel: "vertices"
     }
 };
 
@@ -773,6 +981,129 @@ function clearPreview() {
 
     accountInfo.style.display = "none";
 
+    buildExplorer(null);
+
+}
+
+
+// MODEL EXPLORER — parse OBJ groups client-side and render a tree
+
+async function buildExplorer(userId) {
+
+    const treeEl = document.getElementById("explorerTree");
+
+    const countEl = document.getElementById("explorerCount");
+
+    if (!userId) {
+
+        treeEl.innerHTML = `<div class="explorer-empty">${t("explorerEmpty")}</div>`;
+
+        countEl.textContent = "";
+
+        return;
+
+    }
+
+    try {
+
+        const assetPath = `/assets/${encodeURIComponent(userId)}/`;
+
+        const response = await fetch(assetPath + "avatar.obj");
+
+        if (!response.ok) throw new Error("Failed to fetch OBJ");
+
+        const text = await response.text();
+
+        const groups = {};
+
+        let currentGroup = null;
+
+        for (const raw of text.split(/\r?\n/)) {
+
+            const line = raw.trim();
+
+            if (line.startsWith("g ")) {
+
+                currentGroup = line.slice(2).trim() || null;
+
+                if (currentGroup && !groups[currentGroup]) {
+
+                    groups[currentGroup] = { faces: 0, vertices: new Set() };
+
+                }
+
+            } else if (line.startsWith("f ") && currentGroup) {
+
+                groups[currentGroup].faces++;
+
+                const parts = line.split(/\s+/);
+
+                for (let i = 1; i < parts.length; i++) {
+
+                    const v = parts[i].split("/")[0];
+
+                    if (v) groups[currentGroup].vertices.add(parseInt(v, 10));
+
+                }
+
+            }
+
+        }
+
+        const groupNames = Object.keys(groups).filter(n => groups[n].faces > 0);
+
+        const playerGroups = groupNames.filter(n => n.startsWith("Player"));
+
+        const handleGroups = groupNames.filter(n => n.startsWith("Handle"));
+
+        const otherGroups = groupNames.filter(n => !n.startsWith("Player") && !n.startsWith("Handle"));
+
+        countEl.textContent = `${groupNames.length}`;
+
+        let html = "";
+
+        const renderSection = (label, names, cls) => {
+
+            if (!names.length) return;
+
+            html += `<div class="explorer-section-label">${label} (${names.length})</div>`;
+
+            for (const name of names) {
+
+                const g = groups[name];
+
+                html += `<div class="explorer-node" title="${escapeHTML(name)}">`
+
+                    + `<span class="node-icon ${cls}"></span>`
+
+                    + `<span class="node-name">${escapeHTML(name)}</span>`
+
+                    + `<span class="node-meta">${g.vertices.size} v</span>`
+
+                    + `</div>`;
+
+            }
+
+        };
+
+        renderSection(t("explorerPlayers"), playerGroups, "player");
+
+        renderSection(t("explorerHandles"), handleGroups, "handle");
+
+        renderSection(t("explorerOther"), otherGroups, "other");
+
+        treeEl.innerHTML = html || `<div class="explorer-empty">${t("explorerEmpty")}</div>`;
+
+    } catch (e) {
+
+        console.error(e);
+
+        treeEl.innerHTML = `<div class="explorer-empty">${t("explorerEmpty")}</div>`;
+
+        countEl.textContent = "";
+
+    }
+
 }
 
 
@@ -880,6 +1211,8 @@ searchButton.addEventListener(
 
             loadModel(currentUserId);
 
+            buildExplorer(currentUserId);
+
         } catch (error) {
 
             console.error(error);
@@ -966,6 +1299,8 @@ reloadButton.addEventListener(
             setStatus("statusDownloaded");
 
             loadModel(currentUserId, true);
+
+            buildExplorer(currentUserId);
 
         } catch (error) {
 
@@ -1184,36 +1519,57 @@ async function downloadZip() {
 
 async function downloadConverted(format) {
 
-    setStatus("statusConverting", { format: format.toUpperCase() });
+    const rig = document.getElementById("autoRig").checked;
+
+    // "Separate assets" only affects GLB/GLTF; OBJ and FBX are always separate.
+    const separate = document.getElementById("separateAssets").checked
+        && (format === "glb" || format === "gltf");
 
     const convertUrl = `${BACKEND_URL}/api/roblox/convert/${encodeURIComponent(currentUserId)}/${format}`;
 
-    const response = await fetch(convertUrl, {
+    const params = new URLSearchParams();
+    if (rig) params.set("rig", "1");
+    if (separate) params.set("separate", "1");
+    const qs = params.toString();
+    const url = qs ? `${convertUrl}?${qs}` : convertUrl;
+
+    if (rig) {
+        setStatus("statusRigging");
+    } else {
+        setStatus("statusConverting", { format: format.toUpperCase() });
+    }
+
+    const response = await fetch(url, {
         headers: apiHeaders()
     });
 
     if (!response.ok) {
-        const err = await response.json();
+        const err = await response.json().catch(() => ({}));
         throw new Error(err.message || t("errorConvertFailed", { message: "Unknown error" }));
     }
 
+    const contentType = response.headers.get("content-type") || "";
     const blob = await response.blob();
-    const url = URL.createObjectURL(blob);
+    const objUrl = URL.createObjectURL(blob);
 
     const safeName = String(currentDisplayName || "Avarixen").replace(
         /[\\/:*?"<>|]/g,
         "_"
     ).trim().replace(/[. ]+$/g, "") || "Avarixen";
 
+    // Separate mode returns a ZIP instead of a bare model file.
+    let ext = format;
+    if (contentType.includes("zip")) ext = "zip";
+
     const link = document.createElement("a");
-    link.href = url;
-    link.download = `${safeName}_${currentUserId}.${format}`;
+    link.href = objUrl;
+    link.download = `${safeName}_${currentUserId}.${ext}`;
 
     document.body.appendChild(link);
     link.click();
     link.remove();
 
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    setTimeout(() => URL.revokeObjectURL(objUrl), 1000);
     setStatus("statusDownloaded");
 }
 
