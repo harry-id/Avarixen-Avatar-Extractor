@@ -2,7 +2,7 @@
 
 Avarixen Avatar Extractor (AAE) is a web-based Roblox avatar extraction tool that retrieves avatar models, previews them in 3D, and exports them as ZIP files containing OBJ, MTL, and texture files.
 
-## Prerequisites
+## Requirements
 
 - **Node.js 18+** (backend relies on the built-in `fetch` API)
 - npm
@@ -77,7 +77,7 @@ Press `Ctrl+C` to stop both servers.
 
 Open `http://localhost:3001`, enter a Roblox username, and load/export the avatar.
 
-## Internationalization
+## Languanges
 
 The frontend supports **Indonesian (`id`)** and **English (`en`)**:
 
