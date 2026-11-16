@@ -21,6 +21,10 @@ const MESSAGES = {
         "download.timeout": "Permintaan ke Roblox melebihi batas waktu.",
         "download.failed": "Gagal mengunduh aset avatar.",
         "download.success": "Avatar berhasil diunduh.",
+        "convert.invalid_user_id": "User ID tidak valid.",
+        "convert.unsupported": "Format tidak didukung. Gunakan GLB, GLTF, atau FBX.",
+        "convert.no_obj": "File OBJ tidak ditemukan. Unduh avatar terlebih dahulu.",
+        "convert.failed": "Konversi model gagal.",
         "rate_limited": "Terlalu banyak permintaan. Coba lagi nanti."
     },
     en: {
@@ -45,6 +49,10 @@ const MESSAGES = {
         "download.timeout": "Request to Roblox timed out.",
         "download.failed": "Failed to download avatar assets.",
         "download.success": "Avatar downloaded successfully.",
+        "convert.invalid_user_id": "Invalid user ID.",
+        "convert.unsupported": "Unsupported format. Use GLB, GLTF, or FBX.",
+        "convert.no_obj": "OBJ file not found. Download the avatar first.",
+        "convert.failed": "Model conversion failed.",
         "rate_limited": "Too many requests. Try again later."
     }
 };
