@@ -25,6 +25,7 @@ const MESSAGES = {
         "convert.unsupported": "Format tidak didukung. Gunakan GLB, GLTF, atau FBX.",
         "convert.no_obj": "File OBJ tidak ditemukan. Unduh avatar terlebih dahulu.",
         "convert.failed": "Konversi model gagal.",
+        "convert.rig_failed": "Auto-rig gagal: {{message}}",
         "rate_limited": "Terlalu banyak permintaan. Coba lagi nanti."
     },
     en: {
@@ -53,6 +54,7 @@ const MESSAGES = {
         "convert.unsupported": "Unsupported format. Use GLB, GLTF, or FBX.",
         "convert.no_obj": "OBJ file not found. Download the avatar first.",
         "convert.failed": "Model conversion failed.",
+        "convert.rig_failed": "Auto-rig failed: {{message}}",
         "rate_limited": "Too many requests. Try again later."
     }
 };
