@@ -88,20 +88,21 @@ The frontend supports **Indonesian (`id`)** and **English (`en`)**:
 
 ## Model Conversion
 
-The frontend download button includes a dropdown with format options:
+The download control is a split button: clicking the main button downloads OBJ (ZIP) directly, and the adjacent arrow opens a dropdown with the other formats.
 
 | Format | Endpoint | Notes |
 |--------|----------|-------|
 | OBJ (ZIP) | Frontend-side | Bundles OBJ, MTL, and textures into a ZIP |
-| GLB | `GET /api/roblox/convert/:userId/glb` | Binary GLTF, backend-converted via Three.js |
-| GLTF | `GET /api/roblox/convert/:userId/gltf` | JSON GLTF, backend-converted via Three.js |
-| FBX | — | Not supported in pure JavaScript (no maintained FBX exporter) |
+| GLB | `GET /api/roblox/convert/:userId/glb` | Binary GLTF, backend-converted via `obj2gltf` |
+| GLTF | `GET /api/roblox/convert/:userId/gltf` | JSON GLTF, backend-converted via `obj2gltf` |
+| FBX | `GET /api/roblox/convert/:userId/fbx` | ASCII FBX 7.4, written by the built-in exporter (`backend/fbx-exporter.js`) with embedded textures |
 
 The conversion requires the avatar to be downloaded first (so the OBJ/MTL/texture files exist under `downloads/<userId>/`).
 
 ## Notes
 
 - The frontend targets the backend at `http://localhost:3000` for local dev (auto-detected on localhost). For other deployments, set `window.__AAE_BACKEND_URL__` before the app script or serve the API behind the same origin.
-- Downloaded assets are cached under `downloads/<userId>/`.
+- Downloaded assets are cached under `downloads/<userId>/`. The Reload button re-requests the download endpoint and reloads the preview with a cache-busting query, so it always uses fresh files.
+- Roblox avatar metadata is retried up to 5 times (1.5 s apart) when the avatar is not ready yet; authentication errors fail immediately.
 - Do not commit real API keys; keep secrets in `backend/.env`.
 - Rate limiting is in-memory per process (resets on restart). For multi-instance production deployments, use a shared store or gateway/WAF rate limiting.
