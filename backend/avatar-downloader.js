@@ -2,6 +2,7 @@ const fs = require("fs/promises");
 const path = require("path");
 const zlib = require("zlib");
 const { getLang, t } = require("./i18n");
+const { fetchAvatar3D, fetchAvatarMetadataJson } = require("./avatar-metadata");
 
 function decompress(buffer) {
     if (buffer.length >= 2 && buffer[0] === 0x1f && buffer[1] === 0x8b) {
@@ -134,68 +135,52 @@ module.exports = function (app, options = {}) {
                 });
             }
 
-            const avatarResponse = await fetchWithTimeout(
-                `https://thumbnails.roblox.com/v1/users/avatar-3d?userId=${encodeURIComponent(userId)}`,
-                {
-                    headers: {
-                        "x-api-key": apiKey
-                    }
-                }
+            const avatar = await fetchAvatar3D(
+                fetchWithTimeout,
+                apiKey,
+                userId
             );
 
-            if (!avatarResponse.ok) {
+            if (!avatar.ok) {
+                console.error(
+                    "Avatar metadata lookup failed:",
+                    avatar.status,
+                    `after ${avatar.attempts} attempt(s)`
+                );
                 return res.status(502).json({
                     success: false,
                     message: t(lang, "download.upstream_avatar_failed")
                 });
             }
 
-            const avatarResult = await avatarResponse.json();
-
+            const avatarResult = avatar.result;
             // Roblox avatar-3d API returns imageUrl inside data[0]
-            const imageUrl =
-                avatarResult?.data?.[0]?.imageUrl ||
-                avatarResult?.imageUrl;
+            const imageUrl = avatar.imageUrl;
 
-            if (!imageUrl || typeof imageUrl !== "string") {
-                console.error(
-                    "Avatar metadata URL missing. Response keys:",
-                    avatarResult && typeof avatarResult === "object"
-                        ? Object.keys(avatarResult)
-                        : typeof avatarResult,
-                    "data sample:",
-                    avatarResult?.data?.[0] ? Object.keys(avatarResult.data[0]) : "no data"
-                );
-                return res.status(502).json({
-                    success: false,
-                    message: t(lang, "download.metadata_url_missing")
-                });
-            }
-
-            const metadataResponse = await fetchWithTimeout(imageUrl, {}, 20000);
-
-            if (!metadataResponse.ok) {
-                return res.status(502).json({
-                    success: false,
-                    message: t(lang, "download.metadata_failed")
-                });
-            }
-
-            const metadataBuffer = Buffer.from(
-                await metadataResponse.arrayBuffer()
+            const metadataResult = await fetchAvatarMetadataJson(
+                fetchWithTimeout,
+                imageUrl
             );
 
-            let metadata;
-            try {
-                metadata = JSON.parse(
-                    decompress(metadataBuffer).toString("utf8")
+            if (!metadataResult.ok) {
+                console.error(
+                    "Avatar metadata download failed:",
+                    metadataResult.reason,
+                    metadataResult.status,
+                    `after ${metadataResult.attempts} attempt(s)`
                 );
-            } catch {
                 return res.status(502).json({
                     success: false,
-                    message: t(lang, "download.metadata_invalid")
+                    message: t(
+                        lang,
+                        metadataResult.reason === "invalid"
+                            ? "download.metadata_invalid"
+                            : "download.metadata_failed"
+                    )
                 });
             }
+
+            const metadata = metadataResult.metadata;
 
             // Debug: log metadata shape for troubleshooting
             console.log(
