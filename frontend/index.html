@@ -250,8 +250,7 @@
     <form class="search-box" id="searchForm">
         <input
             type="text"
-            id="usernameInput"
-            data-i18n-placeholder="usernamePlaceholder"
+            id="searchInput"
             placeholder="Masukkan username Roblox..."
             autocomplete="off"
         >
@@ -448,6 +447,11 @@ function setLang(lang) {
         el.title = t(el.dataset.i18nTitle);
     });
 
+    const searchInputEl = document.getElementById("searchInput");
+    if (searchInputEl) {
+        searchInputEl.placeholder = t("usernamePlaceholder");
+    }
+
     const sel = document.getElementById("langSelector");
     if (sel) {
         sel.value = lang;
@@ -491,8 +495,8 @@ const BACKEND_URL =
 const viewer = document.getElementById("viewer");
 const status = document.getElementById("status");
 
-const usernameInput =
-    document.getElementById("usernameInput");
+const searchInput =
+    document.getElementById("searchInput");
 
 const searchForm =
     document.getElementById("searchForm");
@@ -741,13 +745,44 @@ function loadModel(userId = null, bustCache = false) {
 }
 
 
+// MEMBERSIHKAN PRATINJAU 3D SAAT PENCARIAN BARU DIMULAI
+
+function clearPreview() {
+
+    if (currentModel) {
+
+        scene.remove(currentModel);
+
+        currentModel = null;
+
+    }
+
+    // Reset kamera ke posisi awal agar tidak menampilkan model lama.
+
+    camera.position.set(0, 0, 12);
+
+    camera.lookAt(0, 0, 0);
+
+    controls.target.set(0, 0, 0);
+
+    controls.update();
+
+    renderer.render(scene, camera);
+
+    currentUserId = null;
+
+    accountInfo.style.display = "none";
+
+}
+
+
 // PENCARIAN USERNAME ROBLOX
 
 searchButton.addEventListener(
     "click",
     async () => {
 
-        const username = usernameInput.value.trim();
+        const username = searchInput.value.trim();
 
         if (!username) {
 
@@ -756,6 +791,8 @@ searchButton.addEventListener(
             return;
 
         }
+
+        clearPreview();
 
         searchButton.disabled = true;
 
