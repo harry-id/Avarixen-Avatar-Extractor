@@ -86,6 +86,19 @@ The frontend supports **Indonesian (`id`)** and **English (`en`)**:
 - Defaults to the browser language (Indonesian if `id`, otherwise English).
 - Backend API error messages also honor the `Accept-Language` header, so they match the selected frontend language.
 
+## Model Conversion
+
+The frontend download button includes a dropdown with format options:
+
+| Format | Endpoint | Notes |
+|--------|----------|-------|
+| OBJ (ZIP) | Frontend-side | Bundles OBJ, MTL, and textures into a ZIP |
+| GLB | `GET /api/roblox/convert/:userId/glb` | Binary GLTF, backend-converted via Three.js |
+| GLTF | `GET /api/roblox/convert/:userId/gltf` | JSON GLTF, backend-converted via Three.js |
+| FBX | — | Not supported in pure JavaScript (no maintained FBX exporter) |
+
+The conversion requires the avatar to be downloaded first (so the OBJ/MTL/texture files exist under `downloads/<userId>/`).
+
 ## Notes
 
 - The frontend targets the backend at `http://localhost:3000` for local dev (auto-detected on localhost). For other deployments, set `window.__AAE_BACKEND_URL__` before the app script or serve the API behind the same origin.
