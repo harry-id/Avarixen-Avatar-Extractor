@@ -71,6 +71,37 @@
             outline: none;
         }
 
+        .api-status {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 12px;
+            color: #aab4c8;
+            padding: 4px 10px;
+            background: #191e2b;
+            border: 1px solid #30394d;
+            border-radius: 6px;
+            white-space: nowrap;
+        }
+
+        .api-status .api-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: #4caf50;
+            flex-shrink: 0;
+            box-shadow: 0 0 4px rgba(76, 175, 80, 0.6);
+        }
+
+        .api-status.offline .api-dot {
+            background: #f44336;
+            box-shadow: 0 0 4px rgba(244, 67, 54, 0.6);
+        }
+
+        .api-status.offline {
+            color: #f44336;
+        }
+
         main {
             max-width: 1400px;
             margin: auto;
@@ -490,6 +521,10 @@
             <option value="id">Indonesia</option>
             <option value="en">English</option>
         </select>
+        <div class="api-status" id="apiStatus" title="Backend API status">
+            <span class="api-dot"></span>
+            <span id="apiStatusText">API Online</span>
+        </div>
     </div>
 </header>
 
@@ -670,7 +705,10 @@ const LANG = {
         optionSeparateAssets: "Pisahkan aset",
         optionAutoRig: "Auto-rig (R6/R15)",
         statusRigging: "Membuat rig otomatis...",
-        verticesLabel: "vertices"
+        verticesLabel: "vertices",
+        apiOnline: "API Online",
+        apiOffline: "API Offline",
+        apiChecking: "Checking..."
     },
     en: {
         appTitle: "Avarixen Avatar Extractor",
@@ -721,7 +759,10 @@ const LANG = {
         optionSeparateAssets: "Separate assets",
         optionAutoRig: "Auto-rig (R6/R15)",
         statusRigging: "Building auto-rig...",
-        verticesLabel: "vertices"
+        verticesLabel: "vertices",
+        apiOnline: "API Online",
+        apiOffline: "API Offline",
+        apiChecking: "Checking..."
     }
 };
 
@@ -773,6 +814,10 @@ function setLang(lang) {
     if (currentStatusKey) {
         status.textContent = t(currentStatusKey, currentStatusParams || {});
     }
+
+    if (apiStatusState) {
+        renderApiStatus(apiStatusState);
+    }
 }
 
 let currentStatusKey = null;
@@ -802,6 +847,32 @@ const BACKEND_URL =
     (location.port === "3001" || location.port === "5173"
         ? `${location.protocol}//${location.hostname}:3000`
         : "");
+
+
+// API status indicator in the header (green = online, red = offline).
+
+const apiStatusEl = document.getElementById("apiStatus");
+const apiStatusText = document.getElementById("apiStatusText");
+let apiStatusState = null;
+
+function renderApiStatus(state) {
+    apiStatusState = state;
+    apiStatusEl.classList.toggle("offline", state === "offline");
+    apiStatusText.textContent =
+        state === "online" ? t("apiOnline")
+            : state === "offline" ? t("apiOffline")
+                : t("apiChecking");
+}
+
+async function checkApiStatus() {
+    try {
+        const resp = await fetch(`${BACKEND_URL}/`, { cache: "no-store" });
+        if (!resp.ok) throw new Error("bad status");
+        renderApiStatus("online");
+    } catch {
+        renderApiStatus("offline");
+    }
+}
 
 
 const viewer = document.getElementById("viewer");
@@ -1793,6 +1864,11 @@ animate();
 
 
 setLang(currentLang);
+
+// Check the backend API status on load, then every 30s.
+renderApiStatus("checking");
+checkApiStatus();
+setInterval(checkApiStatus, 30000);
 
 </script>
 
