@@ -149,16 +149,23 @@
             display: inline-block;
         }
 
-        .dropdown button {
-            min-width: 150px;
-            justify-content: space-between;
+        .split-button {
             display: flex;
-            align-items: center;
         }
 
-        .dropdown .arrow {
-            margin-left: 8px;
+        .split-button #downloadButton {
+            min-width: 140px;
+            border-top-right-radius: 0;
+            border-bottom-right-radius: 0;
+        }
+
+        .split-button .arrow-button {
+            padding: 12px 14px;
             font-size: 12px;
+            line-height: 1;
+            border-top-left-radius: 0;
+            border-bottom-left-radius: 0;
+            border-left: 1px solid rgba(255, 255, 255, 0.35);
         }
 
         .dropdown-content {
@@ -240,7 +247,7 @@
 
 <main>
 
-    <div class="search-box">
+    <form class="search-box" id="searchForm">
         <input
             type="text"
             id="usernameInput"
@@ -249,10 +256,10 @@
             autocomplete="off"
         >
 
-        <button id="searchButton" data-i18n="searchButton">
+        <button type="submit" id="searchButton" data-i18n="searchButton">
             Cari Avatar
         </button>
-    </div>
+    </form>
 
     <div id="accountInfo"></div>
 
@@ -268,13 +275,23 @@
         </button>
 
         <div class="dropdown">
-            <button id="downloadButton" data-i18n="downloadButton">
-                Unduh Avatar
-                <span class="arrow">▼</span>
-            </button>
+            <div class="split-button">
+                <button id="downloadButton" data-i18n="downloadObj">
+                    Unduh OBJ
+                </button>
+                <button
+                    type="button"
+                    id="downloadToggle"
+                    class="arrow-button"
+                    data-i18n-title="downloadFormatLabel"
+                    title="Pilih format unduhan"
+                    aria-haspopup="true"
+                    aria-expanded="false"
+                >▼</button>
+            </div>
             <div id="downloadDropdown" class="dropdown-content">
-                <button class="dropdown-item" data-format="zip" data-i18n="downloadZip">
-                    Unduh Avatar (ZIP)
+                <button class="dropdown-item" data-format="obj" data-i18n="downloadObjOption">
+                    OBJ + MTL + Tekstur
                 </button>
                 <button class="dropdown-item" data-format="glb" data-i18n="downloadGlb">
                     Unduh Avatar (GLB)
@@ -340,16 +357,16 @@ const LANG = {
         errorOccurred: "Terjadi kesalahan: {{message}}",
         reloadButton: "Muat Ulang Model",
         reloadNoAvatar: "Cari avatar Roblox terlebih dahulu untuk memuat pratinjau.",
-        downloadButton: "Unduh Avatar (ZIP)",
+        downloadObj: "Unduh OBJ",
+        downloadObjOption: "OBJ + MTL + Tekstur",
+        downloadFormatLabel: "Pilih format unduhan",
         downloadCreating: "Membuat ZIP...",
         errorNoAvatarZip: "Cari avatar Roblox terlebih dahulu.",
         errorZipFetch: "Gagal mengambil {{file}}",
         alertZipFailed: "Gagal membuat ZIP: {{message}}",
-        btnDownloadZipFinal: "Unduh Avatar (ZIP)",
         downloadGlb: "Unduh Avatar (GLB)",
         downloadGltf: "Unduh Avatar (GLTF)",
         downloadFbx: "Unduh Avatar (FBX)",
-        errorFbxNotSupported: "Ekspor FBX tidak didukung di JavaScript murni. Gunakan GLB, GLTF, atau OBJ.",
         errorConvertFailed: "Konversi gagal: {{message}}",
         statusConverting: "Mengonversi model ke {{format}}..."
     },
@@ -382,16 +399,16 @@ const LANG = {
         errorOccurred: "An error occurred: {{message}}",
         reloadButton: "Reload Model",
         reloadNoAvatar: "Please search for a Roblox avatar first to load preview.",
-        downloadButton: "Download Avatar (ZIP)",
+        downloadObj: "Download OBJ",
+        downloadObjOption: "OBJ + MTL + Textures",
+        downloadFormatLabel: "Choose download format",
         downloadCreating: "Creating ZIP...",
         errorNoAvatarZip: "Please search for a Roblox avatar first.",
         errorZipFetch: "Failed to fetch {{file}}",
         alertZipFailed: "Failed to create ZIP: {{message}}",
-        btnDownloadZipFinal: "Download Avatar (ZIP)",
         downloadGlb: "Download Avatar (GLB)",
         downloadGltf: "Download Avatar (GLTF)",
         downloadFbx: "Download Avatar (FBX)",
-        errorFbxNotSupported: "FBX export is not supported in pure JavaScript. Use GLB, GLTF, or OBJ instead.",
         errorConvertFailed: "Conversion failed: {{message}}",
         statusConverting: "Converting model to {{format}}..."
     }
@@ -425,6 +442,10 @@ function setLang(lang) {
 
     document.querySelectorAll("[data-i18n-placeholder]").forEach((el) => {
         el.placeholder = t(el.dataset.i18nPlaceholder);
+    });
+
+    document.querySelectorAll("[data-i18n-title]").forEach((el) => {
+        el.title = t(el.dataset.i18nTitle);
     });
 
     const sel = document.getElementById("langSelector");
@@ -473,6 +494,9 @@ const status = document.getElementById("status");
 const usernameInput =
     document.getElementById("usernameInput");
 
+const searchForm =
+    document.getElementById("searchForm");
+
 const searchButton =
     document.getElementById("searchButton");
 
@@ -481,6 +505,9 @@ const accountInfo =
 
 const downloadButton =
     document.getElementById("downloadButton");
+
+const downloadToggle =
+    document.getElementById("downloadToggle");
 
 const downloadDropdown =
     document.getElementById("downloadDropdown");
@@ -564,7 +591,9 @@ let currentDisplayName = null;
 
 // MEMUAT MODEL LOKAL ATAU AVATAR HASIL PENCARIAN
 
-function loadModel(userId = null) {
+function loadModel(userId = null, bustCache = false) {
+
+    const cacheBust = bustCache ? `?v=${Date.now()}` : "";
 
     const assetPath = userId
         ? `/assets/${encodeURIComponent(userId)}/`
@@ -577,7 +606,7 @@ function loadModel(userId = null) {
     mtlLoader.setPath(assetPath);
 
     mtlLoader.load(
-        "avatar.mtl",
+        "avatar.mtl" + cacheBust,
 
         materials => {
 
@@ -638,7 +667,7 @@ function loadModel(userId = null) {
             setStatus("statusLoadingModel");
 
             objLoader.load(
-                "avatar.obj",
+                "avatar.obj" + cacheBust,
 
                 object => {
 
@@ -832,6 +861,18 @@ searchButton.addEventListener(
 );
 
 
+// ENTER DI INPUT USERNAME = KLIK TOMBOL CARI
+
+searchForm.addEventListener("submit", (event) => {
+
+    event.preventDefault();
+
+    // Reuse the existing click handler; a disabled button ignores click().
+    searchButton.click();
+
+});
+
+
 // MENCEGAH HTML DARI USERNAME
 
 function escapeHTML(value) {
@@ -854,71 +895,154 @@ function escapeHTML(value) {
 
 reloadButton.addEventListener(
     "click",
-    () => {
+    async () => {
 
         if (!currentUserId) {
             setStatus("reloadNoAvatar");
             return;
         }
 
-        loadModel(currentUserId);
+        reloadButton.disabled = true;
+
+        try {
+
+            setStatus("statusDownloadAssets");
+
+            // Always re-download from the endpoint so the preview is fresh,
+            // instead of reusing files already cached in downloads/.
+            const response = await fetch(
+                BACKEND_URL +
+                "/api/roblox/download/" +
+                encodeURIComponent(currentUserId),
+                { headers: apiHeaders() }
+            );
+
+            const result = await response.json();
+
+            if (!response.ok || !result.success) {
+                throw new Error(
+                    result.message ||
+                    t("errorDownloadAssets")
+                );
+            }
+
+            setStatus("statusDownloaded");
+
+            loadModel(currentUserId, true);
+
+        } catch (error) {
+
+            console.error(error);
+
+            setStatus("errorOccurred", { message: error.message });
+
+        } finally {
+
+            reloadButton.disabled = false;
+
+        }
 
     }
 );
 
 
-// DROPDOWN TOGGLE
+// FORMAT DROPDOWN (ARROW)
 
-downloadButton.addEventListener("click", (e) => {
-    e.stopPropagation();
-    downloadDropdown.classList.toggle("show");
-});
+function closeDropdown() {
 
-document.addEventListener("click", () => {
     downloadDropdown.classList.remove("show");
+    downloadToggle.setAttribute("aria-expanded", "false");
+
+}
+
+downloadToggle.addEventListener("click", (event) => {
+
+    event.stopPropagation();
+
+    const open = downloadDropdown.classList.toggle("show");
+
+    downloadToggle.setAttribute("aria-expanded", open ? "true" : "false");
+
 });
 
-// DOWNLOAD / CONVERT
+document.addEventListener("click", closeDropdown);
+
+// TOMBOL UTAMA: UNDUH OBJ SEKALI KLIK
 
 downloadButton.addEventListener("click", async () => {
-    // Handled by dropdown items below
+
+    if (!currentUserId) {
+
+        alert(t("errorNoAvatarZip"));
+        return;
+
+    }
+
+    downloadButton.disabled = true;
+    downloadToggle.disabled = true;
+
+    try {
+
+        await downloadZip();
+
+    } catch (error) {
+
+        alert(t("alertZipFailed", { message: error.message }));
+
+    } finally {
+
+        downloadButton.disabled = false;
+        downloadToggle.disabled = false;
+        downloadButton.textContent = t("downloadObj");
+
+    }
+
 });
 
+// ITEM DROPDOWN: FORMAT LAIN
+
 dropdownItems.forEach((item) => {
-    item.addEventListener("click", async (e) => {
-        e.stopPropagation();
+
+    item.addEventListener("click", async (event) => {
+
+        event.stopPropagation();
 
         const format = item.dataset.format;
 
-        if (format === "fbx") {
-            alert(t("errorFbxNotSupported"));
-            downloadDropdown.classList.remove("show");
-            return;
-        }
+        closeDropdown();
 
         if (!currentUserId) {
+
             alert(t("errorNoAvatarZip"));
-            downloadDropdown.classList.remove("show");
             return;
+
         }
 
         downloadButton.disabled = true;
-        downloadDropdown.classList.remove("show");
+        downloadToggle.disabled = true;
 
         try {
 
-            if (format === "zip") {
+            if (format === "obj") {
                 await downloadZip();
-            } else if (format === "glb" || format === "gltf") {
+            } else {
                 await downloadConverted(format);
             }
 
         } catch (error) {
+
             alert(t("errorConvertFailed", { message: error.message }));
+
         } finally {
+
             downloadButton.disabled = false;
+            downloadToggle.disabled = false;
+            downloadButton.textContent = t("downloadObj");
+
         }
+
     });
+
 });
 
 async function downloadZip() {
@@ -1018,7 +1142,7 @@ async function downloadZip() {
         1000
     );
 
-    downloadButton.textContent = t("btnDownloadZipFinal");
+    downloadButton.textContent = t("downloadObj");
 }
 
 async function downloadConverted(format) {
