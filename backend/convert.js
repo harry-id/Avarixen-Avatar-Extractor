@@ -6,7 +6,7 @@ const { NodeIO } = require("@gltf-transform/core");
 const JSZip = require("jszip");
 const { getLang, t } = require("./i18n");
 const { buildFbx } = require("./fbx-exporter");
-const { convertAvatar } = require("./auto-rig");
+const { convertAvatar, getPartInfo } = require("./auto-rig");
 
 const SUPPORTED_FORMATS = ["glb", "gltf", "fbx"];
 
@@ -101,6 +101,45 @@ async function writeGltfEmbedded(doc) {
 }
 
 module.exports = function (app) {
+    // Lightweight part-mapping lookup for the model explorer sidebar.
+    app.get("/api/roblox/parts/:userId", async (req, res) => {
+        const lang = getLang(req);
+        const { userId } = req.params;
+
+        if (!/^\d+$/.test(userId)) {
+            return res.status(400).json({
+                success: false,
+                message: t(lang, "convert.invalid_user_id")
+            });
+        }
+
+        const assetDir = path.join(__dirname, "../downloads", userId);
+
+        try {
+            await fs.access(path.join(assetDir, "avatar.obj"));
+        } catch {
+            return res.status(404).json({
+                success: false,
+                message: t(lang, "convert.no_obj")
+            });
+        }
+
+        try {
+            const info = getPartInfo(assetDir);
+            res.json({
+                success: true,
+                rigType: info.rigType,
+                groups: info.groups
+            });
+        } catch (err) {
+            console.error("Part info error:", err);
+            res.status(500).json({
+                success: false,
+                message: t(lang, "convert.failed")
+            });
+        }
+    });
+
     app.get("/api/roblox/convert/:userId/:format", async (req, res) => {
         const lang = getLang(req);
         const { userId } = req.params;

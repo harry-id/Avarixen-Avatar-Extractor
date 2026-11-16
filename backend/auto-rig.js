@@ -872,8 +872,74 @@ async function convertAvatar(assetDir, { rig = false } = {}) {
     };
 }
 
+/**
+ * Lightweight part-mapping lookup (no GLB build).
+ * Parses the OBJ, computes boxes, detects rig type, and matches body parts.
+ * Returns group names, vertex counts, and their mapped body-part names.
+ *
+ * @param {string} assetDir
+ * @returns {{ rigType: string|null, groups: Array<{name, vertices, faces, type, part}> }}
+ */
+function getPartInfo(assetDir) {
+    const objPath = path.join(assetDir, "avatar.obj");
+    if (!fs.existsSync(objPath)) {
+        throw new Error("avatar.obj not found in " + assetDir);
+    }
+
+    const parsed = parseObj(objPath);
+
+    const boxes = {};
+    for (const g of parsed.groups) {
+        boxes[g.name] = computeBox(g.vertexIndices, parsed.positions);
+    }
+
+    const playerGroups = parsed.groups.filter(g => g.name.startsWith("Player"));
+    const handleGroups = parsed.groups.filter(g => g.name.startsWith("Handle"));
+    const rigType = detectRigType(playerGroups.length);
+
+    let partMapping = {};
+    let handleBoneMap = {};
+
+    if (rigType) {
+        partMapping = matchBodyParts(playerGroups, boxes);
+        const playerBoxes = {};
+        for (const [part, gname] of Object.entries(partMapping)) {
+            playerBoxes[part] = boxes[gname];
+        }
+        for (const hg of handleGroups) {
+            handleBoneMap[hg.name] = assignHandleBone(hg, playerBoxes, parsed.positions);
+        }
+    }
+
+    const groupToPart = {};
+    for (const [part, gname] of Object.entries(partMapping)) {
+        groupToPart[gname] = part;
+    }
+
+    const groups = parsed.groups
+        .filter(g => g.faceCount > 0)
+        .map(g => {
+            const type = g.name.startsWith("Player")
+                ? "player"
+                : g.name.startsWith("Handle")
+                    ? "handle"
+                    : "other";
+            const part = groupToPart[g.name] || handleBoneMap[g.name] || null;
+            return {
+                name: g.name,
+                vertices: g.vertexIndices.length,
+                faces: g.faceCount,
+                type,
+                part
+            };
+        });
+
+    return { rigType, groups };
+}
+
 module.exports = {
     convertAvatar,
+    getPartInfo,
     parseObj,
     parseMtl,
     computeBox,
