@@ -1,37 +1,12 @@
 "use strict";
 
-/**
- * Avatar converter with optional auto-rigging.
- *
- * Ports the standalone tools/auto-rig/rig.js prototype into a reusable module
- * with every fix applied during development:
- *   - UV V-flip for glTF convention (OBJ bottom-left -> glTF top-left)
- *   - Position+UV deduplication (merges duplicate vertices, shrinks file size)
- *   - Uint8 vertex colors (prevents dark tint that would multiply the texture)
- *   - White baseColorFactor when a texture exists (texture shows unmodified)
- *   - Feet recentered to y=0, x/z centered on the body
- *
- * When `rig` is true, additionally:
- *   - Detects R6 (6 Player groups) or R15 (15 Player groups)
- *   - Matches Player groups to body parts by POSITION (never group number)
- *   - Computes joints at articulation points (shoulders, hips, neck)
- *   - Assigns rigid 100%-to-one-bone weights
- *   - Builds a glTF skin (joints, inverseBindMatrices, JOINTS_0, WEIGHTS_0)
- *
- * Interface:
- *   convertAvatar(assetDir, { rig }) -> {
- *     doc, rigType, jointNames, partMapping, groups, boxes,
- *     positions, normals, uvs, vertexColors, faces, mtl
- *   }
- */
+// Avatar converter with optional R6/R15 auto-rigging. Applies the fixes from
+// the standalone prototype: UV V-flip for glTF, position+UV dedup, Uint8
+// vertex colors, white baseColorFactor when textured, and feet recentered to y=0.
 
 const fs = require("fs");
 const path = require("path");
 const { Document, Accessor } = require("@gltf-transform/core");
-
-// ---------------------------------------------------------------------------
-// OBJ / MTL parsing
-// ---------------------------------------------------------------------------
 
 function parseMtl(mtlPath) {
     const materials = {};
@@ -62,11 +37,11 @@ function parseMtl(mtlPath) {
 }
 
 function parseObj(objPath) {
-    const positions = [];    // flat [x,y,z, x,y,z, ...]
-    const normals = [];      // flat [x,y,z, ...]
-    const uvs = [];          // flat [u,v, ...]
-    const vertexColors = []; // flat [r,g,b,a, ...] (0-1)
-    const faces = [];        // [{verts:[], norms:[], uvs:[], material: name}]
+    const positions = [];
+    const normals = [];
+    const uvs = [];
+    const vertexColors = [];
+    const faces = [];
 
     let currentMaterial = "default";
 
@@ -100,7 +75,6 @@ function parseObj(objPath) {
                 uvIdx.push(t ? +t - 1 : -1);
                 normIdx.push(n ? +n - 1 : -1);
             }
-            // Triangulate fan
             for (let i = 1; i < vertIdx.length - 1; i++) {
                 faces.push({
                     verts: [vertIdx[0], vertIdx[i], vertIdx[i + 1]],
@@ -112,8 +86,7 @@ function parseObj(objPath) {
         }
     }
 
-    // Build groups: parse `g` lines in order and assign faces to groups
-    const groupFaces = {}; // groupName -> array of face indices
+    const groupFaces = {};
     let activeGroup = null;
     let faceCounter = 0;
 
@@ -182,34 +155,24 @@ function computeBox(vertexIndices, positions) {
     };
 }
 
-// ---------------------------------------------------------------------------
-// Rig type detection
-// ---------------------------------------------------------------------------
-
 function detectRigType(playerCount) {
     if (playerCount === 6) return "R6";
     if (playerCount === 15) return "R15";
     return null;
 }
 
-// ---------------------------------------------------------------------------
-// Body part matching by position
-// ---------------------------------------------------------------------------
-
 function matchBodyParts(playerGroups, boxes) {
-    /**
-     * Match Player groups to body parts by POSITION, never by group number.
-     */
+    // Match Player groups to body parts by POSITION, never by group number.
     const parts = {};
     const remaining = [...playerGroups];
     const isR15 = playerGroups.length === 15;
 
-    // ---- Head: highest box ----
+    // Head = highest box
     remaining.sort((a, b) => boxes[b.name].cy - boxes[a.name].cy);
     const headGroup = remaining.shift();
     parts.Head = headGroup.name;
 
-    // ---- Torso: |cx| small, sorted by cy descending ----
+    // Torso = groups near center, highest first
     const torsoCandidates = remaining.filter(g => Math.abs(boxes[g.name].cx) < 0.7);
     torsoCandidates.sort((a, b) => boxes[b.name].cy - boxes[a.name].cy);
 
@@ -230,8 +193,6 @@ function matchBodyParts(playerGroups, boxes) {
 
     const torsoSet = new Set(torsoNames);
     const limbs = remaining.filter(g => !torsoSet.has(g.name));
-
-    // ---- Split limbs into arms vs legs by |cx| ----
     const armCandidates = limbs.filter(g => Math.abs(boxes[g.name].cx) > 1.0);
     const legCandidates = limbs.filter(g => Math.abs(boxes[g.name].cx) <= 1.0);
 
@@ -271,10 +232,6 @@ function matchBodyParts(playerGroups, boxes) {
     return result;
 }
 
-// ---------------------------------------------------------------------------
-// Recentering
-// ---------------------------------------------------------------------------
-
 function computeRecenter(boxes, partMapping) {
     const allX = [];
     const allZ = [];
@@ -293,10 +250,6 @@ function computeRecenter(boxes, partMapping) {
 
     return { offsetX, offsetY, offsetZ };
 }
-
-// ---------------------------------------------------------------------------
-// Joint computation
-// ---------------------------------------------------------------------------
 
 function computeJoints(partMapping, boxes, offsetX, offsetY, offsetZ, rigType) {
     const J = {};
@@ -326,8 +279,6 @@ function computeJoints(partMapping, boxes, offsetX, offsetY, offsetZ, rigType) {
             case 'right': return rightCenter(box);
         }
     };
-
-    // ---- Root joint ----
     const upperTorsoBox = boxes[partMapping.UpperTorso];
     const lowerTorsoBox = boxes[partMapping.LowerTorso];
     const r6TorsoBox = boxes[partMapping.Torso];
@@ -338,16 +289,12 @@ function computeJoints(partMapping, boxes, offsetX, offsetY, offsetZ, rigType) {
     const rootY = lowerTorsoBox ? lowerTorsoBox.ymin : (r6TorsoBox ? r6TorsoBox.ymin : (headBox ? headBox.ymin : 0));
     const rootName = rigType === "R6" ? "HumanoidRootPart" : "Root";
     J[rootName] = sub([rootX, rootY, rootZ]);
-
-    // ---- Torso joints ----
     if (rigType === "R6") {
         if (partMapping.Torso) J.Torso = sub(center(get("Torso")));
     } else {
         if (partMapping.UpperTorso) J.UpperTorso = sub(center(get("UpperTorso")));
         if (partMapping.LowerTorso) J.LowerTorso = sub(center(get("LowerTorso")));
     }
-
-    // ---- Head + Neck ----
     if (partMapping.Head) {
         J.Head = sub(center(get("Head")));
         const torsoForNeck = upperTorsoBox || r6TorsoBox || lowerTorsoBox;
@@ -355,8 +302,6 @@ function computeJoints(partMapping, boxes, offsetX, offsetY, offsetZ, rigType) {
             J.Neck = sub([headBox.cx, headBox.ymin, headBox.cz]);
         }
     }
-
-    // ---- Limb joints ----
     const limbChains = [
         ["LeftUpperArm", "LeftLowerArm", "LeftHand", "Left Arm"],
         ["RightUpperArm", "RightLowerArm", "RightHand", "Right Arm"],
@@ -398,10 +343,6 @@ function computeJoints(partMapping, boxes, offsetX, offsetY, offsetZ, rigType) {
     return J;
 }
 
-// ---------------------------------------------------------------------------
-// Weight assignment
-// ---------------------------------------------------------------------------
-
 function nearestPlayerPart(vertex, playerBoxes) {
     let bestName = null;
     let bestDist = Infinity;
@@ -440,10 +381,6 @@ function assignHandleBone(handleGroup, playerBoxes, positions) {
     return bestPart;
 }
 
-// ---------------------------------------------------------------------------
-// GLB building
-// ---------------------------------------------------------------------------
-
 function createAccessor(doc, buffer, array, typeStr, componentType, normalized = false) {
     const acc = doc.createAccessor();
     acc.setType(typeStr);
@@ -462,8 +399,6 @@ function buildDocument(parsed, partMapping, joints, offsetX, offsetY, offsetZ, r
     const root = doc.getRoot();
     const scene = doc.createScene("Scene");
     const buffer = doc.createBuffer();
-
-    // ---- Materials ----
     const materialMap = {};
     for (const g of groups) {
         const matName = g.material;
@@ -488,8 +423,6 @@ function buildDocument(parsed, partMapping, joints, offsetX, offsetY, offsetZ, r
         }
         materialMap[matName] = mat;
     }
-
-    // ---- Joint nodes ----
     const jointNodeMap = {};
     const jointNames = rigged ? Object.keys(joints) : [];
     const rootName = rigType === "R6" ? "HumanoidRootPart" : "Root";
@@ -549,13 +482,11 @@ function buildDocument(parsed, partMapping, joints, offsetX, offsetY, offsetZ, r
         scene.addChild(rootNode);
     }
 
-    // Invert partMapping: groupName -> partName (bone name)
     const groupToPart = {};
     for (const [part, gname] of Object.entries(partMapping)) {
         groupToPart[gname] = part;
     }
 
-    // Hierarchy
     if (rigged && rigType === "R6") {
         const torsoNode = jointNodeMap["Torso"];
         if (torsoNode) rootNode.addChild(torsoNode);
@@ -595,8 +526,6 @@ function buildDocument(parsed, partMapping, joints, offsetX, offsetY, offsetZ, r
             if (ll && f) ll.addChild(f);
         }
     }
-
-    // ---- Meshes ----
     const boneNameToIdx = {};
     jointNames.forEach((name, i) => { boneNameToIdx[name] = i; });
 
@@ -719,7 +648,6 @@ function buildDocument(parsed, partMapping, joints, offsetX, offsetY, offsetZ, r
         globalIndexOffset += groupLocalPos.length / 3;
     }
 
-    // Create single merged mesh
     const mesh = doc.createMesh("character_mesh");
 
     // Convert float colors (0-1) to Uint8 (0-255) for UNSIGNED_BYTE normalized accessor.
@@ -735,7 +663,7 @@ function buildDocument(parsed, partMapping, joints, offsetX, offsetY, offsetZ, r
         for (const p of matPrims) primIndices.push(...p.indices);
 
         const prim = doc.createPrimitive()
-            .setMode(4) // TRIANGLES
+            .setMode(4)
             .setAttribute("POSITION", createAccessor(doc, buffer, new Float32Array(allPos), "VEC3", Accessor.ComponentType.FLOAT))
             .setAttribute("NORMAL", createAccessor(doc, buffer, new Float32Array(allNor), "VEC3", Accessor.ComponentType.FLOAT))
             .setAttribute("TEXCOORD_0", createAccessor(doc, buffer, new Float32Array(allUv), "VEC2", Accessor.ComponentType.FLOAT))
@@ -755,8 +683,6 @@ function buildDocument(parsed, partMapping, joints, offsetX, offsetY, offsetZ, r
     const meshNode = doc.createNode("character_mesh");
     meshNode.setMesh(mesh);
     scene.addChild(meshNode);
-
-    // ---- Skin ----
     if (rigged) {
         const skin = doc.createSkin("skin");
         for (const jname of jointNames) {
@@ -779,10 +705,6 @@ function buildDocument(parsed, partMapping, joints, offsetX, offsetY, offsetZ, r
 
     return { doc, root, scene, buffer };
 }
-
-// ---------------------------------------------------------------------------
-// Main conversion
-// ---------------------------------------------------------------------------
 
 /**
  * Convert a downloaded avatar (OBJ + MTL + textures) into a glTF document.
@@ -809,7 +731,6 @@ async function convertAvatar(assetDir, { rig = false } = {}) {
     let handleBoneMap = {};
     let offsetX = 0, offsetY = 0, offsetZ = 0;
 
-    // Compute boxes for all groups (needed for both rigged and non-rigged recentering)
     const boxes = {};
     for (const g of parsed.groups) {
         boxes[g.name] = computeBox(g.vertexIndices, parsed.positions);
@@ -842,7 +763,7 @@ async function convertAvatar(assetDir, { rig = false } = {}) {
             handleBoneMap[hg.name] = assignHandleBone(hg, playerBoxes, parsed.positions);
         }
     } else {
-        // Non-rigged: recenter on the whole model so feet sit at y=0 and x/z are centered.
+        // Non-rigged: recenter so feet sit at y=0
         const allVerts = [];
         for (const g of parsed.groups) {
             for (const vi of g.vertexIndices) allVerts.push(vi);

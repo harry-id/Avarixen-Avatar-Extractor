@@ -587,14 +587,14 @@
                 <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/>
             </svg>
             Avarixen/Avarixen-Avatar-Extractor
-            <span class="footer-tag">(Original)</span>
+            <span class="footer-tag">Original</span>
         </a>
         <a href="https://github.com/harry-id/Avarixen-Avatar-Extractor" target="_blank" rel="noopener noreferrer">
             <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
                 <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/>
             </svg>
             harry-id/Avarixen-Avatar-Extractor
-            <span class="footer-tag">(Fork - Current)</span>
+            <span class="footer-tag">Fork (Current)</span>
         </a>
     </div>
     <p class="copyright">
@@ -619,7 +619,6 @@ import { OBJLoader } from
     "https://cdn.jsdelivr.net/npm/three@0.180.0/examples/jsm/loaders/OBJLoader.js";
 
 
-// ---------------- i18n (Indonesia & English) ----------------
 
 const LANG = {
     id: {
@@ -906,7 +905,6 @@ let currentUserId = null;
 let currentDisplayName = null;
 
 
-// MEMUAT MODEL LOKAL ATAU AVATAR HASIL PENCARIAN
 
 function loadModel(userId = null, bustCache = false) {
 
@@ -929,7 +927,6 @@ function loadModel(userId = null, bustCache = false) {
 
             materials.preload();
 
-            // --- Fix texture discoloration & transparency ---
             materials.materials = materials.materials || {};
             Object.values(materials.materials).forEach((material) => {
                 if (!material) return;
@@ -1058,7 +1055,6 @@ function loadModel(userId = null, bustCache = false) {
 }
 
 
-// MEMBERSIHKAN PRATINJAU 3D SAAT PENCARIAN BARU DIMULAI
 
 function clearPreview() {
 
@@ -1070,7 +1066,6 @@ function clearPreview() {
 
     }
 
-    // Reset kamera ke posisi awal agar tidak menampilkan model lama.
 
     camera.position.set(0, 0, 12);
 
@@ -1091,7 +1086,7 @@ function clearPreview() {
 }
 
 
-// MODEL EXPLORER — parse OBJ groups client-side and render a tree
+// Model explorer sidebar
 
 async function buildExplorer(userId) {
 
@@ -1265,7 +1260,6 @@ async function buildExplorer(userId) {
 }
 
 
-// PENCARIAN USERNAME ROBLOX
 
 searchButton.addEventListener(
     "click",
@@ -1389,19 +1383,16 @@ searchButton.addEventListener(
 );
 
 
-// ENTER DI INPUT USERNAME = KLIK TOMBOL CARI
 
 searchForm.addEventListener("submit", (event) => {
 
     event.preventDefault();
 
-    // Reuse the existing click handler; a disabled button ignores click().
     searchButton.click();
 
 });
 
 
-// MENCEGAH HTML DARI USERNAME
 
 function escapeHTML(value) {
 
@@ -1419,7 +1410,6 @@ function escapeHTML(value) {
 }
 
 
-// TOMBOL MUAT ULANG
 
 reloadButton.addEventListener(
     "click",
@@ -1476,7 +1466,6 @@ reloadButton.addEventListener(
 );
 
 
-// FORMAT DROPDOWN (ARROW)
 
 function closeDropdown() {
 
@@ -1527,7 +1516,7 @@ downloadToggle.addEventListener("click", (event) => {
 
 document.addEventListener("click", closeDropdown);
 
-// Reposition the floating dropdown on scroll/resize so it stays anchored.
+// Reposition dropdown on scroll/resize.
 window.addEventListener("resize", () => {
     if (downloadDropdown.classList.contains("show")) positionDropdown();
 });
@@ -1536,7 +1525,6 @@ window.addEventListener("scroll", () => {
     if (downloadDropdown.classList.contains("show")) positionDropdown();
 }, true);
 
-// TOMBOL UTAMA: UNDUH OBJ SEKALI KLIK
 
 downloadButton.addEventListener("click", async () => {
 
@@ -1568,7 +1556,6 @@ downloadButton.addEventListener("click", async () => {
 
 });
 
-// ITEM DROPDOWN: FORMAT LAIN
 
 dropdownItems.forEach((item) => {
 
@@ -1771,7 +1758,6 @@ async function downloadConverted(format) {
 }
 
 
-// RESPONSIVE VIEWER
 
 window.addEventListener(
     "resize",
@@ -1791,7 +1777,6 @@ window.addEventListener(
 );
 
 
-// ANIMASI 3D
 
 function animate() {
 
@@ -1806,7 +1791,6 @@ function animate() {
 animate();
 
 
-// MULAI
 
 setLang(currentLang);
 

@@ -39,7 +39,6 @@ async function writeGltfSeparate(doc, outDir) {
     const gltfPath = path.join(outDir, "model.gltf");
     await io.write(gltfPath, doc);
 
-    // Collect all written files (gltf + bin + textures)
     const files = [];
     const entries = await fs.readdir(outDir);
     for (const entry of entries) {
@@ -56,7 +55,6 @@ async function writeGltfEmbedded(doc) {
     const io = new NodeIO();
     const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "aae-embed-"));
     try {
-        // Externalize to temp dir first
         const buffers = doc.getRoot().listBuffers();
         buffers.forEach((buf, i) => {
             if (!buf.getURI()) buf.setURI(i === 0 ? "model.bin" : `buffer${i}.bin`);
@@ -159,7 +157,6 @@ module.exports = function (app) {
             });
         }
 
-        // Options
         const rig = parseBool(req.query.rig);
         // "Separate assets" only affects GLB/GLTF; OBJ and FBX are always separate.
         const separate = parseBool(req.query.separate) && (fmt === "glb" || fmt === "gltf");
@@ -177,7 +174,6 @@ module.exports = function (app) {
         }
 
         try {
-            // ---- FBX (legacy, unchanged pipeline) ----
             if (fmt === "fbx") {
                 const [objText, mtlText] = await Promise.all([
                     fs.readFile(objPath, "utf8"),
@@ -194,12 +190,11 @@ module.exports = function (app) {
                 return res.send(fbx);
             }
 
-            // ---- GLB / GLTF ----
             let conversion;
             try {
                 conversion = await convertAvatar(assetDir, { rig });
             } catch (rigError) {
-                // Auto-rig failed (e.g. not 6/15 Player groups) — report clearly.
+                // Auto-rig failed (e.g. not 6/15 Player groups).
                 console.error("Auto-rig conversion failed:", rigError);
                 return res.status(422).json({
                     success: false,
@@ -208,7 +203,7 @@ module.exports = function (app) {
             }
 
             if (separate) {
-                // Produce a ZIP with .gltf + .bin + textures
+                // ZIP with .gltf + .bin + textures
                 const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "aae-convert-"));
                 try {
                     const files = await writeGltfSeparate(conversion.doc, tmpDir);
@@ -216,7 +211,7 @@ module.exports = function (app) {
                     const baseName = String(userId);
                     for (const file of files) {
                         const data = await fs.readFile(file.path);
-                        // Rename model.gltf -> <userId>.gltf for clarity
+                        // Rename model.gltf for clarity
                         const zipName = file.name === "model.gltf"
                             ? `${baseName}.gltf`
                             : file.name;
@@ -235,7 +230,6 @@ module.exports = function (app) {
                 }
             }
 
-            // Embedded single-file output
             const io = new NodeIO();
             if (fmt === "glb") {
                 const tmpPath = path.join(os.tmpdir(), `aae-${userId}-${Date.now()}.glb`);
@@ -250,7 +244,6 @@ module.exports = function (app) {
                 );
                 return res.send(glbBuffer);
             } else {
-                // glTF embedded (JSON with data URIs)
                 const gltfText = await writeGltfEmbedded(conversion.doc);
 
                 res.setHeader("Content-Type", "model/gltf+json");
