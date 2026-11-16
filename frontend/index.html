@@ -1163,9 +1163,14 @@ async function downloadConverted(format) {
     const blob = await response.blob();
     const url = URL.createObjectURL(blob);
 
+    const safeName = String(currentDisplayName || "Avarixen").replace(
+        /[\\/:*?"<>|]/g,
+        "_"
+    ).trim().replace(/[. ]+$/g, "") || "Avarixen";
+
     const link = document.createElement("a");
     link.href = url;
-    link.download = `${currentUserId}.${format}`;
+    link.download = `${safeName}.${format}`;
 
     document.body.appendChild(link);
     link.click();
