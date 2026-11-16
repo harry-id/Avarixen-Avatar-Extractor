@@ -71,8 +71,39 @@
             outline: none;
         }
 
+        .api-status {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 12px;
+            color: #aab4c8;
+            padding: 4px 10px;
+            background: #191e2b;
+            border: 1px solid #30394d;
+            border-radius: 6px;
+            white-space: nowrap;
+        }
+
+        .api-status .api-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: #4caf50;
+            flex-shrink: 0;
+            box-shadow: 0 0 4px rgba(76, 175, 80, 0.6);
+        }
+
+        .api-status.offline .api-dot {
+            background: #f44336;
+            box-shadow: 0 0 4px rgba(244, 67, 54, 0.6);
+        }
+
+        .api-status.offline {
+            color: #f44336;
+        }
+
         main {
-            max-width: 1100px;
+            max-width: 1400px;
             margin: auto;
             padding: 20px;
         }
@@ -116,12 +147,20 @@
 
         #accountInfo {
             display: none;
-            padding: 15px;
-            margin-bottom: 15px;
-            background: #191e2b;
-            border: 1px solid #30394d;
-            border-radius: 10px;
-            line-height: 1.8;
+            position: absolute;
+            top: 12px;
+            left: 12px;
+            z-index: 10;
+            padding: 12px 14px;
+            background: rgba(25, 30, 43, 0.7);
+            border: 1px solid #39445c;
+            border-radius: 8px;
+            font-size: 13px;
+            line-height: 1.7;
+            pointer-events: none;
+            max-width: 60%;
+            backdrop-filter: blur(4px);
+            -webkit-backdrop-filter: blur(4px);
         }
 
         #viewer {
@@ -130,6 +169,242 @@
             background: #202738;
             border-radius: 14px;
             overflow: hidden;
+            position: relative;
+        }
+
+        /* Viewer + model explorer sidebar layout */
+        .viewer-layout {
+            display: flex;
+            gap: 12px;
+            align-items: stretch;
+        }
+
+        .viewer-layout #viewer {
+            flex: 1;
+            min-width: 0;
+        }
+
+        #explorer {
+            width: 240px;
+            height: 500px;
+            flex-shrink: 0;
+            background: #191e2b;
+            border: 1px solid #30394d;
+            border-radius: 14px;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        .explorer-header {
+            padding: 12px 14px;
+            border-bottom: 1px solid #30394d;
+            font-size: 13px;
+            font-weight: bold;
+            color: #aab4c8;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .explorer-header .explorer-count {
+            font-weight: normal;
+            color: #6c7a94;
+            font-size: 12px;
+        }
+
+        .explorer-tree {
+            flex: 1;
+            overflow-y: auto;
+            padding: 8px 0;
+            font-size: 13px;
+            scrollbar-width: none;
+            -ms-overflow-style: none;
+        }
+
+        .explorer-tree::-webkit-scrollbar {
+            display: none;
+        }
+
+        .explorer-empty {
+            padding: 20px 14px;
+            color: #6c7a94;
+            text-align: center;
+            font-size: 13px;
+            line-height: 1.6;
+        }
+
+        .explorer-node {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            padding: 5px 12px;
+            cursor: default;
+            white-space: nowrap;
+        }
+
+        .explorer-node:hover {
+            background: #202738;
+        }
+
+        .explorer-node .node-icon {
+            width: 8px;
+            height: 8px;
+            border-radius: 2px;
+            flex-shrink: 0;
+        }
+
+        .explorer-node .node-icon.player {
+            background: #4285f4;
+        }
+
+        .explorer-node .node-icon.handle {
+            background: #a142f4;
+        }
+
+        .explorer-node .node-icon.other {
+            background: #6c7a94;
+        }
+
+        .explorer-node .node-name {
+            flex: 1;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .explorer-node .node-meta {
+            color: #6c7a94;
+            font-size: 11px;
+            flex-shrink: 0;
+        }
+
+        .explorer-section-label {
+            padding: 10px 12px 4px;
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            color: #6c7a94;
+        }
+
+        /* Download options (checkboxes) */
+        .options {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 16px;
+            margin-bottom: 12px;
+            padding: 12px 14px;
+            background: #191e2b;
+            border: 1px solid #30394d;
+            border-radius: 10px;
+        }
+
+        .option-checkbox {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 14px;
+            color: #d0d8e8;
+            cursor: pointer;
+            user-select: none;
+        }
+
+        .option-checkbox input[type="checkbox"] {
+            width: 16px;
+            height: 16px;
+            accent-color: #4285f4;
+            cursor: pointer;
+        }
+
+        .option-checkbox .experimental-badge {
+            font-size: 10px;
+            padding: 2px 6px;
+            border-radius: 4px;
+            background: #3a2a1a;
+            color: #f0a030;
+            font-weight: bold;
+        }
+
+        .option-checkbox .legacy-badge {
+            font-size: 10px;
+            padding: 2px 6px;
+            border-radius: 4px;
+            background: #2a2a2a;
+            color: #999;
+            font-weight: bold;
+        }
+
+        /* Footer */
+        .footer {
+            max-width: 1400px;
+            margin: 28px auto 0;
+            padding: 20px 20px 12px;
+            border-top: 1px solid #30394d;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            align-items: flex-start;
+            text-align: left;
+        }
+
+        .footer-links {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            justify-content: flex-start;
+            align-items: flex-start;
+        }
+
+        .footer-links a {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            color: #aab4c8;
+            text-decoration: none;
+            font-size: 13px;
+            transition: color 0.15s ease;
+        }
+
+        .footer-links a:hover {
+            color: #4285f4;
+        }
+
+        .footer-links a svg {
+            flex-shrink: 0;
+        }
+
+        .footer-tag {
+            font-size: 11px;
+            padding: 1px 6px;
+            border-radius: 4px;
+            background: #202738;
+            color: #6c7a94;
+            font-weight: normal;
+        }
+
+        .footer .copyright {
+            color: #6c7a94;
+            font-size: 12px;
+            margin: 0;
+        }
+
+        .footer .copyright a {
+            color: #6c7a94;
+            text-decoration: none;
+        }
+
+        .footer .copyright a:hover {
+            color: #4285f4;
+        }
+
+        @media (max-width: 900px) {
+            .viewer-layout {
+                flex-direction: column;
+            }
+
+            #explorer {
+                width: 100%;
+                max-height: 200px;
+            }
         }
 
         .status {
@@ -170,15 +445,16 @@
 
         .dropdown-content {
             display: none;
-            position: absolute;
+            position: fixed;
             background-color: #191e2b;
-            min-width: 200px;
+            width: 240px;
+            max-height: 280px;
+            overflow-y: auto;
             box-shadow: 0 8px 16px rgba(0, 0, 0, 0.5);
             border-radius: 8px;
             border: 1px solid #39445c;
-            z-index: 100;
-            right: 0;
-            top: 110%;
+            z-index: 1000;
+            scrollbar-width: thin;
         }
 
         .dropdown-content.show {
@@ -187,13 +463,16 @@
 
         .dropdown-content button {
             width: 100%;
-            padding: 10px 16px;
+            padding: 9px 14px;
             text-align: left;
             background: none;
             border: none;
             color: white;
             cursor: pointer;
-            font-size: 14px;
+            font-size: 13px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
         }
 
         .dropdown-content button:hover {
@@ -242,6 +521,10 @@
             <option value="id">Indonesia</option>
             <option value="en">English</option>
         </select>
+        <div class="api-status" id="apiStatus" title="Backend API status">
+            <span class="api-dot"></span>
+            <span id="apiStatusText">API Online</span>
+        </div>
     </div>
 </header>
 
@@ -260,12 +543,37 @@
         </button>
     </form>
 
-    <div id="accountInfo"></div>
-
-    <div id="viewer"></div>
+    <div class="viewer-layout">
+        <div id="viewer">
+            <div id="accountInfo"></div>
+        </div>
+        <aside id="explorer">
+            <div class="explorer-header">
+                <span data-i18n="explorerTitle">Model Explorer</span>
+                <span class="explorer-count" id="explorerCount"></span>
+            </div>
+            <div class="explorer-tree" id="explorerTree">
+                <div class="explorer-empty" data-i18n="explorerEmpty">
+                    Load an avatar to see its parts.
+                </div>
+            </div>
+        </aside>
+    </div>
 
     <div class="status" id="status" data-i18n="statusWaiting">
         Masukkan username Roblox untuk memuat pratinjau 3D.
+    </div>
+
+    <div class="options">
+        <label class="option-checkbox">
+            <input type="checkbox" id="separateAssets">
+            <span data-i18n="optionSeparateAssets">Separate assets</span>
+        </label>
+        <label class="option-checkbox">
+            <input type="checkbox" id="autoRig">
+            <span data-i18n="optionAutoRig">Auto-rig (R6/R15)</span>
+            <span class="experimental-badge">Experimental</span>
+        </label>
     </div>
 
     <div class="controls">
@@ -299,13 +607,35 @@
                     Unduh Avatar (GLTF)
                 </button>
                 <button class="dropdown-item" data-format="fbx" data-i18n="downloadFbx">
-                    Unduh Avatar (FBX)
+                    Unduh Avatar (FBX) (Legacy)
                 </button>
             </div>
         </div>
     </div>
 
 </main>
+
+<footer class="footer">
+    <div class="footer-links">
+        <a href="https://github.com/Avarixen/Avarixen-Avatar-Extractor" target="_blank" rel="noopener noreferrer">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+                <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/>
+            </svg>
+            Avarixen/Avarixen-Avatar-Extractor
+            <span class="footer-tag">Original</span>
+        </a>
+        <a href="https://github.com/harry-id/Avarixen-Avatar-Extractor" target="_blank" rel="noopener noreferrer">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+                <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/>
+            </svg>
+            harry-id/Avarixen-Avatar-Extractor
+            <span class="footer-tag">Fork (Current)</span>
+        </a>
+    </div>
+    <p class="copyright">
+        © 2024–2026 <a href="https://github.com/Avarixen" target="_blank" rel="noopener noreferrer">Avarixen</a>. All rights reserved.
+    </p>
+</footer>
 
 <script type="module">
 
@@ -324,7 +654,6 @@ import { OBJLoader } from
     "https://cdn.jsdelivr.net/npm/three@0.180.0/examples/jsm/loaders/OBJLoader.js";
 
 
-// ---------------- i18n (Indonesia & English) ----------------
 
 const LANG = {
     id: {
@@ -365,9 +694,21 @@ const LANG = {
         alertZipFailed: "Gagal membuat ZIP: {{message}}",
         downloadGlb: "Unduh Avatar (GLB)",
         downloadGltf: "Unduh Avatar (GLTF)",
-        downloadFbx: "Unduh Avatar (FBX)",
+        downloadFbx: "Unduh Avatar (FBX) (Legacy)",
         errorConvertFailed: "Konversi gagal: {{message}}",
-        statusConverting: "Mengonversi model ke {{format}}..."
+        statusConverting: "Mengonversi model ke {{format}}...",
+        explorerTitle: "Penjelajah Model",
+        explorerEmpty: "Muat avatar untuk melihat bagian-bagiannya.",
+        explorerPlayers: "Player (Tubuh)",
+        explorerHandles: "Handle (Aksesori)",
+        explorerOther: "Lainnya",
+        optionSeparateAssets: "Pisahkan aset",
+        optionAutoRig: "Auto-rig (R6/R15)",
+        statusRigging: "Membuat rig otomatis...",
+        verticesLabel: "vertices",
+        apiOnline: "API Online",
+        apiOffline: "API Offline",
+        apiChecking: "Checking..."
     },
     en: {
         appTitle: "Avarixen Avatar Extractor",
@@ -407,9 +748,21 @@ const LANG = {
         alertZipFailed: "Failed to create ZIP: {{message}}",
         downloadGlb: "Download Avatar (GLB)",
         downloadGltf: "Download Avatar (GLTF)",
-        downloadFbx: "Download Avatar (FBX)",
+        downloadFbx: "Download Avatar (FBX) (Legacy)",
         errorConvertFailed: "Conversion failed: {{message}}",
-        statusConverting: "Converting model to {{format}}..."
+        statusConverting: "Converting model to {{format}}...",
+        explorerTitle: "Model Explorer",
+        explorerEmpty: "Load an avatar to see its parts.",
+        explorerPlayers: "Player (Body)",
+        explorerHandles: "Handle (Accessories)",
+        explorerOther: "Other",
+        optionSeparateAssets: "Separate assets",
+        optionAutoRig: "Auto-rig (R6/R15)",
+        statusRigging: "Building auto-rig...",
+        verticesLabel: "vertices",
+        apiOnline: "API Online",
+        apiOffline: "API Offline",
+        apiChecking: "Checking..."
     }
 };
 
@@ -461,6 +814,10 @@ function setLang(lang) {
     if (currentStatusKey) {
         status.textContent = t(currentStatusKey, currentStatusParams || {});
     }
+
+    if (apiStatusState) {
+        renderApiStatus(apiStatusState);
+    }
 }
 
 let currentStatusKey = null;
@@ -490,6 +847,32 @@ const BACKEND_URL =
     (location.port === "3001" || location.port === "5173"
         ? `${location.protocol}//${location.hostname}:3000`
         : "");
+
+
+// API status indicator in the header (green = online, red = offline).
+
+const apiStatusEl = document.getElementById("apiStatus");
+const apiStatusText = document.getElementById("apiStatusText");
+let apiStatusState = null;
+
+function renderApiStatus(state) {
+    apiStatusState = state;
+    apiStatusEl.classList.toggle("offline", state === "offline");
+    apiStatusText.textContent =
+        state === "online" ? t("apiOnline")
+            : state === "offline" ? t("apiOffline")
+                : t("apiChecking");
+}
+
+async function checkApiStatus() {
+    try {
+        const resp = await fetch(`${BACKEND_URL}/`, { cache: "no-store" });
+        if (!resp.ok) throw new Error("bad status");
+        renderApiStatus("online");
+    } catch {
+        renderApiStatus("offline");
+    }
+}
 
 
 const viewer = document.getElementById("viewer");
@@ -593,7 +976,6 @@ let currentUserId = null;
 let currentDisplayName = null;
 
 
-// MEMUAT MODEL LOKAL ATAU AVATAR HASIL PENCARIAN
 
 function loadModel(userId = null, bustCache = false) {
 
@@ -616,7 +998,6 @@ function loadModel(userId = null, bustCache = false) {
 
             materials.preload();
 
-            // --- Fix texture discoloration & transparency ---
             materials.materials = materials.materials || {};
             Object.values(materials.materials).forEach((material) => {
                 if (!material) return;
@@ -745,7 +1126,6 @@ function loadModel(userId = null, bustCache = false) {
 }
 
 
-// MEMBERSIHKAN PRATINJAU 3D SAAT PENCARIAN BARU DIMULAI
 
 function clearPreview() {
 
@@ -757,7 +1137,6 @@ function clearPreview() {
 
     }
 
-    // Reset kamera ke posisi awal agar tidak menampilkan model lama.
 
     camera.position.set(0, 0, 12);
 
@@ -773,10 +1152,185 @@ function clearPreview() {
 
     accountInfo.style.display = "none";
 
+    buildExplorer(null);
+
 }
 
 
-// PENCARIAN USERNAME ROBLOX
+// Model explorer sidebar
+
+async function buildExplorer(userId) {
+
+    const treeEl = document.getElementById("explorerTree");
+
+    const countEl = document.getElementById("explorerCount");
+
+    if (!userId) {
+
+        treeEl.innerHTML = `<div class="explorer-empty">${t("explorerEmpty")}</div>`;
+
+        countEl.textContent = "";
+
+        return;
+
+    }
+
+    let groups = null;
+
+    // Try the backend part-mapping endpoint first (gives body-part names).
+    try {
+
+        const resp = await fetch(
+
+            `${BACKEND_URL}/api/roblox/parts/${encodeURIComponent(userId)}`,
+
+            { headers: apiHeaders() }
+
+        );
+
+        if (resp.ok) {
+
+            const data = await resp.json();
+
+            if (data.success && Array.isArray(data.groups)) {
+
+                groups = data.groups;
+
+            }
+
+        }
+
+    } catch (e) {
+
+        console.warn("Parts endpoint failed, falling back to client-side parse", e);
+
+    }
+
+    // Fallback: parse the OBJ client-side (group names only, no body-part mapping).
+    if (!groups) {
+
+        try {
+
+            const assetPath = `/assets/${encodeURIComponent(userId)}/`;
+
+            const response = await fetch(assetPath + "avatar.obj");
+
+            if (!response.ok) throw new Error("Failed to fetch OBJ");
+
+            const text = await response.text();
+
+            const parsed = {};
+
+            let currentGroup = null;
+
+            for (const raw of text.split(/\r?\n/)) {
+
+                const line = raw.trim();
+
+                if (line.startsWith("g ")) {
+
+                    currentGroup = line.slice(2).trim() || null;
+
+                    if (currentGroup && !parsed[currentGroup]) {
+
+                        parsed[currentGroup] = { faces: 0, vertices: new Set() };
+
+                    }
+
+                } else if (line.startsWith("f ") && currentGroup) {
+
+                    parsed[currentGroup].faces++;
+
+                    const parts = line.split(/\s+/);
+
+                    for (let i = 1; i < parts.length; i++) {
+
+                        const v = parts[i].split("/")[0];
+
+                        if (v) parsed[currentGroup].vertices.add(parseInt(v, 10));
+
+                    }
+
+                }
+
+            }
+
+            groups = Object.keys(parsed)
+
+                .filter(n => parsed[n].faces > 0)
+
+                .map(name => {
+
+                    const type = name.startsWith("Player") ? "player"
+
+                        : name.startsWith("Handle") ? "handle" : "other";
+
+                    return { name, vertices: parsed[name].vertices.size, faces: parsed[name].faces, type, part: null };
+
+                });
+
+        } catch (e) {
+
+            console.error(e);
+
+            groups = [];
+
+        }
+
+    }
+
+    const playerGroups = groups.filter(g => g.type === "player");
+
+    const handleGroups = groups.filter(g => g.type === "handle");
+
+    const otherGroups = groups.filter(g => g.type === "other");
+
+    countEl.textContent = `${groups.length}`;
+
+    let html = "";
+
+    const renderSection = (label, list, cls) => {
+
+        if (!list.length) return;
+
+        html += `<div class="explorer-section-label">${label} (${list.length})</div>`;
+
+        for (const g of list) {
+
+            // Primary label = mapped body part (e.g. "Head"); secondary = group name + vertex count.
+            const primary = g.part ? escapeHTML(g.part) : escapeHTML(g.name);
+
+            const secondary = g.part
+
+                ? `${escapeHTML(g.name)} · ${g.vertices} v`
+
+                : `${g.vertices} v`;
+
+            html += `<div class="explorer-node" title="${escapeHTML(g.name)}">`
+
+                + `<span class="node-icon ${cls}"></span>`
+
+                + `<span class="node-name">${primary}</span>`
+
+                + `<span class="node-meta">${secondary}</span>`
+
+                + `</div>`;
+
+        }
+
+    };
+
+    renderSection(t("explorerPlayers"), playerGroups, "player");
+
+    renderSection(t("explorerHandles"), handleGroups, "handle");
+
+    renderSection(t("explorerOther"), otherGroups, "other");
+
+    treeEl.innerHTML = html || `<div class="explorer-empty">${t("explorerEmpty")}</div>`;
+
+}
+
+
 
 searchButton.addEventListener(
     "click",
@@ -880,6 +1434,8 @@ searchButton.addEventListener(
 
             loadModel(currentUserId);
 
+            buildExplorer(currentUserId);
+
         } catch (error) {
 
             console.error(error);
@@ -898,19 +1454,16 @@ searchButton.addEventListener(
 );
 
 
-// ENTER DI INPUT USERNAME = KLIK TOMBOL CARI
 
 searchForm.addEventListener("submit", (event) => {
 
     event.preventDefault();
 
-    // Reuse the existing click handler; a disabled button ignores click().
     searchButton.click();
 
 });
 
 
-// MENCEGAH HTML DARI USERNAME
 
 function escapeHTML(value) {
 
@@ -928,7 +1481,6 @@ function escapeHTML(value) {
 }
 
 
-// TOMBOL MUAT ULANG
 
 reloadButton.addEventListener(
     "click",
@@ -967,6 +1519,8 @@ reloadButton.addEventListener(
 
             loadModel(currentUserId, true);
 
+            buildExplorer(currentUserId);
+
         } catch (error) {
 
             console.error(error);
@@ -983,7 +1537,6 @@ reloadButton.addEventListener(
 );
 
 
-// FORMAT DROPDOWN (ARROW)
 
 function closeDropdown() {
 
@@ -992,19 +1545,57 @@ function closeDropdown() {
 
 }
 
+function positionDropdown() {
+    // Floating popup: place below the button, or above if there's not enough room.
+    const anchor = downloadToggle.parentElement.getBoundingClientRect();
+    downloadDropdown.classList.add("show");
+    const dropRect = downloadDropdown.getBoundingClientRect();
+    const gap = 6;
+
+    let top = anchor.bottom + gap;
+    if (top + dropRect.height > window.innerHeight - 8) {
+        // Not enough room below — open above the button.
+        top = anchor.top - dropRect.height - gap;
+        if (top < 8) top = 8;
+    }
+
+    let left = anchor.right - dropRect.width;
+    if (left < 8) left = 8;
+    if (left + dropRect.width > window.innerWidth - 8) {
+        left = window.innerWidth - dropRect.width - 8;
+    }
+
+    downloadDropdown.style.top = `${Math.round(top)}px`;
+    downloadDropdown.style.left = `${Math.round(left)}px`;
+}
+
 downloadToggle.addEventListener("click", (event) => {
 
     event.stopPropagation();
 
-    const open = downloadDropdown.classList.toggle("show");
+    const willOpen = !downloadDropdown.classList.contains("show");
 
-    downloadToggle.setAttribute("aria-expanded", open ? "true" : "false");
+    if (willOpen) {
+        positionDropdown();
+    } else {
+        closeDropdown();
+    }
+
+    downloadToggle.setAttribute("aria-expanded", willOpen ? "true" : "false");
 
 });
 
 document.addEventListener("click", closeDropdown);
 
-// TOMBOL UTAMA: UNDUH OBJ SEKALI KLIK
+// Reposition dropdown on scroll/resize.
+window.addEventListener("resize", () => {
+    if (downloadDropdown.classList.contains("show")) positionDropdown();
+});
+
+window.addEventListener("scroll", () => {
+    if (downloadDropdown.classList.contains("show")) positionDropdown();
+}, true);
+
 
 downloadButton.addEventListener("click", async () => {
 
@@ -1036,7 +1627,6 @@ downloadButton.addEventListener("click", async () => {
 
 });
 
-// ITEM DROPDOWN: FORMAT LAIN
 
 dropdownItems.forEach((item) => {
 
@@ -1184,41 +1774,61 @@ async function downloadZip() {
 
 async function downloadConverted(format) {
 
-    setStatus("statusConverting", { format: format.toUpperCase() });
+    const rig = document.getElementById("autoRig").checked;
+
+    // "Separate assets" only affects GLB/GLTF; OBJ and FBX are always separate.
+    const separate = document.getElementById("separateAssets").checked
+        && (format === "glb" || format === "gltf");
 
     const convertUrl = `${BACKEND_URL}/api/roblox/convert/${encodeURIComponent(currentUserId)}/${format}`;
 
-    const response = await fetch(convertUrl, {
+    const params = new URLSearchParams();
+    if (rig) params.set("rig", "1");
+    if (separate) params.set("separate", "1");
+    const qs = params.toString();
+    const url = qs ? `${convertUrl}?${qs}` : convertUrl;
+
+    if (rig) {
+        setStatus("statusRigging");
+    } else {
+        setStatus("statusConverting", { format: format.toUpperCase() });
+    }
+
+    const response = await fetch(url, {
         headers: apiHeaders()
     });
 
     if (!response.ok) {
-        const err = await response.json();
+        const err = await response.json().catch(() => ({}));
         throw new Error(err.message || t("errorConvertFailed", { message: "Unknown error" }));
     }
 
+    const contentType = response.headers.get("content-type") || "";
     const blob = await response.blob();
-    const url = URL.createObjectURL(blob);
+    const objUrl = URL.createObjectURL(blob);
 
     const safeName = String(currentDisplayName || "Avarixen").replace(
         /[\\/:*?"<>|]/g,
         "_"
     ).trim().replace(/[. ]+$/g, "") || "Avarixen";
 
+    // Separate mode returns a ZIP instead of a bare model file.
+    let ext = format;
+    if (contentType.includes("zip")) ext = "zip";
+
     const link = document.createElement("a");
-    link.href = url;
-    link.download = `${safeName}_${currentUserId}.${format}`;
+    link.href = objUrl;
+    link.download = `${safeName}_${currentUserId}.${ext}`;
 
     document.body.appendChild(link);
     link.click();
     link.remove();
 
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    setTimeout(() => URL.revokeObjectURL(objUrl), 1000);
     setStatus("statusDownloaded");
 }
 
 
-// RESPONSIVE VIEWER
 
 window.addEventListener(
     "resize",
@@ -1238,7 +1848,6 @@ window.addEventListener(
 );
 
 
-// ANIMASI 3D
 
 function animate() {
 
@@ -1253,9 +1862,13 @@ function animate() {
 animate();
 
 
-// MULAI
 
 setLang(currentLang);
+
+// Check the backend API status on load, then every 30s.
+renderApiStatus("checking");
+checkApiStatus();
+setInterval(checkApiStatus, 30000);
 
 </script>
 
