@@ -4,7 +4,8 @@
   "description": "Roblox Avatar 3D Extractor by Avarixen",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js"
+    "start": "node server.js",
+    "test": "node --test"
   },
   "dependencies": {
     "@comfyorg/fbx-exporter-three": "^1.0.2",
@@ -13,7 +14,6 @@
     "dotenv": "^18.0.9",
     "express": "^5.1.0",
     "jszip": "^3.10.1",
-    "obj2gltf": "^3.2.0",
     "pngjs": "^7.0.0",
     "three": "^0.180.0"
   }
