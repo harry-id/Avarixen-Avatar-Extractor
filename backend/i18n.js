@@ -14,7 +14,6 @@ const MESSAGES = {
         "download.invalid_user_id": "User ID tidak valid.",
         "download.not_configured": "Roblox API Key belum dikonfigurasi.",
         "download.upstream_avatar_failed": "Gagal mengambil informasi avatar dari Roblox.",
-        "download.metadata_url_missing": "Metadata URL avatar tidak ditemukan.",
         "download.metadata_failed": "Gagal mengunduh metadata avatar.",
         "download.metadata_invalid": "Metadata avatar tidak valid.",
         "download.metadata_incomplete": "Metadata avatar tidak lengkap atau tidak valid.",
@@ -26,6 +25,7 @@ const MESSAGES = {
         "convert.no_obj": "File OBJ tidak ditemukan. Unduh avatar terlebih dahulu.",
         "convert.failed": "Konversi model gagal.",
         "convert.rig_failed": "Auto-rig gagal: {{message}}",
+        "convert.rig_unsupported_fbx": "Auto-rig tidak didukung untuk format FBX.",
         "rate_limited": "Terlalu banyak permintaan. Coba lagi nanti."
     },
     en: {
@@ -43,7 +43,6 @@ const MESSAGES = {
         "download.invalid_user_id": "Invalid user ID.",
         "download.not_configured": "Roblox API Key not configured.",
         "download.upstream_avatar_failed": "Failed to fetch avatar information from Roblox.",
-        "download.metadata_url_missing": "Avatar metadata URL not found.",
         "download.metadata_failed": "Failed to download avatar metadata.",
         "download.metadata_invalid": "Avatar metadata is invalid.",
         "download.metadata_incomplete": "Avatar metadata is incomplete or invalid.",
@@ -55,6 +54,7 @@ const MESSAGES = {
         "convert.no_obj": "OBJ file not found. Download the avatar first.",
         "convert.failed": "Model conversion failed.",
         "convert.rig_failed": "Auto-rig failed: {{message}}",
+        "convert.rig_unsupported_fbx": "Auto-rig is not supported for the FBX format.",
         "rate_limited": "Too many requests. Try again later."
     }
 };
@@ -70,7 +70,7 @@ function getLang(req) {
 
 function t(lang, key) {
     const dict = MESSAGES[lang] || MESSAGES[DEFAULT_LANG];
-    return dict[key] || dict[Object.keys(dict)[0]] || key;
+    return dict[key] || key;
 }
 
 module.exports = { getLang, t, DEFAULT_LANG, MESSAGES };
