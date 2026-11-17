@@ -116,7 +116,7 @@ With an R6 avatar and Auto-rig enabled, the **Advanced settings** section (below
 | Medium | 2 |
 | High | 3 |
 
-Subdivision refines the mesh while preserving UVs and normals, and is capped at ~2M faces for cross-device safety. The OBJ export is always the original downloaded geometry.
+Subdivision refines the mesh while preserving UVs and normals, and is capped at ~2M faces for cross-device safety. It applies to the **body only** — accessories (`Handle*` parts) keep their original density. The OBJ export is always the original downloaded geometry.
 
 OBJ files are normalized during download: the body (excluding accessories) is centred on X/Z with the feet at Y=0, and every `g` group is mirrored as an `o` object. Player groups are renamed to body parts (`Head`, `Torso`, `LeftArm`, `RightArm`, `LeftLeg`, `RightLeg`, or the R15 names); `Handle*` accessories keep their names.
 
