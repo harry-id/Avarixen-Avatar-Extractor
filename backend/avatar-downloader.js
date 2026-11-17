@@ -3,6 +3,7 @@ const path = require("path");
 const zlib = require("zlib");
 const { getLang, t } = require("./i18n");
 const { fetchAvatar3D, fetchAvatarMetadataJson } = require("./avatar-metadata");
+const { normalizeObjForExport } = require("./obj-utils");
 
 function decompress(buffer) {
     if (buffer.length >= 2 && buffer[0] === 0x1f && buffer[1] === 0x8b) {
@@ -300,6 +301,10 @@ module.exports = function (app, options = {}) {
             } else {
                 obj = "mtllib avatar.mtl\n" + obj;
             }
+
+            // Ground the model (Roblox keeps it ~100 units up) and mirror
+            // group names as objects so Blender imports every body part.
+            obj = normalizeObjForExport(obj);
 
             const outputDir = path.join(
                 __dirname,
