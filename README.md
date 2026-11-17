@@ -107,7 +107,7 @@ Auto-rig (`?rig=1`) is available for GLB/GLTF only. FBX requests that ask for a 
 
 OBJ files are normalized during download: the body (excluding accessories) is centred on X/Z with the feet at Y=0, and every `g` group is mirrored as an `o` object. Player groups are renamed to body parts (`Head`, `Torso`, `LeftArm`, `RightArm`, `LeftLeg`, `RightLeg`, or the R15 names); `Handle*` accessories keep their names.
 
-**Compatibility mode** (the checkbox above the download buttons) splits every body part into its own object for GLB, GLTF, and FBX, parented under a node named after the avatar's display name. GLB/GLTF are returned as a ZIP with separate `.bin`/texture files. This avoids the single merged `character_mesh` that Prisma3D imports as one invisible object. OBJ files are always split by part; OBJ has no collection concept, so Blender lists the parts as separate flat objects.
+**Separate assets** (the checkbox above the download buttons) keeps every body part as its own object for GLB, GLTF, and FBX, parented under a node named after the avatar's display name, and returns the model plus external assets in one ZIP (GLB/GLTF: `.gltf` + `.bin` + textures; FBX: `.fbx` + textures). Without the checkbox the file is a single self-contained export (single merged mesh; FBX embeds its textures). OBJ files are always split by part; OBJ has no collection concept, so Blender lists the parts as separate flat objects.
 
 GLB/GLTF/FBX are centred on the body (accessories are excluded from the offsets) with the feet at Y=0. FBX is written with Blender's axis/unit preset (`UnitScaleFactor=100`) so it imports upright and at the right scale.
 
