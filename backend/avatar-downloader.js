@@ -53,8 +53,8 @@ function escapeRegExp(value) {
 
 // Match a hash only as a whole token so short hashes cannot corrupt MTL
 // keywords or material names (e.g. "a" inside "map_Kd").
-function hashPattern(hash) {
-    return new RegExp(`(?<![A-Za-z0-9])${escapeRegExp(hash)}(?![A-Za-z0-9])`);
+function hashPattern(hash, flags = "") {
+    return new RegExp(`(?<![A-Za-z0-9])${escapeRegExp(hash)}(?![A-Za-z0-9])`, flags);
 }
 
 /**
@@ -85,11 +85,11 @@ function planTextures(hashes, buffers, mtlText) {
     let mtl = mtlText;
 
     for (const [hash, filename] of renames) {
-        mtl = mtl.replace(hashPattern(hash), filename);
+        mtl = mtl.replace(hashPattern(hash, "g"), filename);
     }
 
     if (missing.length) {
-        const missingPatterns = missing.map(hashPattern);
+        const missingPatterns = missing.map((hash) => hashPattern(hash));
         mtl = mtl
             .split(/\r?\n/)
             .filter((line) => !missingPatterns.some((pattern) => pattern.test(line)))
@@ -353,11 +353,19 @@ module.exports = function (app, options = {}) {
         } catch (error) {
             console.error("Avatar Downloader:", error);
             const isTimeout = error && error.name === "AbortError";
+            const isPermissionError =
+                error && ["EACCES", "EPERM", "EROFS"].includes(error.code);
+
             res.status(isTimeout ? 504 : 500).json({
                 success: false,
-                message: isTimeout
-                    ? t(lang, "download.timeout")
-                    : t(lang, "download.failed")
+                message: t(
+                    lang,
+                    isTimeout
+                        ? "download.timeout"
+                        : isPermissionError
+                            ? "download.write_failed"
+                            : "download.failed"
+                )
             });
         }
     });

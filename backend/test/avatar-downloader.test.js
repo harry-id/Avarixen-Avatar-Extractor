@@ -40,3 +40,21 @@ test("planTextures keeps all names when every download succeeds", () => {
     assert.deepEqual(plan.missing, []);
     assert.equal(plan.mtl, "newmtl m\nmap_Kd texture1.png\n");
 });
+
+test("planTextures rewrites every reference to the same hash", () => {
+    const hash = "30DAY-abc123";
+    const mtl = [
+        "newmtl m1",
+        "map_Ka " + hash,
+        "map_Kd " + hash,
+        "map_d " + hash,
+        "newmtl m2",
+        "map_Ka " + hash,
+        ""
+    ].join("\n");
+
+    const plan = planTextures([hash], [Buffer.from("x")], mtl);
+
+    assert.doesNotMatch(plan.mtl, /30DAY-abc123/);
+    assert.equal((plan.mtl.match(/texture1\.png/g) || []).length, 4);
+});
