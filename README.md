@@ -107,7 +107,7 @@ Auto-rig (`?rig=1`) is available for GLB/GLTF only. FBX requests that ask for a 
 
 Account info shows the detected **avatar type** (`R6` / `R15`, or `Unknown` when the avatar has no body groups). R6 rigs also get **hand bones** (`Left Hand` / `Right Hand`) at the bottom of each arm so accessories can be attached there.
 
-With an R6 avatar and Auto-rig enabled, the **Advanced settings** section (below the checkboxes) reveals **More joints**, which adds extra attachment bones (lower arms, lower legs, feet). The same section contains the global **Mesh quality** presets for GLB/GLTF/FBX:
+With an R6 avatar and Auto-rig enabled, the **Advanced settings** section (below the checkboxes) reveals **More joints**, which adds extra bones: **hands** (always), plus **lower arms (elbows)**, **lower legs (knees)**, **feet**, and a **waist** so the torso can bend (`HumanoidRootPart → Waist → Torso`). The same section contains the global **Mesh quality** presets for GLB/GLTF/FBX:
 
 | Preset | Subdivision |
 |---|---|
