@@ -349,6 +349,10 @@ async function buildFbx({
             const mi = nameToIndex.get(poly.material || "default");
             const c0 = cornerData(poly, 0);
 
+            // Mesh quality refines anatomy only; accessories (Handle* groups)
+            // stay at their original density.
+            const level = isBodyGroup(poly.group || "") ? safeSubdivision : 0;
+
             // Triangle fan, subdivided when a mesh-quality level is selected.
             for (let i = 1; i < poly.corners.length - 1; i++) {
                 emitTriangle(
@@ -356,7 +360,7 @@ async function buildFbx({
                     cornerData(poly, i),
                     cornerData(poly, i + 1),
                     mi,
-                    safeSubdivision
+                    level
                 );
             }
         }
