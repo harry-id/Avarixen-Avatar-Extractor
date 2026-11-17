@@ -132,3 +132,42 @@ test("buildFbx references external textures when embedding is disabled", async (
         fs.rmSync(dir, { recursive: true, force: true });
     }
 });
+
+test("buildFbx subdivides geometry when a level is requested", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "aae-fbx-"));
+    const obj = [
+        "g Torso",
+        "v 0 0 0",
+        "v 1 0 0",
+        "v 0 1 0",
+        "vt 0 0",
+        "vt 1 0",
+        "vt 0 1",
+        "vn 0 0 1",
+        "usemtl cloth",
+        "f 1/1/1 2/2/1 3/3/1",
+        ""
+    ].join("\n");
+    const mtl = "newmtl cloth\nKd 1 1 1\n";
+
+    try {
+        fs.writeFileSync(path.join(dir, "avatar.obj"), obj);
+        fs.writeFileSync(path.join(dir, "avatar.mtl"), mtl);
+
+        const base = await buildFbx({ objText: obj, mtlText: mtl, assetDir: dir });
+        const refined = await buildFbx({
+            objText: obj,
+            mtlText: mtl,
+            assetDir: dir,
+            splitParts: true,
+            groupName: "Tester",
+            subdivision: 1
+        });
+
+        assert.ok(Buffer.isBuffer(refined));
+        assert.equal(refined.subarray(0, 20).toString("ascii").startsWith("Kaydara FBX Binary"), true);
+        assert.ok(refined.length > base.length);
+    } finally {
+        fs.rmSync(dir, { recursive: true, force: true });
+    }
+});

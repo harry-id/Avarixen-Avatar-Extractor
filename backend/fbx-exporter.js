@@ -179,7 +179,8 @@ async function buildFbx({
     assetDir,
     splitParts = false,
     groupName = "Avatar",
-    embedTextures = true
+    embedTextures = true,
+    subdivision = 0
 }) {
     const { THREE: T, FBXExporter } = await ensureModules();
 
@@ -191,6 +192,20 @@ async function buildFbx({
     }
 
     // Match the GLB export: center the body on X/Z and put the feet at y = 0.
+    let safeSubdivision = Math.max(0, Math.min(3, Math.floor(subdivision || 0)));
+
+    const baseTriangleCount = obj.polygons.reduce(
+        (sum, poly) => sum + Math.max(1, poly.corners.length - 2),
+        0
+    );
+
+    while (
+        safeSubdivision > 0 &&
+        baseTriangleCount * Math.pow(4, safeSubdivision) > 2_000_000
+    ) {
+        safeSubdivision -= 1;
+    }
+
     const all = createBounds();
     const body = createBounds();
 
@@ -257,33 +272,92 @@ async function buildFbx({
 
         let vertexIndex = 0;
 
-        for (const poly of polys) {
-            const mi = nameToIndex.get(poly.material || "default");
+        const cornerData = (poly, cornerIndex) => {
+            const idx = poly.corners[cornerIndex];
+            const pos = obj.positions[idx.p];
 
-            // Triangle fan.
-            for (let i = 1; i < poly.corners.length - 1; i++) {
-                const tris = [poly.corners[0], poly.corners[i], poly.corners[i + 1]];
+            let n = [0, 1, 0];
+            if (idx.n !== null && obj.normals[idx.n]) {
+                n = obj.normals[idx.n];
+            }
+
+            let uv = [0, 0];
+            if (idx.t !== null && obj.uvs[idx.t]) {
+                uv = [obj.uvs[idx.t][0], 1 - obj.uvs[idx.t][1]];
+            }
+
+            return {
+                p: [
+                    -(pos[0] - offsetX),
+                    pos[1] - offsetY,
+                    -(pos[2] - offsetZ)
+                ],
+                n: [-n[0], n[1], -n[2]],
+                t: uv
+            };
+        };
+
+        const midpoint = (c1, c2) => {
+            const n = [
+                (c1.n[0] + c2.n[0]) / 2,
+                (c1.n[1] + c2.n[1]) / 2,
+                (c1.n[2] + c2.n[2]) / 2
+            ];
+            const length = Math.hypot(n[0], n[1], n[2]);
+
+            return {
+                p: [
+                    (c1.p[0] + c2.p[0]) / 2,
+                    (c1.p[1] + c2.p[1]) / 2,
+                    (c1.p[2] + c2.p[2]) / 2
+                ],
+                n: length > 0
+                    ? [n[0] / length, n[1] / length, n[2] / length]
+                    : [0, 1, 0],
+                t: [
+                    (c1.t[0] + c2.t[0]) / 2,
+                    (c1.t[1] + c2.t[1]) / 2
+                ]
+            };
+        };
+
+        const emitTriangle = (c1, c2, c3, mi, level) => {
+            if (level === 0) {
                 groupCounts[mi] = (groupCounts[mi] || 0) + 3;
 
-                for (const c of tris) {
-                    const pos = obj.positions[c.p];
-                    // Blender/Prisma3D apply the FBX front-axis convention in the
-                    // opposite sense to OBJ/glTF, so rotate 180° around Y
-                    // (negate X/Z) to keep the avatar facing the same way.
-                    positions.push(
-                        -(pos[0] - offsetX),
-                        pos[1] - offsetY,
-                        -(pos[2] - offsetZ)
-                    );
-
-                    const n = (c.n !== null && obj.normals[c.n]) ? obj.normals[c.n] : [0, 1, 0];
-                    normals.push(-n[0], n[1], -n[2]);
-
-                    const uv = (c.t !== null && obj.uvs[c.t]) ? obj.uvs[c.t] : [0, 0];
-                    uvs.push(uv[0], 1 - uv[1]);
-
+                for (const c of [c1, c2, c3]) {
+                    positions.push(c.p[0], c.p[1], c.p[2]);
+                    normals.push(c.n[0], c.n[1], c.n[2]);
+                    uvs.push(c.t[0], c.t[1]);
                     indices.push(vertexIndex++);
                 }
+
+                return;
+            }
+
+            const a = midpoint(c1, c2);
+            const b = midpoint(c2, c3);
+            const c = midpoint(c3, c1);
+
+            emitTriangle(c1, a, c, mi, level - 1);
+            emitTriangle(c2, b, a, mi, level - 1);
+            emitTriangle(c3, c, b, mi, level - 1);
+            emitTriangle(a, b, c, mi, level - 1);
+        };
+
+        for (const poly of polys) {
+            const mi = nameToIndex.get(poly.material || "default");
+            const c0 = cornerData(poly, 0);
+
+            // Triangle fan, subdivided when a mesh-quality level is selected.
+            for (let i = 1; i < poly.corners.length - 1; i++) {
+                emitTriangle(
+                    c0,
+                    cornerData(poly, i),
+                    cornerData(poly, i + 1),
+                    mi,
+                    safeSubdivision
+                );
             }
         }
 
