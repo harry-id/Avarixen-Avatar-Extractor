@@ -267,10 +267,17 @@ async function buildFbx({
 
                 for (const c of tris) {
                     const pos = obj.positions[c.p];
-                    positions.push(pos[0] - offsetX, pos[1] - offsetY, pos[2] - offsetZ);
+                    // Blender/Prisma3D apply the FBX front-axis convention in the
+                    // opposite sense to OBJ/glTF, so rotate 180° around Y
+                    // (negate X/Z) to keep the avatar facing the same way.
+                    positions.push(
+                        -(pos[0] - offsetX),
+                        pos[1] - offsetY,
+                        -(pos[2] - offsetZ)
+                    );
 
                     const n = (c.n !== null && obj.normals[c.n]) ? obj.normals[c.n] : [0, 1, 0];
-                    normals.push(n[0], n[1], n[2]);
+                    normals.push(-n[0], n[1], -n[2]);
 
                     const uv = (c.t !== null && obj.uvs[c.t]) ? obj.uvs[c.t] : [0, 0];
                     uvs.push(uv[0], 1 - uv[1]);
