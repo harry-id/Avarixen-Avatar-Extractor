@@ -171,11 +171,12 @@ module.exports = function (app) {
         }
 
         const rig = parseBool(req.query.rig);
-        // "Separate assets": split every body part into its own object and
-        // deliver the model + external assets in one ZIP. `compat` is kept as
-        // an alias for older frontends.
+        // Every export keeps body parts as separate objects. "Separate assets"
+        // only chooses packaging: one self-contained file vs ZIP with external
+        // assets. `compat` is kept as an alias for older frontends.
         const separate =
             parseBool(req.query.separate) || parseBool(req.query.compat);
+        const splitParts = true;
         const groupName = sanitizeGroupName(req.query.name);
 
         // The FBX writer does not emit a skeleton; fail loudly instead of
@@ -210,7 +211,7 @@ module.exports = function (app) {
                     objText,
                     mtlText,
                     assetDir,
-                    splitParts: separate,
+                    splitParts,
                     groupName,
                     embedTextures: !separate
                 });
@@ -249,7 +250,7 @@ module.exports = function (app) {
             try {
                 conversion = await convertAvatar(assetDir, {
                     rig,
-                    splitParts: separate,
+                    splitParts,
                     groupName
                 });
             } catch (rigError) {
