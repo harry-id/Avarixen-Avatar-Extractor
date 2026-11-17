@@ -329,6 +329,10 @@
             user-select: none;
         }
 
+        .option-checkbox[hidden] {
+            display: none;
+        }
+
         .option-checkbox input[type="checkbox"] {
             width: 16px;
             height: 16px;
@@ -969,21 +973,23 @@ function setSelectedFormat(format) {
     });
 
     setDownloadButtonLabel();
+    updateOptionVisibility();
 }
 
-function updateFormatAvailability() {
-    const rigChecked = document.getElementById("autoRig").checked;
-    const fbxItem = Array.from(dropdownItems).find(
-        (item) => item.dataset.format === "fbx"
-    );
+function updateOptionVisibility() {
+    const fbxSelected = selectedFormat === "fbx";
+    const autoRig = document.getElementById("autoRig");
+    const autoRigRow = autoRig.closest("label");
 
-    if (fbxItem) {
-        // FBX cannot carry the auto-rig skeleton; hide it when rigging is on.
-        fbxItem.hidden = rigChecked;
+    if (!autoRigRow) {
+        return;
     }
 
-    if (rigChecked && selectedFormat === "fbx") {
-        setSelectedFormat("glb");
+    // FBX can export separate assets but cannot carry the auto-rig skeleton.
+    autoRigRow.hidden = fbxSelected;
+
+    if (fbxSelected && autoRig.checked) {
+        autoRig.checked = false;
     }
 }
 
@@ -1689,7 +1695,7 @@ function positionDropdown() {
 
 function openDropdown() {
 
-    updateFormatAvailability();
+    updateOptionVisibility();
     positionDropdown();
     downloadToggle.setAttribute("aria-expanded", "true");
 
@@ -1737,11 +1743,6 @@ dropdownItems.forEach((item) => {
 });
 
 
-document
-    .getElementById("autoRig")
-    .addEventListener("change", updateFormatAvailability);
-
-
 async function runDownload(format) {
 
     if (!currentUserId) {
@@ -1787,7 +1788,7 @@ downloadButton.addEventListener("click", () => {
 
 });
 
-updateFormatAvailability();
+updateOptionVisibility();
 setSelectedFormat(selectedFormat);
 
 
