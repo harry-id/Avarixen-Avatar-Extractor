@@ -333,6 +333,36 @@
             display: none;
         }
 
+        .advanced {
+            margin-top: 12px;
+            border-top: 1px solid #30394d;
+            padding-top: 10px;
+        }
+
+        .advanced summary {
+            cursor: pointer;
+            font-size: 13px;
+            color: #aab4c8;
+            user-select: none;
+        }
+
+        .advanced-body {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            gap: 16px;
+            margin-top: 10px;
+        }
+
+        .advanced select {
+            background: #191e2b;
+            color: #fff;
+            border: 1px solid #39445c;
+            border-radius: 6px;
+            padding: 6px 10px;
+            font-size: 13px;
+        }
+
         .option-checkbox input[type="checkbox"] {
             width: 16px;
             height: 16px;
@@ -650,6 +680,28 @@
         </label>
     </div>
 
+    <details class="advanced">
+        <summary data-i18n="advancedSettings">Advanced settings</summary>
+        <div class="advanced-body">
+            <label class="option-checkbox">
+                <span data-i18n="meshQualityLabel">Mesh quality</span>
+                <select id="meshQuality">
+                    <option value="0" data-i18n="meshQualityDefault">Default</option>
+                    <option value="1" data-i18n="meshQualityLow">Low (Subdivision 1)</option>
+                    <option value="2" data-i18n="meshQualityMedium">Medium (Subdivision 2)</option>
+                    <option value="3" data-i18n="meshQualityHigh">High (Subdivision 3)</option>
+                </select>
+            </label>
+            <label class="option-checkbox" id="moreJointsRow"
+                   data-i18n-title="moreJointsHint"
+                   title="R6 only: add extra attachment bones (hands, elbows/knees, feet)."
+                   hidden>
+                <input type="checkbox" id="moreJoints">
+                <span data-i18n="moreJoints">More joints</span>
+            </label>
+        </div>
+    </details>
+
 </main>
 
 <footer class="footer">
@@ -704,6 +756,16 @@ const LANG = {
         usernameLabel: "Username",
         displayNameLabel: "Nama Tampilan",
         userIdLabel: "ID Pengguna",
+        avatarTypeLabel: "Tipe Avatar",
+        avatarTypeUnknown: "Tidak diketahui",
+        advancedSettings: "Pengaturan Lanjutan",
+        meshQualityLabel: "Kualitas Mesh",
+        meshQualityDefault: "Default",
+        meshQualityLow: "Low (Subdivisi 1)",
+        meshQualityMedium: "Medium (Subdivisi 2)",
+        meshQualityHigh: "High (Subdivisi 3)",
+        moreJoints: "Lebih banyak sendi",
+        moreJointsHint: "R6 saja: tambahkan sendi lampiran (tangan, siku/lutut, kaki).",
         statusWaiting: "Masukkan username Roblox untuk memuat pratinjau 3D.",
         statusLoadingMaterial: "Memuat material dan tekstur...",
         statusLoadingModel: "Memuat model 3D...",
@@ -759,6 +821,16 @@ const LANG = {
         usernameLabel: "Username",
         displayNameLabel: "Display Name",
         userIdLabel: "User ID",
+        avatarTypeLabel: "Avatar Type",
+        avatarTypeUnknown: "Unknown",
+        advancedSettings: "Advanced settings",
+        meshQualityLabel: "Mesh quality",
+        meshQualityDefault: "Default",
+        meshQualityLow: "Low (Subdivision 1)",
+        meshQualityMedium: "Medium (Subdivision 2)",
+        meshQualityHigh: "High (Subdivision 3)",
+        moreJoints: "More joints",
+        moreJointsHint: "R6 only: add extra attachment bones (hands, elbows/knees, feet).",
         statusWaiting: "Enter a Roblox username to load 3D preview.",
         statusLoadingMaterial: "Loading materials and textures...",
         statusLoadingModel: "Loading 3D model...",
@@ -1009,6 +1081,18 @@ function updateOptionVisibility() {
             separate.checked = false;
         }
     }
+
+    const moreJoints = document.getElementById("moreJoints");
+    const moreJointsRow = document.getElementById("moreJointsRow");
+    const showMoreJoints = autoRig.checked && currentRigType === "R6";
+
+    if (moreJointsRow) {
+        // Extra R6 attachment joints only make sense with auto-rig on R6.
+        moreJointsRow.hidden = !showMoreJoints;
+        if (!showMoreJoints) {
+            moreJoints.checked = false;
+        }
+    }
 }
 
 const reloadButton =
@@ -1086,6 +1170,7 @@ scene.add(frontLight);
 let currentModel = null;
 let currentUserId = null;
 let currentDisplayName = null;
+let currentRigType = null;
 let currentAssetFiles = null;
 
 
@@ -1263,12 +1348,25 @@ function clearPreview() {
 
     currentUserId = null;
 
+    currentRigType = null;
+
     currentAssetFiles = null;
 
     accountInfo.style.display = "none";
 
     buildExplorer(null);
 
+}
+
+function setAccountAvatarType(rigType) {
+    currentRigType = rigType || null;
+
+    const el = document.getElementById("accountAvatarType");
+    if (el) {
+        el.textContent = currentRigType || t("avatarTypeUnknown");
+    }
+
+    updateOptionVisibility();
 }
 
 
@@ -1514,7 +1612,8 @@ searchButton.addEventListener(
                 <strong>${t("accountInfoTitle")}</strong><br>
                 ${t("usernameLabel")}: ${escapeHTML(user.username)}<br>
                 ${t("displayNameLabel")}: ${escapeHTML(user.displayName)}<br>
-                ${t("userIdLabel")}: ${user.id}
+                ${t("userIdLabel")}: ${user.id}<br>
+                ${t("avatarTypeLabel")}: <span id="accountAvatarType">${t("avatarTypeUnknown")}</span>
             `;
 
             accountInfo.style.display = "block";
@@ -1558,6 +1657,8 @@ searchButton.addEventListener(
             }
 
             currentUserId = user.id;
+
+            setAccountAvatarType(downloadResult.rigType);
 
             currentAssetFiles = Array.isArray(downloadResult.files)
                 ? downloadResult.files
@@ -1650,6 +1751,8 @@ reloadButton.addEventListener(
                 );
             }
 
+            setAccountAvatarType(result.rigType);
+
             currentAssetFiles = Array.isArray(result.files)
                 ? result.files
                 : null;
@@ -1732,6 +1835,10 @@ downloadToggle.addEventListener("click", (event) => {
 });
 
 document.addEventListener("click", closeDropdown);
+
+document
+    .getElementById("autoRig")
+    .addEventListener("change", updateOptionVisibility);
 
 window.addEventListener("resize", () => {
     if (downloadDropdown.classList.contains("show")) {
@@ -1925,11 +2032,19 @@ async function downloadConverted(format) {
     // external texture/buffer files in one ZIP.
     const separate = document.getElementById("separateAssets").checked;
 
+    const subdivision = Number(document.getElementById("meshQuality").value) || 0;
+    const moreJoints =
+        rig &&
+        currentRigType === "R6" &&
+        document.getElementById("moreJoints").checked;
+
     const convertUrl = `${BACKEND_URL}/api/roblox/convert/${encodeURIComponent(currentUserId)}/${format}`;
 
     const params = new URLSearchParams();
     if (rig) params.set("rig", "1");
     if (separate) params.set("separate", "1");
+    if (subdivision > 0) params.set("subdivision", String(subdivision));
+    if (moreJoints) params.set("moreJoints", "1");
     if (currentDisplayName) params.set("name", currentDisplayName);
     const qs = params.toString();
     const url = qs ? `${convertUrl}?${qs}` : convertUrl;
