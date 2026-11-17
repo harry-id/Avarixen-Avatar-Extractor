@@ -105,7 +105,9 @@ The conversion requires the avatar to be downloaded first (so the OBJ/MTL/textur
 
 Auto-rig (`?rig=1`) is available for GLB/GLTF only. FBX requests that ask for a rig return HTTP 400 instead of silently ignoring the option.
 
-OBJ files are normalized during download: feet sit at Y=0, X/Z are centred on the origin, and every `g` group is mirrored as an `o` object. Blender imports one object per body part, while Prisma3D and the in-browser viewer keep using the `g` groups.
+OBJ files are normalized during download: the body (excluding accessories) is centred on X/Z with the feet at Y=0, and every `g` group is mirrored as an `o` object. Player groups are renamed to body parts (`Head`, `Torso`, `LeftArm`, `RightArm`, `LeftLeg`, `RightLeg`, or the R15 names); `Handle*` accessories keep their names.
+
+**Compatibility mode** (the checkbox above the download buttons) splits every body part into its own object for GLB, GLTF, and FBX, parented under a node named after the avatar's display name. GLB/GLTF are returned as a ZIP with separate `.bin`/texture files. This avoids the single merged `character_mesh` that Prisma3D imports as one invisible object. OBJ files are always split by part; OBJ has no collection concept, so Blender lists the parts as separate flat objects.
 
 Downloaded files are named `{safeName}_{userId}.{format}` (e.g. `Roblox_11159567260.fbx`), where `safeName` is the Roblox display name/username with filesystem-illegal characters replaced.
 
