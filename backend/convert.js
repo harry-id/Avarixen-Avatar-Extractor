@@ -171,11 +171,11 @@ module.exports = function (app) {
         }
 
         const rig = parseBool(req.query.rig);
-        // Compatibility mode: split every body part into its own object and
-        // return GLB/GLTF assets as separate files (ZIP).
-        const compat =
-            parseBool(req.query.compat) || parseBool(req.query.separate);
-        const separate = compat && (fmt === "glb" || fmt === "gltf");
+        // "Separate assets": split every body part into its own object and
+        // deliver the model + external assets in one ZIP. `compat` is kept as
+        // an alias for older frontends.
+        const separate =
+            parseBool(req.query.separate) || parseBool(req.query.compat);
         const groupName = sanitizeGroupName(req.query.name);
 
         // The FBX writer does not emit a skeleton; fail loudly instead of
@@ -210,9 +210,32 @@ module.exports = function (app) {
                     objText,
                     mtlText,
                     assetDir,
-                    splitParts: compat,
-                    groupName
+                    splitParts: separate,
+                    groupName,
+                    embedTextures: !separate
                 });
+
+                if (separate) {
+                    // Model + external textures in one ZIP.
+                    const zip = new JSZip();
+                    zip.file(`${userId}.fbx`, fbx);
+
+                    const entries = await fs.readdir(assetDir);
+                    for (const entry of entries) {
+                        if (!/^texture\d+\.png$/i.test(entry)) {
+                            continue;
+                        }
+                        zip.file(entry, await fs.readFile(path.join(assetDir, entry)));
+                    }
+
+                    const zipBuffer = await zip.generateAsync({ type: "nodebuffer" });
+                    res.setHeader("Content-Type", "application/zip");
+                    res.setHeader(
+                        "Content-Disposition",
+                        `attachment; filename="${userId}.zip"`
+                    );
+                    return res.send(zipBuffer);
+                }
 
                 res.setHeader("Content-Type", "application/octet-stream");
                 res.setHeader(
@@ -226,7 +249,7 @@ module.exports = function (app) {
             try {
                 conversion = await convertAvatar(assetDir, {
                     rig,
-                    splitParts: compat,
+                    splitParts: separate,
                     groupName
                 });
             } catch (rigError) {
