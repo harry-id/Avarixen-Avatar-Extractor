@@ -14,7 +14,8 @@ const {
     computeBox,
     computeRecenter,
     matchBodyParts,
-    getPartInfo
+    getPartInfo,
+    convertAvatar
 } = require("../auto-rig");
 
 const OBJ_FIXTURE = `# minimal avatar
@@ -179,6 +180,46 @@ test("getPartInfo maps renamed groups back to body parts", () => {
         assert.equal(info.groups.length, 6);
         assert.equal(info.groups.every((group) => group.type === "player"), true);
         assert.equal(info.groups.find((group) => group.name === "Head").part, "Head");
+    } finally {
+        fs.rmSync(dir, { recursive: true, force: true });
+    }
+});
+
+test("non-rigged conversion centres on the body, not accessories", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "aae-test-"));
+    const obj = [
+        "g Player1",
+        "v -1 100 0",
+        "v 1 100 0",
+        "v 0 102 2",
+        "f 1 2 3",
+        "g Handle1",
+        "v 10 102 100",
+        "v 11 102 100",
+        "v 10 103 101",
+        "f 4 5 6",
+        ""
+    ].join("\n");
+
+    try {
+        fs.writeFileSync(path.join(dir, "avatar.obj"), obj);
+
+        const conversion = await convertAvatar(dir);
+        const prim = conversion.doc
+            .getRoot()
+            .listMeshes()[0]
+            .listPrimitives()[0];
+        const pos = prim.getAttribute("POSITION").getArray();
+
+        // Feet on the ground.
+        assert.equal(pos[1], 0);
+
+        // Body vertices (first three) are centred on X/Z.
+        const bodyZ = [pos[2], pos[5], pos[8]];
+        assert.equal((Math.min(...bodyZ) + Math.max(...bodyZ)) / 2, 0);
+
+        // The accessory stays far away and did not influence the offsets.
+        assert.ok(pos[11] > 90);
     } finally {
         fs.rmSync(dir, { recursive: true, force: true });
     }

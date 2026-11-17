@@ -948,16 +948,22 @@ async function convertAvatar(assetDir, { rig = false, splitParts = false, groupN
             handleBoneMap[hg.name] = assignHandleBone(hg, playerBoxes, parsed.positions);
         }
     } else {
-        // Non-rigged: recenter so feet sit at y=0
-        const allVerts = [];
-        for (const g of parsed.groups) {
-            for (const vi of g.vertexIndices) allVerts.push(vi);
+        // Non-rigged: center on the body only (accessories must not pull the
+        // character off the origin) and put the feet at y = 0.
+        const bodyGroups = parsed.groups.filter(
+            (g) => !g.name.startsWith("Handle")
+        );
+        const groupsForBounds = bodyGroups.length ? bodyGroups : parsed.groups;
+
+        const bodyVerts = [];
+        for (const g of groupsForBounds) {
+            for (const vi of g.vertexIndices) bodyVerts.push(vi);
         }
-        const allBoxes = { all: computeBox(allVerts, parsed.positions) };
-        const recenter = computeRecenter(allBoxes, { all: "all" });
-        offsetX = recenter.offsetX;
-        offsetY = recenter.offsetY;
-        offsetZ = recenter.offsetZ;
+
+        const bodyBox = computeBox(bodyVerts, parsed.positions);
+        offsetX = (bodyBox.xmin + bodyBox.xmax) / 2;
+        offsetY = bodyBox.ymin;
+        offsetZ = (bodyBox.zmin + bodyBox.zmax) / 2;
     }
 
     const { doc } = buildDocument(
