@@ -415,41 +415,73 @@ function computeJoints(partMapping, boxes, offsetX, offsetY, offsetZ, rigType) {
     return J;
 }
 
-function nearestPlayerPart(vertex, playerBoxes) {
-    let bestName = null;
-    let bestDist = Infinity;
-    for (const [name, box] of Object.entries(playerBoxes)) {
-        const dx = vertex[0] - box.cx;
-        const dy = vertex[1] - box.cy;
-        const dz = vertex[2] - box.cz;
-        const d = dx * dx + dy * dy + dz * dz;
-        if (d < bestDist) {
-            bestDist = d;
-            bestName = name;
-        }
-    }
-    return bestName;
+function distanceToBox(point, box) {
+    const dx = Math.max(box.xmin - point.x, 0, point.x - box.xmax);
+    const dy = Math.max(box.ymin - point.y, 0, point.y - box.ymax);
+    const dz = Math.max(box.zmin - point.z, 0, point.z - box.zmax);
+
+    return Math.sqrt(dx * dx + dy * dy + dz * dz);
+}
+
+function hipsPart(rigType) {
+    return rigType === "R15" ? "LowerTorso" : "Torso";
 }
 
 function assignHandleBone(handleGroup, playerBoxes, positions) {
-    const votes = {};
-    for (const vi of handleGroup.vertexIndices) {
-        const v = [
-            positions[vi * 3],
-            positions[vi * 3 + 1],
-            positions[vi * 3 + 2]
-        ];
-        const part = nearestPlayerPart(v, playerBoxes);
-        votes[part] = (votes[part] || 0) + 1;
+    const handleBox = computeBox(handleGroup.vertexIndices, positions);
+
+    if (!Number.isFinite(handleBox.cx)) {
+        return null;
     }
+
+    const center = { x: handleBox.cx, y: handleBox.cy, z: handleBox.cz };
+    const rigType =
+        playerBoxes.LowerTorso || playerBoxes.UpperTorso ? "R15" : "R6";
+    const torsoBox =
+        playerBoxes.UpperTorso || playerBoxes.LowerTorso || playerBoxes.Torso;
+    const torsoHalf = torsoBox ? torsoBox.sx / 2 : 0;
+    const central =
+        Math.abs(center.x - (torsoBox ? torsoBox.cx : 0)) <=
+        Math.max(torsoHalf * 1.1, 0.25);
+    const belowWaist = torsoBox ? center.y < torsoBox.cy : false;
+
     let bestPart = null;
-    let bestVotes = -1;
-    for (const [part, count] of Object.entries(votes)) {
-        if (count > bestVotes) {
-            bestVotes = count;
+    let bestScore = Infinity;
+
+    for (const [part, box] of Object.entries(playerBoxes)) {
+        let score = distanceToBox(center, box);
+
+        // Items hanging near a leg are usually tails / waist / back accessories.
+        if (/Leg|Foot/.test(part)) {
+            score *= 2.5;
+        }
+
+        // Arm and hand items only make sense when they sit outside the torso.
+        if (/Arm|Hand/.test(part) && central) {
+            score *= 2;
+        }
+
+        if (score < bestScore) {
+            bestScore = score;
             bestPart = part;
         }
     }
+
+    if (!bestPart) {
+        return null;
+    }
+
+    // Anatomical cleanup: legs are not valid attachment points for accessories;
+    // a tail or waist item belongs to the hips, and a central low item is never
+    // a head/arm accessory.
+    if (/Leg|Foot/.test(bestPart)) {
+        return hipsPart(rigType);
+    }
+
+    if (central && belowWaist && /Head|Arm|Hand/.test(bestPart)) {
+        return hipsPart(rigType);
+    }
+
     return bestPart;
 }
 

@@ -15,7 +15,8 @@ const {
     computeRecenter,
     matchBodyParts,
     getPartInfo,
-    convertAvatar
+    convertAvatar,
+    assignHandleBone
 } = require("../auto-rig");
 
 const OBJ_FIXTURE = `# minimal avatar
@@ -223,4 +224,74 @@ test("non-rigged conversion centres on the body, not accessories", async () => {
     } finally {
         fs.rmSync(dir, { recursive: true, force: true });
     }
+});
+
+function makeBox(xmin, xmax, ymin, ymax, zmin, zmax) {
+    return {
+        xmin, xmax, ymin, ymax, zmin, zmax,
+        cx: (xmin + xmax) / 2,
+        cy: (ymin + ymax) / 2,
+        cz: (zmin + zmax) / 2,
+        sx: xmax - xmin,
+        sy: ymax - ymin,
+        sz: zmax - zmin
+    };
+}
+
+function handleFrom(points) {
+    const positions = [];
+    const vertexIndices = [];
+    points.forEach((p, i) => {
+        positions.push(p[0], p[1], p[2]);
+        vertexIndices.push(i);
+    });
+    return { handleGroup: { vertexIndices }, positions };
+}
+
+const R15_BOXES = {
+    Head: makeBox(-0.5, 0.5, 9, 11, -0.5, 0.5),
+    UpperTorso: makeBox(-1, 1, 7, 9, -0.5, 0.5),
+    LowerTorso: makeBox(-1, 1, 5, 7, -0.5, 0.5),
+    LeftHand: makeBox(-2, -1.5, 7, 8, -0.5, 0.5),
+    RightHand: makeBox(1.5, 2, 7, 8, -0.5, 0.5),
+    LeftUpperLeg: makeBox(-0.8, -0.1, 2, 5, -0.5, 0.5),
+    RightUpperLeg: makeBox(0.1, 0.8, 2, 5, -0.5, 0.5)
+};
+
+test("tail-like accessory attaches to the hips (R15)", () => {
+    const { handleGroup, positions } = handleFrom([
+        [0, 4.2, 1.6], [0.2, 4.1, 1.7], [-0.2, 4.3, 1.5]
+    ]);
+
+    assert.equal(assignHandleBone(handleGroup, R15_BOXES, positions), "LowerTorso");
+});
+
+test("hand accessory stays on the hand", () => {
+    const { handleGroup, positions } = handleFrom([
+        [1.8, 7.5, 0], [1.9, 7.6, 0.1], [1.7, 7.4, -0.1]
+    ]);
+
+    assert.equal(assignHandleBone(handleGroup, R15_BOXES, positions), "RightHand");
+});
+
+test("head accessory attaches to the head", () => {
+    const { handleGroup, positions } = handleFrom([
+        [0, 10, 0], [0.2, 10.1, 0.1], [-0.2, 9.9, -0.1]
+    ]);
+
+    assert.equal(assignHandleBone(handleGroup, R15_BOXES, positions), "Head");
+});
+
+test("tail-like accessory attaches to the Torso (R6)", () => {
+    const r6 = {
+        Head: makeBox(-0.5, 0.5, 9, 11, -0.5, 0.5),
+        Torso: makeBox(-1, 1, 5, 7, -0.5, 0.5),
+        "Left Leg": makeBox(-0.8, -0.1, 2, 5, -0.5, 0.5),
+        "Right Leg": makeBox(0.1, 0.8, 2, 5, -0.5, 0.5)
+    };
+    const { handleGroup, positions } = handleFrom([
+        [0, 4.2, 1.6], [0.2, 4.1, 1.7], [-0.2, 4.3, 1.5]
+    ]);
+
+    assert.equal(assignHandleBone(handleGroup, r6, positions), "Torso");
 });
