@@ -105,6 +105,8 @@ The conversion requires the avatar to be downloaded first (so the OBJ/MTL/textur
 
 Auto-rig (`?rig=1`) is available for GLB/GLTF only. FBX requests that ask for a rig return HTTP 400 instead of silently ignoring the option.
 
+OBJ files are normalized during download: feet sit at Y=0, X/Z are centred on the origin, and every `g` group is mirrored as an `o` object. Blender imports one object per body part, while Prisma3D and the in-browser viewer keep using the `g` groups.
+
 Downloaded files are named `{safeName}_{userId}.{format}` (e.g. `Roblox_11159567260.fbx`), where `safeName` is the Roblox display name/username with filesystem-illegal characters replaced.
 
 ## Notes
