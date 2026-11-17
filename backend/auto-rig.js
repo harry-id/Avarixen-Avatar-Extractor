@@ -60,6 +60,7 @@ function parseObj(objPath) {
     const faces = [];
 
     let currentMaterial = "default";
+    let currentGroup = null;
 
     const lines = fs.readFileSync(objPath, "utf8").split(/\r?\n/);
     for (const raw of lines) {
@@ -81,6 +82,8 @@ function parseObj(objPath) {
             uvs.push(+parts[1], +parts[2]);
         } else if (tag === "usemtl") {
             currentMaterial = parts.slice(1).join(" ") || "default";
+        } else if (tag === "g") {
+            currentGroup = parts.slice(1).join(" ") || null;
         } else if (tag === "f") {
             const vertIdx = [];
             const normIdx = [];
@@ -96,52 +99,181 @@ function parseObj(objPath) {
                     verts: [vertIdx[0], vertIdx[i], vertIdx[i + 1]],
                     norms: [normIdx[0], normIdx[i], normIdx[i + 1]],
                     uvs: [uvIdx[0], uvIdx[i], uvIdx[i + 1]],
-                    material: currentMaterial
+                    material: currentMaterial,
+                    group: currentGroup
                 });
             }
         }
     }
 
-    const groupFaces = {};
-    let activeGroup = null;
-    let faceCounter = 0;
+    return { positions, normals, uvs, vertexColors, groups: rebuildGroups(faces), faces };
+}
 
-    for (const raw of lines) {
-        const line = raw.trim();
-        if (!line || line.startsWith("#")) continue;
-        const parts = line.split(/\s+/);
-        const tag = parts[0];
-        if (tag === "g") {
-            activeGroup = parts.slice(1).join(" ") || null;
-            if (!groupFaces[activeGroup]) groupFaces[activeGroup] = [];
-        } else if (tag === "f") {
-            if (activeGroup) {
-                groupFaces[activeGroup].push(faceCounter);
+function rebuildGroups(faces) {
+    const map = new Map();
+
+    faces.forEach((face, index) => {
+        if (!face.group) {
+            return;
+        }
+
+        let entry = map.get(face.group);
+
+        if (!entry) {
+            entry = {
+                name: face.group,
+                faceIndices: [],
+                vertices: new Set()
+            };
+            map.set(face.group, entry);
+        }
+
+        entry.faceIndices.push(index);
+        for (const v of face.verts) {
+            entry.vertices.add(v);
+        }
+    });
+
+    return Array.from(map.values()).map((entry) => ({
+        name: entry.name,
+        vertexIndices: Array.from(entry.vertices).sort((a, b) => a - b),
+        faceIndices: entry.faceIndices,
+        faceCount: entry.faceIndices.length,
+        material: faces[entry.faceIndices[0]]?.material || "default"
+    }));
+}
+
+/**
+ * Linear midpoint subdivision. Each level turns every triangle into four and
+ * preserves UVs, normals, vertex colors, materials, and OBJ groups.
+ * Levels are capped so an avatar cannot explode past ~2M faces.
+ */
+function subdivideParsed(parsed, levels) {
+    let safeLevels = Math.max(0, Math.min(3, Math.floor(levels || 0)));
+
+    while (
+        safeLevels > 0 &&
+        parsed.faces.length * Math.pow(4, safeLevels) > 2_000_000
+    ) {
+        safeLevels -= 1;
+    }
+
+    for (let level = 0; level < safeLevels; level++) {
+        const nextFaces = [];
+
+        for (const face of parsed.faces) {
+            if (face.verts.length !== 3) {
+                nextFaces.push(face);
+                continue;
             }
-            faceCounter++;
+
+            const corner = (i) => ({
+                p: face.verts[i],
+                n: face.norms[i] ?? -1,
+                t: face.uvs[i] ?? -1
+            });
+
+            const midpoint = (c1, c2) => {
+                const p1 = [
+                    parsed.positions[c1.p * 3],
+                    parsed.positions[c1.p * 3 + 1],
+                    parsed.positions[c1.p * 3 + 2]
+                ];
+                const p2 = [
+                    parsed.positions[c2.p * 3],
+                    parsed.positions[c2.p * 3 + 1],
+                    parsed.positions[c2.p * 3 + 2]
+                ];
+
+                const p = [(p1[0] + p2[0]) / 2, (p1[1] + p2[1]) / 2, (p1[2] + p2[2]) / 2];
+                const pIdx = parsed.positions.length / 3;
+                parsed.positions.push(...p);
+
+                let nIdx = -1;
+                if (c1.n >= 0 && c2.n >= 0) {
+                    const n1 = [
+                        parsed.normals[c1.n * 3],
+                        parsed.normals[c1.n * 3 + 1],
+                        parsed.normals[c1.n * 3 + 2]
+                    ];
+                    const n2 = [
+                        parsed.normals[c2.n * 3],
+                        parsed.normals[c2.n * 3 + 1],
+                        parsed.normals[c2.n * 3 + 2]
+                    ];
+                    let n = [
+                        (n1[0] + n2[0]) / 2,
+                        (n1[1] + n2[1]) / 2,
+                        (n1[2] + n2[2]) / 2
+                    ];
+                    const length = Math.hypot(n[0], n[1], n[2]);
+                    n = length > 0
+                        ? [n[0] / length, n[1] / length, n[2] / length]
+                        : [0, 1, 0];
+                    nIdx = parsed.normals.length / 3;
+                    parsed.normals.push(...n);
+                }
+
+                let tIdx = -1;
+                if (c1.t >= 0 && c2.t >= 0) {
+                    const t = [
+                        (parsed.uvs[c1.t * 2] + parsed.uvs[c2.t * 2]) / 2,
+                        (parsed.uvs[c1.t * 2 + 1] + parsed.uvs[c2.t * 2 + 1]) / 2
+                    ];
+                    tIdx = parsed.uvs.length / 2;
+                    parsed.uvs.push(...t);
+                }
+
+                const c1Colors = [
+                    parsed.vertexColors[c1.p * 4],
+                    parsed.vertexColors[c1.p * 4 + 1],
+                    parsed.vertexColors[c1.p * 4 + 2],
+                    parsed.vertexColors[c1.p * 4 + 3]
+                ];
+                const c2Colors = [
+                    parsed.vertexColors[c2.p * 4],
+                    parsed.vertexColors[c2.p * 4 + 1],
+                    parsed.vertexColors[c2.p * 4 + 2],
+                    parsed.vertexColors[c2.p * 4 + 3]
+                ];
+                parsed.vertexColors.push(
+                    (c1Colors[0] + c2Colors[0]) / 2,
+                    (c1Colors[1] + c2Colors[1]) / 2,
+                    (c1Colors[2] + c2Colors[2]) / 2,
+                    (c1Colors[3] + c2Colors[3]) / 2
+                );
+
+                return { p: pIdx, n: nIdx, t: tIdx };
+            };
+
+            const c0 = corner(0);
+            const c1 = corner(1);
+            const c2 = corner(2);
+            const a = midpoint(c0, c1);
+            const b = midpoint(c1, c2);
+            const c = midpoint(c2, c0);
+
+            const tri = (p1, p2, p3) => ({
+                verts: [p1.p, p2.p, p3.p],
+                norms: [p1.n, p2.n, p3.n],
+                uvs: [p1.t, p2.t, p3.t],
+                material: face.material,
+                group: face.group
+            });
+
+            nextFaces.push(
+                tri(c0, a, c),
+                tri(c1, b, a),
+                tri(c2, c, b),
+                tri(a, b, c)
+            );
         }
+
+        parsed.faces = nextFaces;
+        parsed.groups = rebuildGroups(parsed.faces);
     }
 
-    const groups = [];
-    for (const gname of Object.keys(groupFaces)) {
-        const vertSet = new Set();
-        const faceIdxs = groupFaces[gname];
-        for (const fi of faceIdxs) {
-            const f = faces[fi];
-            for (const vi of f.verts) vertSet.add(vi);
-        }
-        const vertIndices = Array.from(vertSet).sort((a, b) => a - b);
-        const material = faces[faceIdxs[0]]?.material || "default";
-        groups.push({
-            name: gname,
-            vertexIndices: vertIndices,
-            faceIndices: faceIdxs,
-            faceCount: faceIdxs.length,
-            material: material
-        });
-    }
-
-    return { positions, normals, uvs, vertexColors, groups, faces };
+    return parsed;
 }
 
 function computeBox(vertexIndices, positions) {
@@ -323,7 +455,7 @@ function computeRecenter(boxes, partMapping) {
     return { offsetX, offsetY, offsetZ };
 }
 
-function computeJoints(partMapping, boxes, offsetX, offsetY, offsetZ, rigType) {
+function computeJoints(partMapping, boxes, offsetX, offsetY, offsetZ, rigType, moreJoints = false) {
     const J = {};
     const get = (name) => boxes[partMapping[name]];
     const sub = (v) => [v[0] - offsetX, v[1] - offsetY, v[2] - offsetZ];
@@ -391,7 +523,29 @@ function computeJoints(partMapping, boxes, offsetX, offsetY, offsetZ, rigType) {
             const isArm = r6Box.cy > r6TorsoBox.cy - 0.5;
             const attachX = r6Box.cx;
             const attachY = isArm ? r6TorsoBox.ymax : r6TorsoBox.ymin;
+            const side = r6Name.split(" ")[0];
+
             J[r6Name] = sub([attachX, attachY, r6TorsoBox.cz]);
+
+            if (isArm) {
+                // Hands at the bottom of each arm so accessories can attach.
+                J[`${side} Hand`] = sub(bottomCenter(r6Box));
+
+                if (moreJoints) {
+                    J[`${side} LowerArm`] = sub([
+                        r6Box.cx,
+                        (r6Box.cy + r6Box.ymin) / 2,
+                        r6Box.cz
+                    ]);
+                }
+            } else if (moreJoints) {
+                J[`${side} LowerLeg`] = sub([
+                    r6Box.cx,
+                    (r6Box.cy + r6Box.ymin) / 2,
+                    r6Box.cz
+                ]);
+                J[`${side} Foot`] = sub(bottomCenter(r6Box));
+            }
         } else if (upperBox || lowerBox || endBox) {
             if (upperBox) {
                 const isArm = upperBox.cy > upperTorsoBox.cy - 0.5;
@@ -425,6 +579,37 @@ function distanceToBox(point, box) {
 
 function hipsPart(rigType) {
     return rigType === "R15" ? "LowerTorso" : "Torso";
+}
+
+// R6 has no hand parts, so expose synthetic hand boxes at the bottom of each
+// arm for accessory assignment.
+function addR6HandBoxes(playerBoxes) {
+    for (const side of ["Left", "Right"]) {
+        const arm = playerBoxes[side + " Arm"];
+
+        if (!arm) {
+            continue;
+        }
+
+        const height = Math.max(arm.sy * 0.25, 0.1);
+
+        playerBoxes[side + " Hand"] = {
+            xmin: arm.xmin,
+            xmax: arm.xmax,
+            ymin: arm.ymin,
+            ymax: arm.ymin + height,
+            zmin: arm.zmin,
+            zmax: arm.zmax,
+            cx: arm.cx,
+            cy: arm.ymin + height / 2,
+            cz: arm.cz,
+            sx: arm.sx,
+            sy: height,
+            sz: arm.sz
+        };
+    }
+
+    return playerBoxes;
 }
 
 function assignHandleBone(handleGroup, playerBoxes, positions) {
@@ -540,8 +725,16 @@ function buildDocument(parsed, partMapping, joints, offsetX, offsetY, offsetZ, r
         parentOf.Head = "Neck";
         parentOf["Left Arm"] = "Torso";
         parentOf["Right Arm"] = "Torso";
+        parentOf["Left Hand"] = "Left Arm";
+        parentOf["Right Hand"] = "Right Arm";
+        parentOf["Left LowerArm"] = "Left Arm";
+        parentOf["Right LowerArm"] = "Right Arm";
         parentOf["Left Leg"] = rootName;
         parentOf["Right Leg"] = rootName;
+        parentOf["Left LowerLeg"] = "Left Leg";
+        parentOf["Right LowerLeg"] = "Right Leg";
+        parentOf["Left Foot"] = "Left LowerLeg";
+        parentOf["Right Foot"] = "Right LowerLeg";
     } else if (rigType === "R15") {
         parentOf.LowerTorso = rootName;
         parentOf.UpperTorso = "LowerTorso";
@@ -604,11 +797,40 @@ function buildDocument(parsed, partMapping, joints, offsetX, offsetY, offsetZ, r
         }
         for (const side of ["Left", "Right"]) {
             const armNode = jointNodeMap[side + " Arm"];
-            if (torsoNode && armNode) torsoNode.addChild(armNode);
+
+            if (torsoNode && armNode) {
+                torsoNode.addChild(armNode);
+            }
+
+            const handNode = jointNodeMap[side + " Hand"];
+            if (armNode && handNode) {
+                armNode.addChild(handNode);
+            }
+
+            const lowerArmNode = jointNodeMap[side + " LowerArm"];
+            if (armNode && lowerArmNode) {
+                armNode.addChild(lowerArmNode);
+            }
         }
+
         for (const side of ["Left", "Right"]) {
             const legNode = jointNodeMap[side + " Leg"];
-            if (rootNode && legNode) rootNode.addChild(legNode);
+
+            if (rootNode && legNode) {
+                rootNode.addChild(legNode);
+            }
+
+            const lowerLegNode = jointNodeMap[side + " LowerLeg"];
+            if (legNode && lowerLegNode) {
+                legNode.addChild(lowerLegNode);
+            }
+
+            const footNode = jointNodeMap[side + " Foot"];
+            if (lowerLegNode && footNode) {
+                lowerLegNode.addChild(footNode);
+            } else if (legNode && footNode) {
+                legNode.addChild(footNode);
+            }
         }
     } else if (rigged && rigType === "R15") {
         const lowerTorsoNode = jointNodeMap["LowerTorso"];
@@ -921,7 +1143,13 @@ function buildDocument(parsed, partMapping, joints, offsetX, offsetY, offsetZ, r
  * @param {boolean} options.rig - add R6/R15 skeleton and skinning
  * @returns {Promise<object>} { doc, rigType, jointNames, partMapping, groups, boxes, positions, normals, uvs, vertexColors, faces, mtl }
  */
-async function convertAvatar(assetDir, { rig = false, splitParts = false, groupName = "Avatar" } = {}) {
+async function convertAvatar(assetDir, {
+    rig = false,
+    splitParts = false,
+    groupName = "Avatar",
+    subdivision = 0,
+    moreJoints = false
+} = {}) {
     const objPath = path.join(assetDir, "avatar.obj");
     if (!fs.existsSync(objPath)) {
         throw new Error("avatar.obj not found in " + assetDir);
@@ -929,6 +1157,10 @@ async function convertAvatar(assetDir, { rig = false, splitParts = false, groupN
 
     const mtl = parseMtl(path.join(assetDir, "avatar.mtl"));
     const parsed = parseObj(objPath);
+
+    if (subdivision > 0) {
+        subdivideParsed(parsed, subdivision);
+    }
     parsed._mtls = mtl;
     parsed._assetDir = assetDir;
 
@@ -970,12 +1202,25 @@ async function convertAvatar(assetDir, { rig = false, splitParts = false, groupN
         offsetY = recenter.offsetY;
         offsetZ = recenter.offsetZ;
 
-        joints = computeJoints(partMapping, boxes, offsetX, offsetY, offsetZ, rigType);
+        joints = computeJoints(
+            partMapping,
+            boxes,
+            offsetX,
+            offsetY,
+            offsetZ,
+            rigType,
+            moreJoints && rigType === "R6"
+        );
 
         const playerBoxes = {};
         for (const [part, gname] of Object.entries(partMapping)) {
             playerBoxes[part] = boxes[gname];
         }
+
+        if (rigType === "R6") {
+            addR6HandBoxes(playerBoxes);
+        }
+
         for (const hg of handleGroups) {
             handleBoneMap[hg.name] = assignHandleBone(hg, playerBoxes, parsed.positions);
         }
@@ -1064,6 +1309,11 @@ function getPartInfo(assetDir) {
         for (const [part, gname] of Object.entries(partMapping)) {
             playerBoxes[part] = boxes[gname];
         }
+
+        if (rigType === "R6") {
+            addR6HandBoxes(playerBoxes);
+        }
+
         for (const hg of handleGroups) {
             handleBoneMap[hg.name] = assignHandleBone(hg, playerBoxes, parsed.positions);
         }
@@ -1100,6 +1350,7 @@ module.exports = {
     getPartInfo,
     parseObj,
     parseMtl,
+    subdivideParsed,
     computeBox,
     detectRigType,
     detectNamedRigType,

@@ -16,7 +16,9 @@ const {
     matchBodyParts,
     getPartInfo,
     convertAvatar,
-    assignHandleBone
+    assignHandleBone,
+    computeJoints,
+    subdivideParsed
 } = require("../auto-rig");
 
 const OBJ_FIXTURE = `# minimal avatar
@@ -294,4 +296,87 @@ test("tail-like accessory attaches to the Torso (R6)", () => {
     ]);
 
     assert.equal(assignHandleBone(handleGroup, r6, positions), "Torso");
+});
+
+test("R6 rig adds hand bones at the bottom of each arm", () => {
+    const mapping = {
+        Head: "Player6",
+        Torso: "Player5",
+        "Left Arm": "Player4",
+        "Right Arm": "Player3",
+        "Left Leg": "Player2",
+        "Right Leg": "Player1"
+    };
+    const boxes = {
+        Player6: makeBox(-0.5, 0.5, 10, 11, -0.5, 0.5),
+        Player5: makeBox(-1, 1, 6, 9, -0.5, 0.5),
+        Player4: makeBox(-1.8, -1.1, 7, 9.5, -0.3, 0.3),
+        Player3: makeBox(1.1, 1.8, 7, 9.5, -0.3, 0.3),
+        Player2: makeBox(-0.9, -0.1, 2, 6, -0.3, 0.3),
+        Player1: makeBox(0.1, 0.9, 2, 6, -0.3, 0.3)
+    };
+
+    const joints = computeJoints(mapping, boxes, 0, 0, 0, "R6");
+    assert.ok(joints["Left Hand"]);
+    assert.ok(joints["Right Hand"]);
+    assert.equal(joints["Left LowerArm"], undefined);
+    assert.equal(joints["Left Foot"], undefined);
+});
+
+test("R6 more-joints adds lower arm/leg and foot joints", () => {
+    const mapping = {
+        Head: "Player6",
+        Torso: "Player5",
+        "Left Arm": "Player4",
+        "Right Arm": "Player3",
+        "Left Leg": "Player2",
+        "Right Leg": "Player1"
+    };
+    const boxes = {
+        Player6: makeBox(-0.5, 0.5, 10, 11, -0.5, 0.5),
+        Player5: makeBox(-1, 1, 6, 9, -0.5, 0.5),
+        Player4: makeBox(-1.8, -1.1, 7, 9.5, -0.3, 0.3),
+        Player3: makeBox(1.1, 1.8, 7, 9.5, -0.3, 0.3),
+        Player2: makeBox(-0.9, -0.1, 2, 6, -0.3, 0.3),
+        Player1: makeBox(0.1, 0.9, 2, 6, -0.3, 0.3)
+    };
+
+    const joints = computeJoints(mapping, boxes, 0, 0, 0, "R6", true);
+    assert.ok(joints["Left LowerArm"]);
+    assert.ok(joints["Right LowerArm"]);
+    assert.ok(joints["Left LowerLeg"]);
+    assert.ok(joints["Left Foot"]);
+    assert.ok(joints["Right Foot"]);
+});
+
+test("subdivision quadruples faces and keeps groups and UVs", () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "aae-test-"));
+    const obj = [
+        "g Torso",
+        "v 0 0 0",
+        "v 1 0 0",
+        "v 0 1 0",
+        "vt 0 0",
+        "vt 1 0",
+        "vt 0 1",
+        "vn 0 0 1",
+        "f 1/1/1 2/2/1 3/3/1",
+        ""
+    ].join("\n");
+
+    try {
+        fs.writeFileSync(path.join(dir, "avatar.obj"), obj);
+        const parsed = parseObj(path.join(dir, "avatar.obj"));
+
+        assert.equal(parsed.faces.length, 1);
+        assert.equal(parsed.groups[0].name, "Torso");
+
+        const refined = subdivideParsed(parsed, 1);
+
+        assert.equal(refined.faces.length, 4);
+        assert.equal(refined.groups[0].name, "Torso");
+        assert.ok(refined.uvs.length >= 8);
+    } finally {
+        fs.rmSync(dir, { recursive: true, force: true });
+    }
 });
