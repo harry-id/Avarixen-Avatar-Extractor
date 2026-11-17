@@ -15,6 +15,7 @@ backend/downloads/*
 
 # Backup files
 *.backup
+*.save
 
 # Editor swap files
 *.swp
