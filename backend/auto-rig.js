@@ -36,6 +36,22 @@ function parseMtl(mtlPath) {
     return materials;
 }
 
+// Resolve a texture path from the MTL while keeping it inside the asset dir.
+function resolveAssetTexture(assetDir, filename) {
+    if (!filename) {
+        return null;
+    }
+
+    const resolved = path.resolve(assetDir, filename);
+    const root = path.resolve(assetDir);
+
+    if (resolved !== root && !resolved.startsWith(root + path.sep)) {
+        return null;
+    }
+
+    return resolved;
+}
+
 function parseObj(objPath) {
     const positions = [];
     const normals = [];
@@ -408,8 +424,8 @@ function buildDocument(parsed, partMapping, joints, offsetX, offsetY, offsetZ, r
         const mat = doc.createMaterial(matName);
 
         if (mtl.map_Kd) {
-            const texPath = path.join(parsed._assetDir, mtl.map_Kd);
-            if (fs.existsSync(texPath)) {
+            const texPath = resolveAssetTexture(parsed._assetDir, mtl.map_Kd);
+            if (texPath && fs.existsSync(texPath)) {
                 const pngData = fs.readFileSync(texPath);
                 const tex = doc.createTexture(matName + "_tex")
                     .setMimeType("image/png")
@@ -568,7 +584,7 @@ function buildDocument(parsed, partMapping, joints, offsetX, offsetY, offsetZ, r
                 const pz = (positions[vIdx * 3 + 2] - offsetZ).toFixed(4);
                 const u = uIdx >= 0 && uvs.length > uIdx * 2 ? uvs[uIdx * 2].toFixed(4) : '0';
                 const v = uIdx >= 0 && uvs.length > uIdx * 2 ? (1.0 - uvs[uIdx * 2 + 1]).toFixed(4) : '0';
-                const key = `${px}|${py}|${pz}|${u}|${v}`;
+                const key = `${px}|${py}|${pz}|${u}|${v}|${nIdx}`;
 
                 let localIdx;
                 if (cornerMap[key] !== undefined) {
@@ -624,7 +640,7 @@ function buildDocument(parsed, partMapping, joints, offsetX, offsetY, offsetZ, r
                 const pz = (positions[vIdx * 3 + 2] - offsetZ).toFixed(4);
                 const u = uIdx >= 0 && uvs.length > uIdx * 2 ? uvs[uIdx * 2].toFixed(4) : '0';
                 const v = uIdx >= 0 && uvs.length > uIdx * 2 ? (1.0 - uvs[uIdx * 2 + 1]).toFixed(4) : '0';
-                const key = `${px}|${py}|${pz}|${u}|${v}`;
+                const key = `${px}|${py}|${pz}|${u}|${v}|${nIdx}`;
                 groupIndices.push(globalIndexOffset + cornerMap[key]);
             }
         }
@@ -674,7 +690,16 @@ function buildDocument(parsed, partMapping, joints, offsetX, offsetY, offsetZ, r
             prim.setAttribute("WEIGHTS_0", createAccessor(doc, buffer, new Float32Array(allWeights), "VEC4", Accessor.ComponentType.FLOAT));
         }
 
-        prim.setIndices(createAccessor(doc, buffer, new Uint16Array(primIndices), "SCALAR", Accessor.ComponentType.UNSIGNED_SHORT))
+        const needsUint32 =
+            allPos.length / 3 > 65535 || primIndices.length > 65535;
+        const indexArray = needsUint32
+            ? new Uint32Array(primIndices)
+            : new Uint16Array(primIndices);
+        const indexComponentType = needsUint32
+            ? Accessor.ComponentType.UNSIGNED_INT
+            : Accessor.ComponentType.UNSIGNED_SHORT;
+
+        prim.setIndices(createAccessor(doc, buffer, indexArray, "SCALAR", indexComponentType))
             .setMaterial(materialMap[matName] || materialMap["default"] || null);
 
         mesh.addPrimitive(prim);
