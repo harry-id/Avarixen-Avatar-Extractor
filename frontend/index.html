@@ -466,14 +466,16 @@
 
         .dropdown-content {
             display: none;
-            position: fixed;
-            background-color: #191e2b;
-            width: 240px;
-            max-height: 280px;
-            overflow-y: auto;
-            box-shadow: 0 8px 16px rgba(0, 0, 0, 0.5);
-            border-radius: 8px;
-            border: 1px solid #39445c;
+            position: absolute;
+            top: calc(100% + 6px);
+            left: 0;
+            min-width: 100%;
+            width: max-content;
+            max-width: 280px;
+            background: transparent;
+            border: none;
+            box-shadow: none;
+            overflow: visible;
             z-index: 1000;
             scrollbar-width: thin;
         }
@@ -497,7 +499,12 @@
         }
 
         .dropdown-content button:hover {
-            background: #202738;
+            color: #4285f4;
+        }
+
+        .dropdown-content button.selected::before {
+            content: "✓ ";
+            color: #4285f4;
         }
 
         .dropdown-content button.disabled {
@@ -624,17 +631,17 @@
                     aria-expanded="false"
                 >▼</button>
             </div>
-            <div id="downloadDropdown" class="dropdown-content">
-                <button class="dropdown-item" data-format="obj" data-i18n="downloadObjOption">
+            <div id="downloadDropdown" class="dropdown-content" role="menu">
+                <button class="dropdown-item" data-format="obj" data-i18n="downloadObjOption" role="menuitemradio" aria-checked="false">
                     Unduh OBJ (OBJ + MTL + Texture)
                 </button>
-                <button class="dropdown-item" data-format="glb" data-i18n="downloadGlb">
+                <button class="dropdown-item" data-format="glb" data-i18n="downloadGlb" role="menuitemradio" aria-checked="false">
                     Unduh GLB
                 </button>
-                <button class="dropdown-item" data-format="gltf" data-i18n="downloadGltf">
+                <button class="dropdown-item" data-format="gltf" data-i18n="downloadGltf" role="menuitemradio" aria-checked="false">
                     Unduh GLTF
                 </button>
-                <button class="dropdown-item" data-format="fbx" data-i18n="downloadFbx">
+                <button class="dropdown-item" data-format="fbx" data-i18n="downloadFbx" role="menuitemradio" aria-checked="false">
                     Unduh FBX (Legacy)
                 </button>
             </div>
@@ -848,6 +855,11 @@ function setLang(lang) {
     if (apiStatusState) {
         renderApiStatus(apiStatusState);
     }
+
+    // Keep the download button label and format menu in the active language.
+    if (typeof setDownloadButtonLabel === "function") {
+        setDownloadButtonLabel();
+    }
 }
 
 let currentStatusKey = null;
@@ -932,6 +944,51 @@ const downloadDropdown =
 const dropdownItems =
     document.querySelectorAll(".dropdown-item");
 
+let selectedFormat = "obj";
+
+const DOWNLOAD_LABEL_KEYS = {
+    obj: "downloadObj",
+    glb: "downloadGlb",
+    gltf: "downloadGltf",
+    fbx: "downloadFbx"
+};
+
+function formatLabel(format) {
+    return t(DOWNLOAD_LABEL_KEYS[format] || "downloadObj");
+}
+
+function setDownloadButtonLabel() {
+    downloadButton.textContent = formatLabel(selectedFormat);
+}
+
+function setSelectedFormat(format) {
+    selectedFormat = format;
+
+    dropdownItems.forEach((item) => {
+        const active = item.dataset.format === format;
+        item.classList.toggle("selected", active);
+        item.setAttribute("aria-checked", active ? "true" : "false");
+    });
+
+    setDownloadButtonLabel();
+}
+
+function updateFormatAvailability() {
+    const rigChecked = document.getElementById("autoRig").checked;
+    const fbxItem = Array.from(dropdownItems).find(
+        (item) => item.dataset.format === "fbx"
+    );
+
+    if (fbxItem) {
+        // FBX cannot carry the auto-rig skeleton; hide it when rigging is on.
+        fbxItem.hidden = rigChecked;
+    }
+
+    if (rigChecked && selectedFormat === "fbx") {
+        setSelectedFormat("glb");
+    }
+}
+
 const reloadButton =
     document.getElementById("reloadButton");
 
@@ -941,9 +998,12 @@ const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x202738);
 
 
+const initialViewerWidth = viewer.clientWidth || window.innerWidth || 800;
+const initialViewerHeight = viewer.clientHeight || 500;
+
 const camera = new THREE.PerspectiveCamera(
     45,
-    viewer.clientWidth / viewer.clientHeight,
+    initialViewerWidth / initialViewerHeight,
     0.1,
     1000
 );
@@ -957,8 +1017,8 @@ const renderer = new THREE.WebGLRenderer({
 });
 
 renderer.setSize(
-    viewer.clientWidth,
-    viewer.clientHeight
+    initialViewerWidth,
+    initialViewerHeight
 );
 
 renderer.setPixelRatio(
@@ -1604,59 +1664,50 @@ function closeDropdown() {
 
 }
 
-function positionDropdown() {
-    // Floating popup: place below the button, or above if there's not enough room.
-    const anchor = downloadToggle.parentElement.getBoundingClientRect();
+function openDropdown() {
+
+    updateFormatAvailability();
     downloadDropdown.classList.add("show");
-    const dropRect = downloadDropdown.getBoundingClientRect();
-    const gap = 6;
+    downloadToggle.setAttribute("aria-expanded", "true");
 
-    let top = anchor.bottom + gap;
-    if (top + dropRect.height > window.innerHeight - 8) {
-        // Not enough room below — open above the button.
-        top = anchor.top - dropRect.height - gap;
-        if (top < 8) top = 8;
-    }
-
-    let left = anchor.right - dropRect.width;
-    if (left < 8) left = 8;
-    if (left + dropRect.width > window.innerWidth - 8) {
-        left = window.innerWidth - dropRect.width - 8;
-    }
-
-    downloadDropdown.style.top = `${Math.round(top)}px`;
-    downloadDropdown.style.left = `${Math.round(left)}px`;
 }
 
 downloadToggle.addEventListener("click", (event) => {
 
     event.stopPropagation();
 
-    const willOpen = !downloadDropdown.classList.contains("show");
-
-    if (willOpen) {
-        positionDropdown();
-    } else {
+    if (downloadDropdown.classList.contains("show")) {
         closeDropdown();
+    } else {
+        openDropdown();
     }
-
-    downloadToggle.setAttribute("aria-expanded", willOpen ? "true" : "false");
 
 });
 
 document.addEventListener("click", closeDropdown);
 
-// Reposition dropdown on scroll/resize.
-window.addEventListener("resize", () => {
-    if (downloadDropdown.classList.contains("show")) positionDropdown();
+
+// Choosing an option only selects the format; the main button downloads it.
+dropdownItems.forEach((item) => {
+
+    item.addEventListener("click", (event) => {
+
+        event.stopPropagation();
+
+        setSelectedFormat(item.dataset.format);
+        closeDropdown();
+
+    });
+
 });
 
-window.addEventListener("scroll", () => {
-    if (downloadDropdown.classList.contains("show")) positionDropdown();
-}, true);
+
+document
+    .getElementById("autoRig")
+    .addEventListener("change", updateFormatAvailability);
 
 
-downloadButton.addEventListener("click", async () => {
+async function runDownload(format) {
 
     if (!currentUserId) {
 
@@ -1670,66 +1721,40 @@ downloadButton.addEventListener("click", async () => {
 
     try {
 
-        await downloadZip();
+        if (format === "obj") {
+            await downloadZip();
+        } else {
+            await downloadConverted(format);
+        }
 
     } catch (error) {
 
-        alert(t("alertZipFailed", { message: error.message }));
+        alert(
+            t(
+                format === "obj" ? "alertZipFailed" : "errorConvertFailed",
+                { message: error.message }
+            )
+        );
 
     } finally {
 
         downloadButton.disabled = false;
         downloadToggle.disabled = false;
-        downloadButton.textContent = t("downloadObj");
+        setDownloadButtonLabel();
 
     }
 
-});
+}
 
+downloadButton.addEventListener("click", () => {
 
-dropdownItems.forEach((item) => {
-
-    item.addEventListener("click", async (event) => {
-
-        event.stopPropagation();
-
-        const format = item.dataset.format;
-
-        closeDropdown();
-
-        if (!currentUserId) {
-
-            alert(t("errorNoAvatarZip"));
-            return;
-
-        }
-
-        downloadButton.disabled = true;
-        downloadToggle.disabled = true;
-
-        try {
-
-            if (format === "obj") {
-                await downloadZip();
-            } else {
-                await downloadConverted(format);
-            }
-
-        } catch (error) {
-
-            alert(t("errorConvertFailed", { message: error.message }));
-
-        } finally {
-
-            downloadButton.disabled = false;
-            downloadToggle.disabled = false;
-            downloadButton.textContent = t("downloadObj");
-
-        }
-
-    });
+    runDownload(selectedFormat);
 
 });
+
+updateFormatAvailability();
+setSelectedFormat(selectedFormat);
+
 
 async function downloadZip() {
 
@@ -1835,7 +1860,7 @@ async function downloadZip() {
         1000
     );
 
-    downloadButton.textContent = t("downloadObj");
+    setDownloadButtonLabel();
 }
 
 async function downloadConverted(format) {
@@ -1897,22 +1922,33 @@ async function downloadConverted(format) {
 
 
 
-window.addEventListener(
-    "resize",
-    () => {
+function resizeViewer() {
 
-        camera.aspect =
-            viewer.clientWidth / viewer.clientHeight;
+    const width = viewer.clientWidth;
+    const height = viewer.clientHeight;
 
-        camera.updateProjectionMatrix();
-
-        renderer.setSize(
-            viewer.clientWidth,
-            viewer.clientHeight
-        );
-
+    // Mobile browsers can report 0 before the first layout pass.
+    if (!width || !height) {
+        return;
     }
-);
+
+    camera.aspect = width / height;
+
+    camera.updateProjectionMatrix();
+
+    renderer.setSize(width, height);
+
+}
+
+window.addEventListener("resize", resizeViewer);
+window.addEventListener("orientationchange", resizeViewer);
+window.addEventListener("load", resizeViewer);
+
+if ("ResizeObserver" in window) {
+    new ResizeObserver(resizeViewer).observe(viewer);
+}
+
+requestAnimationFrame(resizeViewer);
 
 
 
