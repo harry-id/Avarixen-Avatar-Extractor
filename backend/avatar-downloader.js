@@ -29,7 +29,7 @@ function getHost(hash) {
 
 const ASSET_HEADERS = {
     "User-Agent":
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36",
+        "Avarixen/1.0.0 (x64) Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36",
     "Accept": "*/*",
     "Accept-Language": "en-US,en;q=0.9,id;q=0.8",
     "Referer": "https://www.roblox.com/",
@@ -45,6 +45,58 @@ function getAllHosts(hash) {
     // Put the computed host first, then the rest
     const computed = getHost(hash);
     return [computed, ...hosts.filter((h) => h !== computed)];
+}
+
+function escapeRegExp(value) {
+    return String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+// Match a hash only as a whole token so short hashes cannot corrupt MTL
+// keywords or material names (e.g. "a" inside "map_Kd").
+function hashPattern(hash) {
+    return new RegExp(`(?<![A-Za-z0-9])${escapeRegExp(hash)}(?![A-Za-z0-9])`);
+}
+
+/**
+ * Assign contiguous textureN.png names to successfully downloaded textures and
+ * rewrite the MTL references. Missing textures are reported so their MTL lines
+ * can be dropped instead of leaving dangling CDN hashes behind.
+ */
+function planTextures(hashes, buffers, mtlText) {
+    const textures = [];
+    const missing = [];
+    const renames = new Map();
+    let index = 0;
+
+    hashes.forEach((hash, i) => {
+        const buffer = buffers[i];
+
+        if (!buffer) {
+            missing.push(hash);
+            return;
+        }
+
+        index += 1;
+        const filename = `texture${index}.png`;
+        renames.set(hash, filename);
+        textures.push({ filename, buffer });
+    });
+
+    let mtl = mtlText;
+
+    for (const [hash, filename] of renames) {
+        mtl = mtl.replace(hashPattern(hash), filename);
+    }
+
+    if (missing.length) {
+        const missingPatterns = missing.map(hashPattern);
+        mtl = mtl
+            .split(/\r?\n/)
+            .filter((line) => !missingPatterns.some((pattern) => pattern.test(line)))
+            .join("\n");
+    }
+
+    return { textures, missing, mtl };
 }
 
 async function tryDownloadUrl(url, fetchWithTimeout, headers) {
@@ -229,21 +281,19 @@ module.exports = function (app, options = {}) {
             let mtl = decompress(mtlRaw).toString("utf8");
 
             // Pair textures with their buffers, skipping any that failed to download.
-            const textureFiles = metadata.textures
-                .map((hash, index) => {
-                    const buffer = textureRawBuffers[index];
-                    if (!buffer) {
-                        console.warn(`Skipping texture ${hash} (download failed)`);
-                        return null;
-                    }
-                    const filename = `texture${index + 1}.png`;
-                    mtl = mtl.replaceAll(hash, filename);
-                    return {
-                        filename,
-                        buffer
-                    };
-                })
-                .filter(Boolean);
+            // Names stay contiguous so the frontend ZIP probe sees every texture.
+            const texturePlan = planTextures(
+                metadata.textures,
+                textureRawBuffers,
+                mtl
+            );
+
+            for (const hash of texturePlan.missing) {
+                console.warn(`Skipping texture ${hash} (download failed)`);
+            }
+
+            const textureFiles = texturePlan.textures;
+            mtl = texturePlan.mtl;
 
             if (/^mtllib\s+/m.test(obj)) {
                 obj = obj.replace(/^mtllib.*$/gm, "mtllib avatar.mtl");
@@ -284,11 +334,20 @@ module.exports = function (app, options = {}) {
                 )
             ];
 
+            const totalSize =
+                Buffer.byteLength(obj) +
+                Buffer.byteLength(mtl) +
+                textureFiles.reduce(
+                    (sum, texture) => sum + texture.buffer.length,
+                    0
+                );
+
             res.json({
                 success: true,
                 message: t(lang, "download.success"),
                 textureCount: textureFiles.length,
-                files
+                files,
+                totalSize
             });
 
         } catch (error) {
@@ -303,3 +362,6 @@ module.exports = function (app, options = {}) {
         }
     });
 };
+
+// Exported for unit tests (pure helper, no Express dependency).
+module.exports.planTextures = planTextures;
