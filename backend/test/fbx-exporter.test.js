@@ -45,6 +45,42 @@ test("buildFbx produces a binary FBX buffer", async () => {
     }
 });
 
+test("buildFbx splits body parts in compatibility mode", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "aae-fbx-"));
+
+    const obj = [
+        "g Head",
+        "v 0 12 0",
+        "v 1 12 0",
+        "v 0 13 0",
+        "f 1 2 3",
+        "g Torso",
+        "v 0 8 0",
+        "v 1 8 0",
+        "v 0 9 0",
+        "f 4 5 6",
+        ""
+    ].join("\n");
+
+    try {
+        const fbx = await buildFbx({
+            objText: obj,
+            mtlText: "",
+            assetDir: dir,
+            splitParts: true,
+            groupName: "Tester"
+        });
+
+        assert.ok(Buffer.isBuffer(fbx));
+        assert.equal(fbx.subarray(0, 20).toString("ascii").startsWith("Kaydara FBX Binary"), true);
+        assert.equal(fbx.includes(Buffer.from("Tester")), true);
+        assert.equal(fbx.includes(Buffer.from("Head")), true);
+        assert.equal(fbx.includes(Buffer.from("Torso")), true);
+    } finally {
+        fs.rmSync(dir, { recursive: true, force: true });
+    }
+});
+
 test("buildFbx rejects an OBJ without faces", async () => {
     await assert.rejects(
         () => buildFbx({
