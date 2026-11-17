@@ -8,7 +8,11 @@ app.use("/assets", express.static(
 path.join(__dirname, "../downloads")
 ));
 
-app.use(express.static(__dirname));
+// Serve only the UI entry point; do not expose server.js, package files,
+// node_modules, or stray files that happen to live in this directory.
+app.get(["/", "/index.html"], (req, res) => {
+    res.sendFile(path.join(__dirname, "index.html"));
+});
 
 const server = app.listen(PORT);
 
