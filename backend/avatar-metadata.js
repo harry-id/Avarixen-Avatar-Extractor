@@ -29,10 +29,35 @@ async function fetchAvatar3D(fetchWithTimeout, apiKey, userId, options = {}) {
     let last = { ok: false, status: null, result: null, imageUrl: null, attempts: 0 };
 
     for (let attempt = 1; attempt <= attempts; attempt++) {
-        const response = await fetchWithTimeout(
-            avatar3dUrl(userId),
-            { headers: { "x-api-key": apiKey } }
-        );
+        let response;
+
+        try {
+            response = await fetchWithTimeout(
+                avatar3dUrl(userId),
+                { headers: { "x-api-key": apiKey } }
+            );
+        } catch (error) {
+            // Network / timeout errors are retried like retryable HTTP statuses.
+            last = {
+                ok: false,
+                status: null,
+                result: null,
+                imageUrl: null,
+                attempts: attempt,
+                error
+            };
+
+            if (attempt >= attempts) {
+                // Preserve the caller's timeout (504) / failure (500) mapping.
+                throw error;
+            }
+
+            console.warn(
+                `Avatar metadata request failed (attempt ${attempt}/${attempts}): ${error.message}. Retrying...`
+            );
+            await sleep(delayMs);
+            continue;
+        }
 
         let result = null;
 
