@@ -1,5 +1,4 @@
 const fs = require("fs/promises");
-const fsSync = require("fs");
 const path = require("path");
 const os = require("os");
 const { NodeIO } = require("@gltf-transform/core");
@@ -160,6 +159,15 @@ module.exports = function (app) {
         const rig = parseBool(req.query.rig);
         // "Separate assets" only affects GLB/GLTF; OBJ and FBX are always separate.
         const separate = parseBool(req.query.separate) && (fmt === "glb" || fmt === "gltf");
+
+        // The FBX writer does not emit a skeleton; fail loudly instead of
+        // silently ignoring the requested rig.
+        if (fmt === "fbx" && rig) {
+            return res.status(400).json({
+                success: false,
+                message: t(lang, "convert.rig_unsupported_fbx")
+            });
+        }
 
         const assetDir = path.join(__dirname, "../downloads", userId);
         const objPath = path.join(assetDir, "avatar.obj");
