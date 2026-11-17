@@ -137,12 +137,17 @@ async function loadTexture(assetDir, filename) {
         const buf = fs.readFileSync(resolved);
         const png = PNG.sync.read(buf);
 
-        return new THREE.DataTexture(
+        const texture = new THREE.DataTexture(
             new Uint8ClampedArray(png.data),
             png.width,
             png.height,
             THREE.RGBAFormat
         );
+        // The FBX exporter uses the texture name as the external file name
+        // when embedTextures is false.
+        texture.name = path.basename(filename).replace(/\.[^.]+$/, "");
+
+        return texture;
     } catch {
         return null;
     }
@@ -173,7 +178,8 @@ async function buildFbx({
     mtlText,
     assetDir,
     splitParts = false,
-    groupName = "Avatar"
+    groupName = "Avatar",
+    embedTextures = true
 }) {
     const { THREE: T, FBXExporter } = await ensureModules();
 
@@ -326,7 +332,7 @@ async function buildFbx({
     const exporter = new FBXExporter();
     const fbxBytes = exporter.parseSync(scene, {
         binary: true,
-        embedTextures: true,
+        embedTextures,
         // Y-up, Z-forward, unit scale 100: Blender imports metres at the
         // right size instead of treating the model as centimetres.
         preset: "blender"
