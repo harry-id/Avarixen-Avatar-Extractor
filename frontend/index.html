@@ -33,6 +33,13 @@
             gap: 4px;
         }
 
+        .brand-row {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+
         header h1 {
             margin: 0;
             font-size: 22px;
@@ -211,6 +218,20 @@
             font-weight: normal;
             color: #6c7a94;
             font-size: 12px;
+        }
+
+        .explorer-title-group {
+            display: flex;
+            align-items: baseline;
+            gap: 8px;
+            min-width: 0;
+        }
+
+        .explorer-header .explorer-size {
+            font-weight: normal;
+            color: #556070;
+            font-size: 11px;
+            white-space: nowrap;
         }
 
         .explorer-tree {
@@ -512,7 +533,13 @@
 
 <header>
     <div class="brand">
-        <h1 data-i18n="appTitle">Avarixen Avatar Extractor</h1>
+        <div class="brand-row">
+            <h1 data-i18n="appTitle">Avarixen Avatar Extractor</h1>
+            <div class="api-status" id="apiStatus" title="Backend API status">
+                <span class="api-dot"></span>
+                <span id="apiStatusText">API Online</span>
+            </div>
+        </div>
         <p data-i18n="appSubtitle">Roblox Avatar 3D Preview</p>
     </div>
     <div class="lang-selector">
@@ -521,10 +548,6 @@
             <option value="id">Indonesia</option>
             <option value="en">English</option>
         </select>
-        <div class="api-status" id="apiStatus" title="Backend API status">
-            <span class="api-dot"></span>
-            <span id="apiStatusText">API Online</span>
-        </div>
     </div>
 </header>
 
@@ -549,7 +572,10 @@
         </div>
         <aside id="explorer">
             <div class="explorer-header">
-                <span data-i18n="explorerTitle">Model Explorer</span>
+                <div class="explorer-title-group">
+                    <span data-i18n="explorerTitle">Model Explorer</span>
+                    <span class="explorer-size" id="explorerSize"></span>
+                </div>
                 <span class="explorer-count" id="explorerCount"></span>
             </div>
             <div class="explorer-tree" id="explorerTree">
@@ -598,16 +624,16 @@
             </div>
             <div id="downloadDropdown" class="dropdown-content">
                 <button class="dropdown-item" data-format="obj" data-i18n="downloadObjOption">
-                    OBJ + MTL + Tekstur
+                    Unduh OBJ (OBJ + MTL + Texture)
                 </button>
                 <button class="dropdown-item" data-format="glb" data-i18n="downloadGlb">
-                    Unduh Avatar (GLB)
+                    Unduh GLB
                 </button>
                 <button class="dropdown-item" data-format="gltf" data-i18n="downloadGltf">
-                    Unduh Avatar (GLTF)
+                    Unduh GLTF
                 </button>
                 <button class="dropdown-item" data-format="fbx" data-i18n="downloadFbx">
-                    Unduh Avatar (FBX) (Legacy)
+                    Unduh FBX (Legacy)
                 </button>
             </div>
         </div>
@@ -633,7 +659,7 @@
         </a>
     </div>
     <p class="copyright">
-        © 2024–2026 <a href="https://github.com/Avarixen" target="_blank" rel="noopener noreferrer">Avarixen</a>. All rights reserved.
+        © 2026 <a href="https://github.com/Avarixen" target="_blank" rel="noopener noreferrer">Avarixen</a>. All rights reserved.
     </p>
 </footer>
 
@@ -686,15 +712,15 @@ const LANG = {
         reloadButton: "Muat Ulang Model",
         reloadNoAvatar: "Cari avatar Roblox terlebih dahulu untuk memuat pratinjau.",
         downloadObj: "Unduh OBJ",
-        downloadObjOption: "OBJ + MTL + Tekstur",
+        downloadObjOption: "Unduh OBJ (OBJ + MTL + Texture)",
         downloadFormatLabel: "Pilih format unduhan",
         downloadCreating: "Membuat ZIP...",
         errorNoAvatarZip: "Cari avatar Roblox terlebih dahulu.",
         errorZipFetch: "Gagal mengambil {{file}}",
         alertZipFailed: "Gagal membuat ZIP: {{message}}",
-        downloadGlb: "Unduh Avatar (GLB)",
-        downloadGltf: "Unduh Avatar (GLTF)",
-        downloadFbx: "Unduh Avatar (FBX) (Legacy)",
+        downloadGlb: "Unduh GLB",
+        downloadGltf: "Unduh GLTF",
+        downloadFbx: "Unduh FBX (Legacy)",
         errorConvertFailed: "Konversi gagal: {{message}}",
         statusConverting: "Mengonversi model ke {{format}}...",
         explorerTitle: "Penjelajah Model",
@@ -740,15 +766,15 @@ const LANG = {
         reloadButton: "Reload Model",
         reloadNoAvatar: "Please search for a Roblox avatar first to load preview.",
         downloadObj: "Download OBJ",
-        downloadObjOption: "OBJ + MTL + Textures",
+        downloadObjOption: "Download OBJ (OBJ + MTL + Texture)",
         downloadFormatLabel: "Choose download format",
         downloadCreating: "Creating ZIP...",
         errorNoAvatarZip: "Please search for a Roblox avatar first.",
         errorZipFetch: "Failed to fetch {{file}}",
         alertZipFailed: "Failed to create ZIP: {{message}}",
-        downloadGlb: "Download Avatar (GLB)",
-        downloadGltf: "Download Avatar (GLTF)",
-        downloadFbx: "Download Avatar (FBX) (Legacy)",
+        downloadGlb: "Download GLB",
+        downloadGltf: "Download GLTF",
+        downloadFbx: "Download FBX (Legacy)",
         errorConvertFailed: "Conversion failed: {{message}}",
         statusConverting: "Converting model to {{format}}...",
         explorerTitle: "Model Explorer",
@@ -866,7 +892,7 @@ function renderApiStatus(state) {
 
 async function checkApiStatus() {
     try {
-        const resp = await fetch(`${BACKEND_URL}/`, { cache: "no-store" });
+        const resp = await fetch(`${BACKEND_URL}/api/health`, { cache: "no-store" });
         if (!resp.ok) throw new Error("bad status");
         renderApiStatus("online");
     } catch {
@@ -974,6 +1000,7 @@ scene.add(frontLight);
 let currentModel = null;
 let currentUserId = null;
 let currentDisplayName = null;
+let currentAssetFiles = null;
 
 
 
@@ -1150,6 +1177,8 @@ function clearPreview() {
 
     currentUserId = null;
 
+    currentAssetFiles = null;
+
     accountInfo.style.display = "none";
 
     buildExplorer(null);
@@ -1158,6 +1187,18 @@ function clearPreview() {
 
 
 // Model explorer sidebar
+
+function formatSize(bytes) {
+    if (!bytes || bytes < 0) return "";
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
+}
+
+function setExplorerSize(bytes) {
+    const sizeEl = document.getElementById("explorerSize");
+    if (sizeEl) sizeEl.textContent = formatSize(bytes);
+}
 
 async function buildExplorer(userId) {
 
@@ -1170,6 +1211,8 @@ async function buildExplorer(userId) {
         treeEl.innerHTML = `<div class="explorer-empty">${t("explorerEmpty")}</div>`;
 
         countEl.textContent = "";
+
+        setExplorerSize(null);
 
         return;
 
@@ -1430,7 +1473,13 @@ searchButton.addEventListener(
 
             currentUserId = user.id;
 
+            currentAssetFiles = Array.isArray(downloadResult.files)
+                ? downloadResult.files
+                : null;
+
             setStatus("statusDownloaded");
+
+            setExplorerSize(downloadResult.totalSize);
 
             loadModel(currentUserId);
 
@@ -1515,7 +1564,13 @@ reloadButton.addEventListener(
                 );
             }
 
+            currentAssetFiles = Array.isArray(result.files)
+                ? result.files
+                : null;
+
             setStatus("statusDownloaded");
+
+            setExplorerSize(result.totalSize);
 
             loadModel(currentUserId, true);
 
@@ -1682,24 +1737,32 @@ async function downloadZip() {
     const safeName = String(currentDisplayName || "Avarixen").replace(/[\\/:*?"<>|]/g, "_").trim().replace(/[. ]+$/g, "") || "Avarixen";
     const baseName = safeName.toLowerCase();
 
-    const files = [
-        "avatar.obj",
-        "avatar.mtl"
-    ];
+    // Prefer the exact file list the download endpoint reported. The old HEAD
+    // probe stopped at the first gap and silently dropped later textures.
+    let files = [];
 
-    let textureIndex = 1;
+    if (currentAssetFiles && currentAssetFiles.length) {
+        files = currentAssetFiles.map((file) => String(file).split("/").pop());
+    } else {
+        files = [
+            "avatar.obj",
+            "avatar.mtl"
+        ];
 
-    while (true) {
-        const filename = `texture${textureIndex}.png`;
+        let textureIndex = 1;
 
-        const check = await fetch(assetPath + filename, {
-            method: "HEAD"
-        });
+        while (true) {
+            const filename = `texture${textureIndex}.png`;
 
-        if (!check.ok) break;
+            const check = await fetch(assetPath + filename, {
+                method: "HEAD"
+            });
 
-        files.push(filename);
-        textureIndex++;
+            if (!check.ok) break;
+
+            files.push(filename);
+            textureIndex++;
+        }
     }
 
     const zip = new JSZip();
@@ -1755,7 +1818,6 @@ async function downloadZip() {
 
     link.href = url;
 
-    const zipName = String(currentDisplayName || "Avarixen-Avatar").replace(/[\\/:*?"<>|]/g, "_").trim().replace(/[. ]+$/g, "") || "Avarixen-Avatar";
     link.download = `${safeName}_${currentUserId}.zip`;
 
     document.body.appendChild(link);
