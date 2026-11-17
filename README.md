@@ -81,7 +81,7 @@ Press `Ctrl+C` to stop both servers.
 
 Open `http://localhost:3001`, enter a Roblox username, and load/export the avatar.
 
-## Languanges
+## Languages
 
 The frontend supports **Indonesian (`id`)** and **English (`en`)**:
 
@@ -97,11 +97,13 @@ The download control is a split button: clicking the main button downloads OBJ (
 | Format | Endpoint | Notes |
 |--------|----------|-------|
 | OBJ (ZIP) | Frontend-side | Bundles OBJ, MTL, and textures into a ZIP |
-| GLB | `GET /api/roblox/convert/:userId/glb` | Binary GLTF, backend-converted via `obj2gltf` |
-| GLTF | `GET /api/roblox/convert/:userId/gltf` | JSON GLTF, backend-converted via `obj2gltf` |
-| FBX | `GET /api/roblox/convert/:userId/fbx` | Binary FBX 7.4, written by the built-in exporter (`backend/fbx-exporter.js`) with embedded textures — importable in Blender 3.6+, Unity, Unreal, and F3D |
+| GLB | `GET /api/roblox/convert/:userId/glb` | Binary GLTF, backend-converted via `@gltf-transform/core` |
+| GLTF | `GET /api/roblox/convert/:userId/gltf` | JSON GLTF, backend-converted via `@gltf-transform/core` |
+| FBX | `GET /api/roblox/convert/:userId/fbx` | Binary FBX 7.4, written by the built-in exporter (`backend/fbx-exporter.js`) with embedded textures |
 
 The conversion requires the avatar to be downloaded first (so the OBJ/MTL/texture files exist under `downloads/<userId>/`).
+
+Auto-rig (`?rig=1`) is available for GLB/GLTF only. FBX requests that ask for a rig return HTTP 400 instead of silently ignoring the option.
 
 Downloaded files are named `{safeName}_{userId}.{format}` (e.g. `Roblox_11159567260.fbx`), where `safeName` is the Roblox display name/username with filesystem-illegal characters replaced.
 
@@ -111,4 +113,14 @@ Downloaded files are named `{safeName}_{userId}.{format}` (e.g. `Roblox_11159567
 - Downloaded assets are cached under `downloads/<userId>/`. The Reload button re-requests the download endpoint and reloads the preview with a cache-busting query, so it always uses fresh files.
 - Roblox avatar metadata is retried up to 5 times (1.5 s apart) when the avatar is not ready yet; authentication errors fail immediately.
 - Do not commit real API keys; keep secrets in `backend/.env`.
-- Rate limiting is in-memory per process (resets on restart). For multi-instance production deployments, use a shared store or gateway/WAF rate limiting.
+- Rate limiting is in-memory per process (resets on restart). Set `TRUST_PROXY` (e.g. `1` or `true`) in `backend/.env` when running behind a reverse proxy so the real client IP is used. For multi-instance production deployments, use a shared store or gateway/WAF rate limiting.
+
+## Tests
+
+```bash
+cd backend
+npm test
+```
+
+The backend test suite uses the built-in `node:test` runner and covers OBJ/MTL parsing, body-part mapping, texture planning, i18n, and FBX serialization.
+
