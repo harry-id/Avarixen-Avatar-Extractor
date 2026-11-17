@@ -593,7 +593,9 @@
     <div class="options">
         <label class="option-checkbox">
             <input type="checkbox" id="separateAssets">
-            <span data-i18n="optionSeparateAssets">Separate assets</span>
+            <span data-i18n="optionCompatibility"
+                  data-i18n-title="optionCompatibilityHint"
+                  title="Separate assets and split every body part into its own object (best for Prisma3D).">Compatibility mode</span>
         </label>
         <label class="option-checkbox">
             <input type="checkbox" id="autoRig">
@@ -728,7 +730,8 @@ const LANG = {
         explorerPlayers: "Player (Tubuh)",
         explorerHandles: "Handle (Aksesori)",
         explorerOther: "Lainnya",
-        optionSeparateAssets: "Pisahkan aset",
+        optionCompatibility: "Mode kompatibilitas",
+        optionCompatibilityHint: "Pisahkan aset dan setiap bagian tubuh menjadi objek sendiri (cocok untuk Prisma3D).",
         optionAutoRig: "Auto-rig (R6/R15)",
         statusRigging: "Membuat rig otomatis...",
         verticesLabel: "vertices",
@@ -782,7 +785,8 @@ const LANG = {
         explorerPlayers: "Player (Body)",
         explorerHandles: "Handle (Accessories)",
         explorerOther: "Other",
-        optionSeparateAssets: "Separate assets",
+        optionCompatibility: "Compatibility mode",
+        optionCompatibilityHint: "Separate assets and split every body part into its own object (best for Prisma3D).",
         optionAutoRig: "Auto-rig (R6/R15)",
         statusRigging: "Building auto-rig...",
         verticesLabel: "vertices",
@@ -1838,15 +1842,16 @@ async function downloadConverted(format) {
 
     const rig = document.getElementById("autoRig").checked;
 
-    // "Separate assets" only affects GLB/GLTF; OBJ and FBX are always separate.
-    const separate = document.getElementById("separateAssets").checked
-        && (format === "glb" || format === "gltf");
+    // Compatibility mode: per-part objects for every format; GLB/GLTF are
+    // delivered as a ZIP with separate assets.
+    const compat = document.getElementById("separateAssets").checked;
 
     const convertUrl = `${BACKEND_URL}/api/roblox/convert/${encodeURIComponent(currentUserId)}/${format}`;
 
     const params = new URLSearchParams();
     if (rig) params.set("rig", "1");
-    if (separate) params.set("separate", "1");
+    if (compat) params.set("compat", "1");
+    if (currentDisplayName) params.set("name", currentDisplayName);
     const qs = params.toString();
     const url = qs ? `${convertUrl}?${qs}` : convertUrl;
 
