@@ -225,6 +225,6 @@ Blender 3.6                          Prisma3D
    assigning textures manually works.
 3. FBX in Blender: keep the `0xHarry` parent. It holds the axis conversion;
    deleting it tips the parts forward by 90°.
-4. The separate-assets GLB in the test pack is still an embedded `.glb`.
-   The API returns a ZIP containing `.gltf` + `.bin` + textures when GLB is
-   requested with **Separate assets** enabled.
+4. GLB is always a single embedded `.glb`; the API ignores “Separate assets”
+   for GLB. GLTF returns a ZIP with `.gltf` + `.bin` + textures when Separate
+   assets is enabled.
