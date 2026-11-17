@@ -112,7 +112,7 @@ function parseObj(objPath) {
         const parts = line.split(/\s+/);
         const tag = parts[0];
         if (tag === "g") {
-            activeGroup = parts[1];
+            activeGroup = parts.slice(1).join(" ") || null;
             if (!groupFaces[activeGroup]) groupFaces[activeGroup] = [];
         } else if (tag === "f") {
             if (activeGroup) {
@@ -175,6 +175,62 @@ function detectRigType(playerCount) {
     if (playerCount === 6) return "R6";
     if (playerCount === 15) return "R15";
     return null;
+}
+
+const R6_PART_NAMES = ["Head", "Torso", "Left Arm", "Right Arm", "Left Leg", "Right Leg"];
+
+const R15_PART_NAMES = [
+    "Head",
+    "UpperTorso",
+    "LowerTorso",
+    "LeftUpperArm",
+    "RightUpperArm",
+    "LeftLowerArm",
+    "RightLowerArm",
+    "LeftHand",
+    "RightHand",
+    "LeftUpperLeg",
+    "RightUpperLeg",
+    "LeftLowerLeg",
+    "RightLowerLeg",
+    "LeftFoot",
+    "RightFoot"
+];
+
+function normalizePartName(name) {
+    return String(name).replace(/\s+/g, "").toLowerCase();
+}
+
+// Exported avatars are renamed from PlayerN to body-part names, so conversions
+// must still detect the rig and map bones when the groups are already named.
+function detectNamedRigType(groups) {
+    const names = new Set(groups.map((group) => normalizePartName(group.name)));
+
+    if (R6_PART_NAMES.every((name) => names.has(normalizePartName(name)))) {
+        return "R6";
+    }
+
+    if (R15_PART_NAMES.every((name) => names.has(normalizePartName(name)))) {
+        return "R15";
+    }
+
+    return null;
+}
+
+// Map each rig part (Head, Left Arm, ...) to the actual group name in the OBJ,
+// which may be written as LeftArm to avoid OBJ's whitespace-separated groups.
+function mappingFromPartNames(rigType, groups) {
+    const partNames = rigType === "R6" ? R6_PART_NAMES : R15_PART_NAMES;
+    const groupByNormalized = new Map(
+        groups.map((group) => [normalizePartName(group.name), group.name])
+    );
+    const mapping = {};
+
+    for (const name of partNames) {
+        mapping[name] = groupByNormalized.get(normalizePartName(name)) || name;
+    }
+
+    return mapping;
 }
 
 function matchBodyParts(playerGroups, boxes) {
@@ -407,7 +463,9 @@ function createAccessor(doc, buffer, array, typeStr, componentType, normalized =
     return acc;
 }
 
-function buildDocument(parsed, partMapping, joints, offsetX, offsetY, offsetZ, rigType, handleBoneMap) {
+function buildDocument(parsed, partMapping, joints, offsetX, offsetY, offsetZ, rigType, handleBoneMap, options = {}) {
+    const splitParts = !!options.splitParts;
+    const groupName = options.groupName || "Avatar";
     const { positions, normals, uvs, vertexColors, groups, faces } = parsed;
     const rigged = !!rigType;
 
@@ -495,7 +553,9 @@ function buildDocument(parsed, partMapping, joints, offsetX, offsetY, offsetZ, r
     let rootNode = null;
     if (rigged) {
         rootNode = jointNodeMap[rootName];
-        scene.addChild(rootNode);
+        if (!splitParts) {
+            scene.addChild(rootNode);
+        }
     }
 
     const groupToPart = {};
@@ -552,6 +612,7 @@ function buildDocument(parsed, partMapping, joints, offsetX, offsetY, offsetZ, r
     const allJoints = [];
     const allWeights = [];
     const primInfos = [];
+    const groupBuilds = [];
 
     let globalIndexOffset = 0;
 
@@ -654,6 +715,19 @@ function buildDocument(parsed, partMapping, joints, offsetX, offsetY, offsetZ, r
             allWeights.push(...groupLocalWeights);
         }
 
+        groupBuilds.push({
+            name: g.name,
+            material: g.material,
+            positions: groupLocalPos,
+            normals: groupLocalNor,
+            uvs: groupLocalUv,
+            colors: groupLocalCol,
+            joints: groupLocalJoints,
+            weights: groupLocalWeights,
+            indices: groupIndices,
+            baseIndex: globalIndexOffset
+        });
+
         primInfos.push({
             material: g.material,
             startIndex: globalIndexOffset,
@@ -662,6 +736,98 @@ function buildDocument(parsed, partMapping, joints, offsetX, offsetY, offsetZ, r
         });
 
         globalIndexOffset += groupLocalPos.length / 3;
+    }
+
+    const makeSkin = () => {
+        const skin = doc.createSkin("skin");
+        for (const jname of jointNames) {
+            skin.addJoint(jointNodeMap[jname]);
+        }
+        skin.setSkeleton(rootNode);
+
+        const ibmData = new Float32Array(jointNames.length * 16);
+        for (let i = 0; i < jointNames.length; i++) {
+            const jpos = joints[jointNames[i]];
+            ibmData[i * 16 + 0] = 1; ibmData[i * 16 + 1] = 0; ibmData[i * 16 + 2] = 0; ibmData[i * 16 + 3] = 0;
+            ibmData[i * 16 + 4] = 0; ibmData[i * 16 + 5] = 1; ibmData[i * 16 + 6] = 0; ibmData[i * 16 + 7] = 0;
+            ibmData[i * 16 + 8] = 0; ibmData[i * 16 + 9] = 0; ibmData[i * 16 + 10] = 1; ibmData[i * 16 + 11] = 0;
+            ibmData[i * 16 + 12] = -jpos[0]; ibmData[i * 16 + 13] = -jpos[1]; ibmData[i * 16 + 14] = -jpos[2]; ibmData[i * 16 + 15] = 1;
+        }
+        skin.setInverseBindMatrices(createAccessor(doc, buffer, ibmData, "MAT4", Accessor.ComponentType.FLOAT));
+
+        return skin;
+    };
+
+    if (splitParts) {
+        // Compatibility mode: one node + mesh per OBJ group, grouped under a
+        // container named after the avatar. Avoids the single merged
+        // "character_mesh" that some importers treat as one invisible object.
+        const container = doc.createNode(groupName);
+        scene.addChild(container);
+
+        if (rigged && rootNode) {
+            container.addChild(rootNode);
+        }
+
+        const skin = rigged ? makeSkin() : null;
+        const usedNames = new Set();
+
+        for (const build of groupBuilds) {
+            if (build.indices.length === 0) {
+                continue;
+            }
+
+            let nodeName = build.name || "part";
+            let suffix = 1;
+            while (usedNames.has(nodeName)) {
+                suffix += 1;
+                nodeName = `${build.name || "part"}_${suffix}`;
+            }
+            usedNames.add(nodeName);
+
+            const partColors = new Uint8Array(build.colors.length);
+            for (let i = 0; i < build.colors.length; i++) {
+                partColors[i] = Math.max(0, Math.min(255, Math.round(build.colors[i] * 255)));
+            }
+
+            const prim = doc.createPrimitive()
+                .setMode(4)
+                .setAttribute("POSITION", createAccessor(doc, buffer, new Float32Array(build.positions), "VEC3", Accessor.ComponentType.FLOAT))
+                .setAttribute("NORMAL", createAccessor(doc, buffer, new Float32Array(build.normals), "VEC3", Accessor.ComponentType.FLOAT))
+                .setAttribute("TEXCOORD_0", createAccessor(doc, buffer, new Float32Array(build.uvs), "VEC2", Accessor.ComponentType.FLOAT))
+                .setAttribute("COLOR_0", createAccessor(doc, buffer, partColors, "VEC4", Accessor.ComponentType.UNSIGNED_BYTE, true));
+
+            if (rigged) {
+                prim.setAttribute("JOINTS_0", createAccessor(doc, buffer, new Uint16Array(build.joints), "VEC4", Accessor.ComponentType.UNSIGNED_SHORT));
+                prim.setAttribute("WEIGHTS_0", createAccessor(doc, buffer, new Float32Array(build.weights), "VEC4", Accessor.ComponentType.FLOAT));
+            }
+
+            const localIndices = build.indices.map((index) => index - build.baseIndex);
+            const needsUint32 =
+                build.positions.length / 3 > 65535 || localIndices.length > 65535;
+            const indexArray = needsUint32
+                ? new Uint32Array(localIndices)
+                : new Uint16Array(localIndices);
+            const indexComponentType = needsUint32
+                ? Accessor.ComponentType.UNSIGNED_INT
+                : Accessor.ComponentType.UNSIGNED_SHORT;
+
+            prim.setIndices(createAccessor(doc, buffer, indexArray, "SCALAR", indexComponentType))
+                .setMaterial(materialMap[build.material] || materialMap["default"] || null);
+
+            const partMesh = doc.createMesh(`${nodeName}_mesh`);
+            partMesh.addPrimitive(prim);
+
+            const partNode = doc.createNode(nodeName);
+            partNode.setMesh(partMesh);
+            container.addChild(partNode);
+
+            if (skin) {
+                partNode.setSkin(skin);
+            }
+        }
+
+        return { doc, root, scene, buffer };
     }
 
     const mesh = doc.createMesh("character_mesh");
@@ -709,23 +875,7 @@ function buildDocument(parsed, partMapping, joints, offsetX, offsetY, offsetZ, r
     meshNode.setMesh(mesh);
     scene.addChild(meshNode);
     if (rigged) {
-        const skin = doc.createSkin("skin");
-        for (const jname of jointNames) {
-            skin.addJoint(jointNodeMap[jname]);
-        }
-        skin.setSkeleton(rootNode);
-
-        const ibmData = new Float32Array(jointNames.length * 16);
-        for (let i = 0; i < jointNames.length; i++) {
-            const jpos = joints[jointNames[i]];
-            ibmData[i * 16 + 0] = 1; ibmData[i * 16 + 1] = 0; ibmData[i * 16 + 2] = 0; ibmData[i * 16 + 3] = 0;
-            ibmData[i * 16 + 4] = 0; ibmData[i * 16 + 5] = 1; ibmData[i * 16 + 6] = 0; ibmData[i * 16 + 7] = 0;
-            ibmData[i * 16 + 8] = 0; ibmData[i * 16 + 9] = 0; ibmData[i * 16 + 10] = 1; ibmData[i * 16 + 11] = 0;
-            ibmData[i * 16 + 12] = -jpos[0]; ibmData[i * 16 + 13] = -jpos[1]; ibmData[i * 16 + 14] = -jpos[2]; ibmData[i * 16 + 15] = 1;
-        }
-        skin.setInverseBindMatrices(createAccessor(doc, buffer, ibmData, "MAT4", Accessor.ComponentType.FLOAT));
-
-        meshNode.setSkin(skin);
+        meshNode.setSkin(makeSkin());
     }
 
     return { doc, root, scene, buffer };
@@ -739,7 +889,7 @@ function buildDocument(parsed, partMapping, joints, offsetX, offsetY, offsetZ, r
  * @param {boolean} options.rig - add R6/R15 skeleton and skinning
  * @returns {Promise<object>} { doc, rigType, jointNames, partMapping, groups, boxes, positions, normals, uvs, vertexColors, faces, mtl }
  */
-async function convertAvatar(assetDir, { rig = false } = {}) {
+async function convertAvatar(assetDir, { rig = false, splitParts = false, groupName = "Avatar" } = {}) {
     const objPath = path.join(assetDir, "avatar.obj");
     if (!fs.existsSync(objPath)) {
         throw new Error("avatar.obj not found in " + assetDir);
@@ -766,13 +916,23 @@ async function convertAvatar(assetDir, { rig = false } = {}) {
         const handleGroups = parsed.groups.filter(g => g.name.startsWith("Handle"));
 
         rigType = detectRigType(playerGroups.length);
+        if (rigType) {
+            partMapping = matchBodyParts(playerGroups, boxes);
+        } else {
+            // Exported avatars are renamed (Head, Torso, ...), so fall back to
+            // detecting the rig from those part names.
+            rigType = detectNamedRigType(parsed.groups);
+            if (rigType) {
+                partMapping = mappingFromPartNames(rigType, parsed.groups);
+            }
+        }
+
         if (!rigType) {
             throw new Error(
-                `Auto-rig requires 6 (R6) or 15 (R15) Player groups, found ${playerGroups.length}`
+                `Auto-rig requires 6 (R6) or 15 (R15) body groups, found ${playerGroups.length} Player group(s)`
             );
         }
 
-        partMapping = matchBodyParts(playerGroups, boxes);
         const recenter = computeRecenter(boxes, partMapping);
         offsetX = recenter.offsetX;
         offsetY = recenter.offsetY;
@@ -800,7 +960,17 @@ async function convertAvatar(assetDir, { rig = false } = {}) {
         offsetZ = recenter.offsetZ;
     }
 
-    const { doc } = buildDocument(parsed, partMapping, joints, offsetX, offsetY, offsetZ, rigType, handleBoneMap);
+    const { doc } = buildDocument(
+        parsed,
+        partMapping,
+        joints,
+        offsetX,
+        offsetY,
+        offsetZ,
+        rigType,
+        handleBoneMap,
+        { splitParts, groupName }
+    );
 
     return {
         doc,
@@ -841,13 +1011,17 @@ function getPartInfo(assetDir) {
 
     const playerGroups = parsed.groups.filter(g => g.name.startsWith("Player"));
     const handleGroups = parsed.groups.filter(g => g.name.startsWith("Handle"));
-    const rigType = detectRigType(playerGroups.length);
+
+    const rigType = detectRigType(playerGroups.length) || detectNamedRigType(parsed.groups);
 
     let partMapping = {};
     let handleBoneMap = {};
 
     if (rigType) {
-        partMapping = matchBodyParts(playerGroups, boxes);
+        partMapping = detectRigType(playerGroups.length)
+            ? matchBodyParts(playerGroups, boxes)
+            : mappingFromPartNames(rigType, parsed.groups);
+
         const playerBoxes = {};
         for (const [part, gname] of Object.entries(partMapping)) {
             playerBoxes[part] = boxes[gname];
@@ -865,12 +1039,12 @@ function getPartInfo(assetDir) {
     const groups = parsed.groups
         .filter(g => g.faceCount > 0)
         .map(g => {
-            const type = g.name.startsWith("Player")
+            const part = groupToPart[g.name] || handleBoneMap[g.name] || null;
+            const type = g.name.startsWith("Player") || groupToPart[g.name]
                 ? "player"
                 : g.name.startsWith("Handle")
                     ? "handle"
                     : "other";
-            const part = groupToPart[g.name] || handleBoneMap[g.name] || null;
             return {
                 name: g.name,
                 vertices: g.vertexIndices.length,
@@ -890,6 +1064,8 @@ module.exports = {
     parseMtl,
     computeBox,
     detectRigType,
+    detectNamedRigType,
+    mappingFromPartNames,
     matchBodyParts,
     computeRecenter,
     computeJoints,

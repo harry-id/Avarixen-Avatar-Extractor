@@ -10,9 +10,11 @@ const {
     parseObj,
     parseMtl,
     detectRigType,
+    detectNamedRigType,
     computeBox,
     computeRecenter,
-    matchBodyParts
+    matchBodyParts,
+    getPartInfo
 } = require("../auto-rig");
 
 const OBJ_FIXTURE = `# minimal avatar
@@ -122,4 +124,62 @@ test("matchBodyParts maps R6 groups by position", () => {
     assert.equal(mapping["Right Arm"], "RightArm");
     assert.equal(mapping["Left Leg"], "LeftLeg");
     assert.equal(mapping["Right Leg"], "RightLeg");
+});
+
+test("detectNamedRigType recognizes renamed body-part groups", () => {
+    const r6 = ["Head", "Torso", "Left Arm", "Right Arm", "Left Leg", "Right Leg"];
+    const partial = ["Head", "Torso", "Left Arm"];
+
+    assert.equal(detectNamedRigType(r6.map((name) => ({ name }))), "R6");
+    assert.equal(detectNamedRigType(partial.map((name) => ({ name }))), null);
+});
+
+test("getPartInfo maps renamed groups back to body parts", () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "aae-test-"));
+    const obj = [
+        "g Head",
+        "v 0 12 0",
+        "v 1 12 0",
+        "v 0 13 0",
+        "f 1 2 3",
+        "g Torso",
+        "v 0 8 0",
+        "v 1 8 0",
+        "v 0 9 0",
+        "f 4 5 6",
+        "g Left Arm",
+        "v -2 8 0",
+        "v -1 8 0",
+        "v -2 9 0",
+        "f 7 8 9",
+        "g Right Arm",
+        "v 2 8 0",
+        "v 3 8 0",
+        "v 2 9 0",
+        "f 10 11 12",
+        "g Left Leg",
+        "v -1 2 0",
+        "v 0 2 0",
+        "v -1 3 0",
+        "f 13 14 15",
+        "g Right Leg",
+        "v 1 2 0",
+        "v 2 2 0",
+        "v 1 3 0",
+        "f 16 17 18",
+        ""
+    ].join("\n");
+
+    try {
+        fs.writeFileSync(path.join(dir, "avatar.obj"), obj);
+
+        const info = getPartInfo(dir);
+
+        assert.equal(info.rigType, "R6");
+        assert.equal(info.groups.length, 6);
+        assert.equal(info.groups.every((group) => group.type === "player"), true);
+        assert.equal(info.groups.find((group) => group.name === "Head").part, "Head");
+    } finally {
+        fs.rmSync(dir, { recursive: true, force: true });
+    }
 });
