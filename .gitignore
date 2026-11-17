@@ -25,3 +25,6 @@ backend/downloads/*
 frontend/test-avatar*
 frontend/test-texture*
 textures/
+
+# Local export test files (mounted into Waydroid)
+temp/
