@@ -976,20 +976,38 @@ function setSelectedFormat(format) {
     updateOptionVisibility();
 }
 
-function updateOptionVisibility() {
-    const fbxSelected = selectedFormat === "fbx";
-    const autoRig = document.getElementById("autoRig");
-    const autoRigRow = autoRig.closest("label");
+const FORMAT_OPTION_SUPPORT = {
+    obj: { separate: false, rig: false },
+    glb: { separate: false, rig: true },
+    gltf: { separate: true, rig: true },
+    fbx: { separate: true, rig: false }
+};
 
-    if (!autoRigRow) {
-        return;
+function updateOptionVisibility() {
+    const support = FORMAT_OPTION_SUPPORT[selectedFormat] || {
+        separate: true,
+        rig: true
+    };
+
+    const autoRig = document.getElementById("autoRig");
+    const separate = document.getElementById("separateAssets");
+    const autoRigRow = autoRig.closest("label");
+    const separateRow = separate.closest("label");
+
+    if (autoRigRow) {
+        // FBX and OBJ cannot carry the auto-rig skeleton.
+        autoRigRow.hidden = !support.rig;
+        if (!support.rig) {
+            autoRig.checked = false;
+        }
     }
 
-    // FBX can export separate assets but cannot carry the auto-rig skeleton.
-    autoRigRow.hidden = fbxSelected;
-
-    if (fbxSelected && autoRig.checked) {
-        autoRig.checked = false;
+    if (separateRow) {
+        // GLB is a single embedded binary and OBJ is always split by part.
+        separateRow.hidden = !support.separate;
+        if (!support.separate) {
+            separate.checked = false;
+        }
     }
 }
 
