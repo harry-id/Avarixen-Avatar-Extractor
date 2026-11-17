@@ -148,7 +148,7 @@ function rebuildGroups(faces) {
  * preserves UVs, normals, vertex colors, materials, and OBJ groups.
  * Levels are capped so an avatar cannot explode past ~2M faces.
  */
-function subdivideParsed(parsed, levels) {
+function subdivideParsed(parsed, levels, shouldSubdivide = null) {
     let safeLevels = Math.max(0, Math.min(3, Math.floor(levels || 0)));
 
     while (
@@ -162,7 +162,10 @@ function subdivideParsed(parsed, levels) {
         const nextFaces = [];
 
         for (const face of parsed.faces) {
-            if (face.verts.length !== 3) {
+            if (
+                face.verts.length !== 3 ||
+                (shouldSubdivide && !shouldSubdivide(face))
+            ) {
                 nextFaces.push(face);
                 continue;
             }
@@ -538,16 +541,18 @@ function computeJoints(partMapping, boxes, offsetX, offsetY, offsetZ, rigType, m
                 J[`${side} Hand`] = sub(bottomCenter(r6Box));
 
                 if (moreJoints) {
+                    // Elbow at the limb midpoint for a natural bend.
                     J[`${side} LowerArm`] = sub([
                         r6Box.cx,
-                        (r6Box.cy + r6Box.ymin) / 2,
+                        r6Box.cy,
                         r6Box.cz
                     ]);
                 }
             } else if (moreJoints) {
+                // Knee at the limb midpoint for a natural bend.
                 J[`${side} LowerLeg`] = sub([
                     r6Box.cx,
-                    (r6Box.cy + r6Box.ymin) / 2,
+                    r6Box.cy,
                     r6Box.cz
                 ]);
                 J[`${side} Foot`] = sub(bottomCenter(r6Box));
@@ -686,6 +691,15 @@ function createAccessor(doc, buffer, array, typeStr, componentType, normalized =
     return acc;
 }
 
+// Append without blowing the call stack on very large (subdivided) meshes.
+function pushAll(target, source) {
+    const CHUNK = 8192;
+
+    for (let i = 0; i < source.length; i += CHUNK) {
+        target.push(...source.slice(i, i + CHUNK));
+    }
+}
+
 function buildDocument(parsed, partMapping, joints, offsetX, offsetY, offsetZ, rigType, handleBoneMap, options = {}) {
     const splitParts = !!options.splitParts;
     const groupName = options.groupName || "Avatar";
@@ -732,8 +746,8 @@ function buildDocument(parsed, partMapping, joints, offsetX, offsetY, offsetZ, r
         parentOf.Head = "Neck";
         parentOf["Left Arm"] = "Torso";
         parentOf["Right Arm"] = "Torso";
-        parentOf["Left Hand"] = "Left Arm";
-        parentOf["Right Hand"] = "Right Arm";
+        parentOf["Left Hand"] = joints["Left LowerArm"] ? "Left LowerArm" : "Left Arm";
+        parentOf["Right Hand"] = joints["Right LowerArm"] ? "Right LowerArm" : "Right Arm";
         parentOf["Left LowerArm"] = "Left Arm";
         parentOf["Right LowerArm"] = "Right Arm";
         parentOf["Left Leg"] = rootName;
@@ -819,13 +833,15 @@ function buildDocument(parsed, partMapping, joints, offsetX, offsetY, offsetZ, r
             }
 
             const handNode = jointNodeMap[side + " Hand"];
-            if (armNode && handNode) {
-                armNode.addChild(handNode);
-            }
-
             const lowerArmNode = jointNodeMap[side + " LowerArm"];
+
             if (armNode && lowerArmNode) {
                 armNode.addChild(lowerArmNode);
+                if (handNode) {
+                    lowerArmNode.addChild(handNode);
+                }
+            } else if (armNode && handNode) {
+                armNode.addChild(handNode);
             }
         }
 
@@ -875,6 +891,85 @@ function buildDocument(parsed, partMapping, joints, offsetX, offsetY, offsetZ, r
     const boneNameToIdx = {};
     jointNames.forEach((name, i) => { boneNameToIdx[name] = i; });
 
+    // R6 limbs are a single mesh each, so when the extra joints exist we spread
+    // every vertex across the upper/lower/end bones along the limb axis. Without
+    // this, rotating an elbow or knee would not bend the mesh.
+    const LIMB_BONES = {
+        "Left Arm": ["Left Arm", "Left LowerArm", "Left Hand"],
+        "Right Arm": ["Right Arm", "Right LowerArm", "Right Hand"],
+        "Left Leg": ["Left Leg", "Left LowerLeg", "Left Foot"],
+        "Right Leg": ["Right Leg", "Right LowerLeg", "Right Foot"]
+    };
+
+    const limbSkinFor = (boneName) => {
+        const bones = LIMB_BONES[boneName];
+
+        if (!bones) {
+            return null;
+        }
+
+        for (const name of bones) {
+            if (!joints[name] || boneNameToIdx[name] === undefined) {
+                return null;
+            }
+        }
+
+        return bones;
+    };
+
+    const limbWeightsFor = (bones, px, py, pz) => {
+        const j0 = joints[bones[0]];
+        const j1 = joints[bones[1]];
+        const j2 = joints[bones[2]];
+
+        const ax = j1[0] - j0[0];
+        const ay = j1[1] - j0[1];
+        const az = j1[2] - j0[2];
+        const seg1 = Math.hypot(ax, ay, az) || 1e-6;
+        const ux = ax / seg1;
+        const uy = ay / seg1;
+        const uz = az / seg1;
+        const seg2 = Math.hypot(j2[0] - j1[0], j2[1] - j1[1], j2[2] - j1[2]) || 1e-6;
+
+        const s = (px - j0[0]) * ux + (py - j0[1]) * uy + (pz - j0[2]) * uz;
+        const t1 = seg1;
+        const t2 = seg1 + seg2;
+
+        // Symmetric blend half-width capped to half the shorter segment so the
+        // elbow/knee and wrist/ankle blends never overlap.
+        const w = Math.max(Math.min(seg1, seg2) * 0.45, 1e-3);
+
+        let w0 = 0;
+        let w1 = 0;
+        let w2 = 0;
+
+        if (s <= t1 - w) {
+            w0 = 1;
+        } else if (s < t1 + w) {
+            const f = (s - (t1 - w)) / (2 * w);
+            w0 = 1 - f;
+            w1 = f;
+        } else if (s <= t2 - w) {
+            w1 = 1;
+        } else if (s < t2 + w) {
+            const f = (s - (t2 - w)) / (2 * w);
+            w1 = 1 - f;
+            w2 = f;
+        } else {
+            w2 = 1;
+        }
+
+        return {
+            joints: [
+                boneNameToIdx[bones[0]],
+                boneNameToIdx[bones[1]],
+                boneNameToIdx[bones[2]],
+                0
+            ],
+            weights: [w0, w1, w2, 0]
+        };
+    };
+
     const allPos = [];
     const allNor = [];
     const allUv = [];
@@ -891,6 +986,7 @@ function buildDocument(parsed, partMapping, joints, offsetX, offsetY, offsetZ, r
             ? (groupToPart[g.name] || handleBoneMap[g.name] || rootName)
             : null;
         const boneIdx = rigged && boneNameToIdx[boneName] !== undefined ? boneNameToIdx[boneName] : 0;
+        const limbSkin = rigged ? limbSkinFor(boneName) : null;
 
         const faceIndices = g.faceIndices;
 
@@ -951,8 +1047,26 @@ function buildDocument(parsed, partMapping, joints, offsetX, offsetY, offsetZ, r
                     );
 
                     if (rigged) {
-                        groupLocalJoints.push(boneIdx, 0, 0, 0);
-                        groupLocalWeights.push(1.0, 0.0, 0.0, 0.0);
+                        if (limbSkin) {
+                            const skin = limbWeightsFor(
+                                limbSkin,
+                                positions[vIdx * 3] - offsetX,
+                                positions[vIdx * 3 + 1] - offsetY,
+                                positions[vIdx * 3 + 2] - offsetZ
+                            );
+
+                            groupLocalJoints.push(
+                                skin.joints[0], skin.joints[1],
+                                skin.joints[2], skin.joints[3]
+                            );
+                            groupLocalWeights.push(
+                                skin.weights[0], skin.weights[1],
+                                skin.weights[2], skin.weights[3]
+                            );
+                        } else {
+                            groupLocalJoints.push(boneIdx, 0, 0, 0);
+                            groupLocalWeights.push(1.0, 0.0, 0.0, 0.0);
+                        }
                     }
                 }
             }
@@ -976,13 +1090,13 @@ function buildDocument(parsed, partMapping, joints, offsetX, offsetY, offsetZ, r
             }
         }
 
-        allPos.push(...groupLocalPos);
-        allNor.push(...groupLocalNor);
-        allUv.push(...groupLocalUv);
-        allCol.push(...groupLocalCol);
+        pushAll(allPos, groupLocalPos);
+        pushAll(allNor, groupLocalNor);
+        pushAll(allUv, groupLocalUv);
+        pushAll(allCol, groupLocalCol);
         if (rigged) {
-            allJoints.push(...groupLocalJoints);
-            allWeights.push(...groupLocalWeights);
+            pushAll(allJoints, groupLocalJoints);
+            pushAll(allWeights, groupLocalWeights);
         }
 
         groupBuilds.push({
@@ -1112,7 +1226,9 @@ function buildDocument(parsed, partMapping, joints, offsetX, offsetY, offsetZ, r
     for (const matName of materialsUsed) {
         const matPrims = primInfos.filter(p => p.material === matName);
         const primIndices = [];
-        for (const p of matPrims) primIndices.push(...p.indices);
+        for (const p of matPrims) {
+            pushAll(primIndices, p.indices);
+        }
 
         const prim = doc.createPrimitive()
             .setMode(4)
@@ -1175,7 +1291,12 @@ async function convertAvatar(assetDir, {
     const parsed = parseObj(objPath);
 
     if (subdivision > 0) {
-        subdivideParsed(parsed, subdivision);
+        // Mesh quality refines anatomy only; accessories (Handle* groups) stay
+        // at their original density.
+        const isAccessory = (name) =>
+            typeof name === "string" && /^handle/i.test(name);
+
+        subdivideParsed(parsed, subdivision, (face) => !isAccessory(face.group));
     }
     parsed._mtls = mtl;
     parsed._assetDir = assetDir;
