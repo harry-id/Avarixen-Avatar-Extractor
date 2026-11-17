@@ -3,7 +3,8 @@ const path = require("path");
 const zlib = require("zlib");
 const { getLang, t } = require("./i18n");
 const { fetchAvatar3D, fetchAvatarMetadataJson } = require("./avatar-metadata");
-const { normalizeObjForExport } = require("./obj-utils");
+const { normalizeObjForExport, renameObjGroups } = require("./obj-utils");
+const { getPartInfo } = require("./auto-rig");
 
 function decompress(buffer) {
     if (buffer.length >= 2 && buffer[0] === 0x1f && buffer[1] === 0x8b) {
@@ -98,6 +99,32 @@ function planTextures(hashes, buffers, mtlText) {
     }
 
     return { textures, missing, mtl };
+}
+
+/**
+ * Rename PlayerN groups to body parts (Head, Torso, Left Arm, ...) using the
+ * same mapping as the model explorer. Handles/accessories keep their names.
+ */
+function applyBodyPartNames(assetDir, objText) {
+    try {
+        const info = getPartInfo(assetDir);
+        if (!info.rigType) {
+            return objText;
+        }
+
+        const renames = {};
+        for (const group of info.groups) {
+            if (group.name.startsWith("Player") && group.part) {
+                // Spaces are group separators in OBJ, so Left Arm -> LeftArm.
+                renames[group.name] = group.part.replace(/\s+/g, "");
+            }
+        }
+
+        return renameObjGroups(objText, renames);
+    } catch (error) {
+        console.warn("Body-part renaming skipped:", error.message);
+        return objText;
+    }
 }
 
 async function tryDownloadUrl(url, fetchWithTimeout, headers) {
@@ -324,6 +351,10 @@ module.exports = function (app, options = {}) {
 
             await fs.writeFile(path.join(outputDir, "avatar.obj"), obj);
             await fs.writeFile(path.join(outputDir, "avatar.mtl"), mtl);
+
+            // Rename PlayerN groups to readable body parts, then persist again.
+            obj = applyBodyPartNames(outputDir, obj);
+            await fs.writeFile(path.join(outputDir, "avatar.obj"), obj);
 
             await Promise.all(
                 textureFiles.map((texture) =>
