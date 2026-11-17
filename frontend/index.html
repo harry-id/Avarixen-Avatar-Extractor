@@ -312,11 +312,11 @@
             display: flex;
             flex-wrap: wrap;
             gap: 16px;
-            margin-bottom: 12px;
-            padding: 12px 14px;
-            background: #191e2b;
-            border: 1px solid #30394d;
-            border-radius: 10px;
+            margin-top: 12px;
+            padding: 0;
+            background: transparent;
+            border: none;
+            border-radius: 0;
         }
 
         .option-checkbox {
@@ -466,16 +466,14 @@
 
         .dropdown-content {
             display: none;
-            position: absolute;
-            top: calc(100% + 6px);
-            left: 0;
-            min-width: 100%;
-            width: max-content;
-            max-width: 280px;
-            background: transparent;
-            border: none;
-            box-shadow: none;
-            overflow: visible;
+            position: fixed;
+            background-color: #191e2b;
+            width: 240px;
+            max-height: 280px;
+            overflow-y: auto;
+            box-shadow: 0 8px 16px rgba(0, 0, 0, 0.5);
+            border-radius: 8px;
+            border: 1px solid #39445c;
             z-index: 1000;
             scrollbar-width: thin;
         }
@@ -499,7 +497,7 @@
         }
 
         .dropdown-content button:hover {
-            color: #4285f4;
+            background: #202738;
         }
 
         .dropdown-content button.selected::before {
@@ -597,20 +595,6 @@
         Masukkan username Roblox untuk memuat pratinjau 3D.
     </div>
 
-    <div class="options">
-        <label class="option-checkbox">
-            <input type="checkbox" id="separateAssets">
-            <span data-i18n="optionSeparateAssets"
-                  data-i18n-title="optionSeparateAssetsHint"
-                  title="Export separate asset files (textures/bin) in one ZIP.">Separate assets</span>
-        </label>
-        <label class="option-checkbox">
-            <input type="checkbox" id="autoRig">
-            <span data-i18n="optionAutoRig">Auto-rig (R6/R15)</span>
-            <span class="experimental-badge">Experimental</span>
-        </label>
-    </div>
-
     <div class="controls">
         <button id="reloadButton" data-i18n="reloadButton">
             Muat Ulang Model
@@ -646,6 +630,20 @@
                 </button>
             </div>
         </div>
+    </div>
+
+    <div class="options">
+        <label class="option-checkbox">
+            <input type="checkbox" id="separateAssets">
+            <span data-i18n="optionSeparateAssets"
+                  data-i18n-title="optionSeparateAssetsHint"
+                  title="Export separate asset files (textures/bin) in one ZIP.">Separate assets</span>
+        </label>
+        <label class="option-checkbox">
+            <input type="checkbox" id="autoRig">
+            <span data-i18n="optionAutoRig">Auto-rig (R6/R15)</span>
+            <span class="experimental-badge">Experimental</span>
+        </label>
     </div>
 
 </main>
@@ -1664,10 +1662,35 @@ function closeDropdown() {
 
 }
 
+function positionDropdown() {
+
+    const anchor = downloadToggle.parentElement.getBoundingClientRect();
+    downloadDropdown.classList.add("show");
+    const dropRect = downloadDropdown.getBoundingClientRect();
+    const gap = 6;
+
+    let top = anchor.bottom + gap;
+
+    if (top + dropRect.height > window.innerHeight - 8) {
+        top = anchor.top - dropRect.height - gap;
+        if (top < 8) top = 8;
+    }
+
+    let left = anchor.right - dropRect.width;
+    if (left < 8) left = 8;
+    if (left + dropRect.width > window.innerWidth - 8) {
+        left = window.innerWidth - dropRect.width - 8;
+    }
+
+    downloadDropdown.style.top = `${Math.round(top)}px`;
+    downloadDropdown.style.left = `${Math.round(left)}px`;
+
+}
+
 function openDropdown() {
 
     updateFormatAvailability();
-    downloadDropdown.classList.add("show");
+    positionDropdown();
     downloadToggle.setAttribute("aria-expanded", "true");
 
 }
@@ -1685,6 +1708,18 @@ downloadToggle.addEventListener("click", (event) => {
 });
 
 document.addEventListener("click", closeDropdown);
+
+window.addEventListener("resize", () => {
+    if (downloadDropdown.classList.contains("show")) {
+        positionDropdown();
+    }
+});
+
+window.addEventListener("scroll", () => {
+    if (downloadDropdown.classList.contains("show")) {
+        positionDropdown();
+    }
+}, true);
 
 
 // Choosing an option only selects the format; the main button downloads it.
