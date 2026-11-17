@@ -22,11 +22,41 @@ app.use(
 );
 app.use(express.json({ limit: "16kb" }));
 
+// Set TRUST_PROXY (e.g. "1", "true", or a proxy CIDR list) when the API runs
+// behind a reverse proxy so per-client rate limiting sees the real client IP.
+const trustProxy = process.env.TRUST_PROXY;
+if (trustProxy) {
+    app.set(
+        "trust proxy",
+        /^\d+$/.test(trustProxy)
+            ? Number(trustProxy)
+            : trustProxy === "true"
+                ? true
+                : trustProxy
+    );
+}
+
 const rateWindowMs = 60_000;
 const rateMax = 60;
 const rateBuckets = new Map();
 
+// Drop expired buckets so the map cannot grow without bound.
+const ratePruneTimer = setInterval(() => {
+    const now = Date.now();
+    for (const [ip, bucket] of rateBuckets) {
+        if (now > bucket.resetAt) {
+            rateBuckets.delete(ip);
+        }
+    }
+}, rateWindowMs);
+
+ratePruneTimer.unref();
+
 app.use("/api", (req, res, next) => {
+    if (req.method === "OPTIONS") {
+        return next();
+    }
+
     const lang = getLang(req);
     const now = Date.now();
     const ip = req.ip || req.socket.remoteAddress || "unknown";
@@ -79,6 +109,11 @@ app.get("/", (req, res) => {
         name: "Avarixen Avatar Extractor",
         version: "1.0.0"
     });
+});
+
+// Lightweight health probe used by the frontend status badge.
+app.get("/api/health", (req, res) => {
+    res.json({ status: "online" });
 });
 
 // Pencarian username Roblox
