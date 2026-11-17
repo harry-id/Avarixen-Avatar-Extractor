@@ -105,6 +105,19 @@ The conversion requires the avatar to be downloaded first (so the OBJ/MTL/textur
 
 Auto-rig (`?rig=1`) is available for GLB/GLTF only. FBX requests that ask for a rig return HTTP 400 instead of silently ignoring the option.
 
+Account info shows the detected **avatar type** (`R6` / `R15`, or `Unknown` when the avatar has no body groups). R6 rigs also get **hand bones** (`Left Hand` / `Right Hand`) at the bottom of each arm so accessories can be attached there.
+
+With an R6 avatar and Auto-rig enabled, the **Advanced settings** section (below the checkboxes) reveals **More joints**, which adds extra attachment bones (lower arms, lower legs, feet). The same section contains the global **Mesh quality** presets for GLB/GLTF/FBX:
+
+| Preset | Subdivision |
+|---|---|
+| Default | none |
+| Low | 1 |
+| Medium | 2 |
+| High | 3 |
+
+Subdivision refines the mesh while preserving UVs and normals, and is capped at ~2M faces for cross-device safety. The OBJ export is always the original downloaded geometry.
+
 OBJ files are normalized during download: the body (excluding accessories) is centred on X/Z with the feet at Y=0, and every `g` group is mirrored as an `o` object. Player groups are renamed to body parts (`Head`, `Torso`, `LeftArm`, `RightArm`, `LeftLeg`, `RightLeg`, or the R15 names); `Handle*` accessories keep their names.
 
 Every GLB, GLTF, and FBX export keeps the body parts as separate objects under a node named after the avatar's display name — there is no merged `character_mesh` anymore. **Separate assets** (the checkbox above the download buttons) only chooses packaging: off returns one self-contained file with embedded textures; on returns a ZIP with external assets for **GLTF** (`.gltf` + `.bin` + textures) and **FBX** (`.fbx` + textures). **GLB is always a single embedded binary**, and OBJ is generated client-side as a ZIP of parts + textures. OBJ has no collection concept, so Blender lists the parts as separate flat objects.
