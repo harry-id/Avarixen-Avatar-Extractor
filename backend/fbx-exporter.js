@@ -166,6 +166,26 @@ async function buildFbx({ objText, mtlText, assetDir }) {
 
     let vertexIndex = 0;
 
+    // Match the GLB export: center on X/Z and put the feet at y = 0.
+    let minX = Infinity, maxX = -Infinity;
+    let minY = Infinity;
+    let minZ = Infinity, maxZ = -Infinity;
+
+    for (let i = 0; i < obj.positions.length; i += 3) {
+        const x = obj.positions[i];
+        const y = obj.positions[i + 1];
+        const z = obj.positions[i + 2];
+        if (x < minX) minX = x;
+        if (x > maxX) maxX = x;
+        if (y < minY) minY = y;
+        if (z < minZ) minZ = z;
+        if (z > maxZ) maxZ = z;
+    }
+
+    const offsetX = Number.isFinite(minX) ? (minX + maxX) / 2 : 0;
+    const offsetY = Number.isFinite(minY) ? minY : 0;
+    const offsetZ = Number.isFinite(minZ) ? (minZ + maxZ) / 2 : 0;
+
     for (const poly of obj.polygons) {
         const mi = matIndex.get(poly.material || "default");
         groupCounts[mi] = (groupCounts[mi] || 0) + 3 * Math.max(1, poly.corners.length - 2);
@@ -176,7 +196,7 @@ async function buildFbx({ objText, mtlText, assetDir }) {
 
             for (const c of tris) {
                 const pos = obj.positions[c.p];
-                positions.push(pos[0], pos[1], pos[2]);
+                positions.push(pos[0] - offsetX, pos[1] - offsetY, pos[2] - offsetZ);
 
                 const n = (c.n !== null && obj.normals[c.n]) ? obj.normals[c.n] : [0, 1, 0];
                 normals.push(n[0], n[1], n[2]);
