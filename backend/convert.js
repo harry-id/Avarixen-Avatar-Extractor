@@ -181,6 +181,11 @@ module.exports = function (app) {
             (parseBool(req.query.separate) || parseBool(req.query.compat));
         const splitParts = true;
         const groupName = sanitizeGroupName(req.query.name);
+        const subdivision = Math.max(
+            0,
+            Math.min(3, Number.parseInt(req.query.subdivision, 10) || 0)
+        );
+        const moreJoints = parseBool(req.query.moreJoints);
 
         // The FBX writer does not emit a skeleton; fail loudly instead of
         // silently ignoring the requested rig.
@@ -216,7 +221,8 @@ module.exports = function (app) {
                     assetDir,
                     splitParts,
                     groupName,
-                    embedTextures: !separate
+                    embedTextures: !separate,
+                    subdivision
                 });
 
                 if (separate) {
@@ -254,7 +260,9 @@ module.exports = function (app) {
                 conversion = await convertAvatar(assetDir, {
                     rig,
                     splitParts,
-                    groupName
+                    groupName,
+                    subdivision,
+                    moreJoints
                 });
             } catch (rigError) {
                 // Auto-rig failed (e.g. not 6/15 Player groups).
