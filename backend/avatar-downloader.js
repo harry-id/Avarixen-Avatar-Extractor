@@ -108,11 +108,8 @@ function planTextures(hashes, buffers, mtlText) {
 function applyBodyPartNames(assetDir, objText) {
     try {
         const info = getPartInfo(assetDir);
-        if (!info.rigType) {
-            return objText;
-        }
-
         const renames = {};
+
         for (const group of info.groups) {
             if (group.name.startsWith("Player") && group.part) {
                 // Spaces are group separators in OBJ, so Left Arm -> LeftArm.
@@ -120,10 +117,13 @@ function applyBodyPartNames(assetDir, objText) {
             }
         }
 
-        return renameObjGroups(objText, renames);
+        return {
+            objText: info.rigType ? renameObjGroups(objText, renames) : objText,
+            rigType: info.rigType || null
+        };
     } catch (error) {
         console.warn("Body-part renaming skipped:", error.message);
-        return objText;
+        return { objText, rigType: null };
     }
 }
 
@@ -353,7 +353,8 @@ module.exports = function (app, options = {}) {
             await fs.writeFile(path.join(outputDir, "avatar.mtl"), mtl);
 
             // Rename PlayerN groups to readable body parts, then persist again.
-            obj = applyBodyPartNames(outputDir, obj);
+            const partInfo = applyBodyPartNames(outputDir, obj);
+            obj = partInfo.objText;
             await fs.writeFile(path.join(outputDir, "avatar.obj"), obj);
 
             await Promise.all(
@@ -383,7 +384,8 @@ module.exports = function (app, options = {}) {
                 message: t(lang, "download.success"),
                 textureCount: textureFiles.length,
                 files,
-                totalSize
+                totalSize,
+                rigType: partInfo.rigType
             });
 
         } catch (error) {
