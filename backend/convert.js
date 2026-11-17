@@ -172,10 +172,13 @@ module.exports = function (app) {
 
         const rig = parseBool(req.query.rig);
         // Every export keeps body parts as separate objects. "Separate assets"
-        // only chooses packaging: one self-contained file vs ZIP with external
-        // assets. `compat` is kept as an alias for older frontends.
+        // only chooses packaging for GLTF/FBX: one self-contained file vs ZIP
+        // with external assets. GLB is always one embedded binary; OBJ is
+        // already split and generated client-side. `compat` is kept as an
+        // alias for older frontends.
         const separate =
-            parseBool(req.query.separate) || parseBool(req.query.compat);
+            fmt !== "glb" &&
+            (parseBool(req.query.separate) || parseBool(req.query.compat));
         const splitParts = true;
         const groupName = sanitizeGroupName(req.query.name);
 
