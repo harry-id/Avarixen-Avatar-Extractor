@@ -4,7 +4,7 @@ Avarixen Avatar Extractor (AAE) is a web-based Roblox avatar extraction tool tha
 
 ## Preview
 
-![Avarixen Avatar Extractor preview](preview.png)
+<img src="preview.png" alt="Avarixen Avatar Extractor preview" width="480">
 
 ## Requirements
 
