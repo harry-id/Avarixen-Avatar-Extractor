@@ -19,6 +19,20 @@ function parseBool(value) {
 }
 
 /**
+ * Sanitize the avatar display name used as the root object/collection name.
+ */
+function sanitizeGroupName(value) {
+    const raw = typeof value === "string" ? value.trim() : "";
+    const cleaned = raw
+        .replace(/[^\w \-.]/g, "")
+        .replace(/\s+/g, " ")
+        .trim()
+        .slice(0, 64);
+
+    return cleaned || "Avatar";
+}
+
+/**
  * Write a glTF document to a temporary directory as separate files
  * (.gltf + .bin + textures). Returns the list of file paths.
  */
@@ -157,8 +171,12 @@ module.exports = function (app) {
         }
 
         const rig = parseBool(req.query.rig);
-        // "Separate assets" only affects GLB/GLTF; OBJ and FBX are always separate.
-        const separate = parseBool(req.query.separate) && (fmt === "glb" || fmt === "gltf");
+        // Compatibility mode: split every body part into its own object and
+        // return GLB/GLTF assets as separate files (ZIP).
+        const compat =
+            parseBool(req.query.compat) || parseBool(req.query.separate);
+        const separate = compat && (fmt === "glb" || fmt === "gltf");
+        const groupName = sanitizeGroupName(req.query.name);
 
         // The FBX writer does not emit a skeleton; fail loudly instead of
         // silently ignoring the requested rig.
@@ -188,7 +206,13 @@ module.exports = function (app) {
                     fs.readFile(path.join(assetDir, "avatar.mtl"), "utf8").catch(() => "")
                 ]);
 
-                const fbx = await buildFbx({ objText, mtlText, assetDir });
+                const fbx = await buildFbx({
+                    objText,
+                    mtlText,
+                    assetDir,
+                    splitParts: compat,
+                    groupName
+                });
 
                 res.setHeader("Content-Type", "application/octet-stream");
                 res.setHeader(
@@ -200,7 +224,11 @@ module.exports = function (app) {
 
             let conversion;
             try {
-                conversion = await convertAvatar(assetDir, { rig });
+                conversion = await convertAvatar(assetDir, {
+                    rig,
+                    splitParts: compat,
+                    groupName
+                });
             } catch (rigError) {
                 // Auto-rig failed (e.g. not 6/15 Player groups).
                 console.error("Auto-rig conversion failed:", rigError);
