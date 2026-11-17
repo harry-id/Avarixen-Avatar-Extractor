@@ -324,7 +324,13 @@ async function buildFbx({
     }
 
     const exporter = new FBXExporter();
-    const fbxBytes = exporter.parseSync(scene, { binary: true, embedTextures: true });
+    const fbxBytes = exporter.parseSync(scene, {
+        binary: true,
+        embedTextures: true,
+        // Y-up, Z-forward, unit scale 100: Blender imports metres at the
+        // right size instead of treating the model as centimetres.
+        preset: "blender"
+    });
 
     return Buffer.from(fbxBytes);
 }
