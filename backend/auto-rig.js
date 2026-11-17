@@ -495,6 +495,12 @@ function computeJoints(partMapping, boxes, offsetX, offsetY, offsetZ, rigType, m
     J[rootName] = sub([rootX, rootY, rootZ]);
     if (rigType === "R6") {
         if (partMapping.Torso) J.Torso = sub(center(get("Torso")));
+
+        if (moreJoints && r6TorsoBox) {
+            // Waist pivot at the bottom of the torso so the upper body can bend
+            // forward while the legs stay planted.
+            J.Waist = sub([r6TorsoBox.cx, r6TorsoBox.ymin, r6TorsoBox.cz]);
+        }
     } else {
         if (partMapping.UpperTorso) J.UpperTorso = sub(center(get("UpperTorso")));
         if (partMapping.LowerTorso) J.LowerTorso = sub(center(get("LowerTorso")));
@@ -720,7 +726,8 @@ function buildDocument(parsed, partMapping, joints, offsetX, offsetY, offsetZ, r
 
     const parentOf = {};
     if (rigType === "R6") {
-        parentOf.Torso = rootName;
+        parentOf.Torso = joints.Waist ? "Waist" : rootName;
+        parentOf.Waist = rootName;
         parentOf.Neck = "Torso";
         parentOf.Head = "Neck";
         parentOf["Left Arm"] = "Torso";
@@ -790,7 +797,16 @@ function buildDocument(parsed, partMapping, joints, offsetX, offsetY, offsetZ, r
 
     if (rigged && rigType === "R6") {
         const torsoNode = jointNodeMap["Torso"];
-        if (torsoNode) rootNode.addChild(torsoNode);
+        const waistNode = jointNodeMap["Waist"];
+
+        if (waistNode) {
+            // More joints: the torso hangs off a waist bone so it can bend.
+            rootNode.addChild(waistNode);
+            if (torsoNode) waistNode.addChild(torsoNode);
+        } else if (torsoNode) {
+            rootNode.addChild(torsoNode);
+        }
+
         if (jointNodeMap["Neck"] && jointNodeMap["Head"]) {
             torsoNode.addChild(jointNodeMap["Neck"]);
             jointNodeMap["Neck"].addChild(jointNodeMap["Head"]);

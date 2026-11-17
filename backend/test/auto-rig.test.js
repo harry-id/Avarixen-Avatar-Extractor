@@ -347,6 +347,7 @@ test("R6 more-joints adds lower arm/leg and foot joints", () => {
     assert.ok(joints["Left LowerLeg"]);
     assert.ok(joints["Left Foot"]);
     assert.ok(joints["Right Foot"]);
+    assert.ok(joints["Waist"]);
 });
 
 test("subdivision quadruples faces and keeps groups and UVs", () => {
