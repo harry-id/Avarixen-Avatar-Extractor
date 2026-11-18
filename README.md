@@ -103,7 +103,7 @@ The download control is a split button: clicking the main button downloads OBJ (
 
 The conversion requires the avatar to be downloaded first (so the OBJ/MTL/texture files exist under `downloads/<userId>/`).
 
-Auto-rig (`?rig=1`) is available for GLB/GLTF only. FBX requests that ask for a rig return HTTP 400 instead of silently ignoring the option.
+Auto-rig (`?rig=1`) is available for GLB, GLTF, and FBX. The FBX writer emits a real skeleton (`LimbNode` bones, `Cluster` skin deformers, `BindPose`) using the same joints/weights as the glTF exporters, so rigged FBX imports with an armature in Blender/Unity/Unreal. Add `?moreJoints=1` for the R6 extra bones.
 
 Account info shows the detected **avatar type** (`R6` / `R15`, or `Unknown` when the avatar has no body groups). R6 rigs also get **hand bones** (`Left Hand` / `Right Hand`) at the bottom of each arm so accessories can be attached there.
 
@@ -118,7 +118,7 @@ With an R6 avatar and Auto-rig enabled, the **Advanced settings** section (below
 
 Subdivision refines the mesh while preserving UVs and normals, and is capped at ~2M faces for cross-device safety. It applies to the **body only** — the **head** and all `Handle*` accessories keep their original density. The OBJ export is always the original downloaded geometry.
 
-Unsupported options are **disabled (grayed out)** rather than hidden: OBJ disables both *Separate assets* and *Auto-rig*; GLB disables *Separate assets*; FBX disables *Auto-rig*; GLTF enables both.
+Unsupported options are **disabled (grayed out)** rather than hidden: OBJ disables both *Separate assets* and *Auto-rig*; GLB disables *Separate assets*; GLTF and FBX enable both.
 
 OBJ files are normalized during download: the body (excluding accessories) is centred on X/Z with the feet at Y=0, and every `g` group is mirrored as an `o` object. Player groups are renamed to body parts (`Head`, `Torso`, `LeftArm`, `RightArm`, `LeftLeg`, `RightLeg`, or the R15 names); `Handle*` accessories keep their names.
 
