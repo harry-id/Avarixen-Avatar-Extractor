@@ -333,6 +333,15 @@
             display: none;
         }
 
+        .option-checkbox.disabled {
+            opacity: 0.45;
+            cursor: not-allowed;
+        }
+
+        .option-checkbox.disabled input {
+            cursor: not-allowed;
+        }
+
         .advanced {
             margin-top: 12px;
             border-top: 1px solid #30394d;
@@ -1055,6 +1064,40 @@ const FORMAT_OPTION_SUPPORT = {
     fbx: { separate: true, rig: false }
 };
 
+let meshQualityBeforeForce = null;
+
+function applyForcedMeshQuality() {
+    const moreJoints = document.getElementById("moreJoints");
+    const meshQuality = document.getElementById("meshQuality");
+
+    if (!meshQuality) {
+        return;
+    }
+
+    const meshQualityRow = meshQuality.closest("label");
+
+    if (moreJoints && moreJoints.checked) {
+        // More joints forces the highest mesh quality.
+        if (meshQuality.value !== "3") {
+            meshQualityBeforeForce = meshQuality.value;
+        }
+        meshQuality.value = "3";
+        meshQuality.disabled = true;
+        if (meshQualityRow) {
+            meshQualityRow.classList.add("disabled");
+        }
+    } else {
+        meshQuality.disabled = false;
+        if (meshQualityRow) {
+            meshQualityRow.classList.remove("disabled");
+        }
+        if (meshQualityBeforeForce !== null) {
+            meshQuality.value = meshQualityBeforeForce;
+            meshQualityBeforeForce = null;
+        }
+    }
+}
+
 function updateOptionVisibility() {
     const support = FORMAT_OPTION_SUPPORT[selectedFormat] || {
         separate: true,
@@ -1067,8 +1110,9 @@ function updateOptionVisibility() {
     const separateRow = separate.closest("label");
 
     if (autoRigRow) {
-        // FBX and OBJ cannot carry the auto-rig skeleton.
-        autoRigRow.hidden = !support.rig;
+        // FBX and OBJ cannot carry the auto-rig skeleton: disable (gray out).
+        autoRig.disabled = !support.rig;
+        autoRigRow.classList.toggle("disabled", !support.rig);
         if (!support.rig) {
             autoRig.checked = false;
         }
@@ -1076,7 +1120,8 @@ function updateOptionVisibility() {
 
     if (separateRow) {
         // GLB is a single embedded binary and OBJ is always split by part.
-        separateRow.hidden = !support.separate;
+        separate.disabled = !support.separate;
+        separateRow.classList.toggle("disabled", !support.separate);
         if (!support.separate) {
             separate.checked = false;
         }
@@ -1093,6 +1138,8 @@ function updateOptionVisibility() {
             moreJoints.checked = false;
         }
     }
+
+    applyForcedMeshQuality();
 }
 
 const reloadButton =
@@ -1839,6 +1886,10 @@ document.addEventListener("click", closeDropdown);
 document
     .getElementById("autoRig")
     .addEventListener("change", updateOptionVisibility);
+
+document
+    .getElementById("moreJoints")
+    .addEventListener("change", applyForcedMeshQuality);
 
 window.addEventListener("resize", () => {
     if (downloadDropdown.classList.contains("show")) {
