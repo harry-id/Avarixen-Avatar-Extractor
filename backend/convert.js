@@ -215,6 +215,24 @@ module.exports = function (app) {
                     fs.readFile(path.join(assetDir, "avatar.mtl"), "utf8").catch(() => "")
                 ]);
 
+                // Keep the head out of the mesh-quality subdivision (matches
+                // the GLB/GLTF behaviour).
+                let headGroups = [];
+                if (subdivision > 0) {
+                    try {
+                        const info = getPartInfo(assetDir);
+                        headGroups = info.groups
+                            .filter(
+                                (g) =>
+                                    !/^handle/i.test(g.name) &&
+                                    (g.part === "Head" || /^head$/i.test(g.name))
+                            )
+                            .map((g) => g.name);
+                    } catch {
+                        headGroups = [];
+                    }
+                }
+
                 const fbx = await buildFbx({
                     objText,
                     mtlText,
@@ -222,7 +240,8 @@ module.exports = function (app) {
                     splitParts,
                     groupName,
                     embedTextures: !separate,
-                    subdivision
+                    subdivision,
+                    excludeSubdivision: headGroups
                 });
 
                 if (separate) {

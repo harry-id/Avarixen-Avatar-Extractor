@@ -180,12 +180,14 @@ async function buildFbx({
     splitParts = false,
     groupName = "Avatar",
     embedTextures = true,
-    subdivision = 0
+    subdivision = 0,
+    excludeSubdivision = []
 }) {
     const { THREE: T, FBXExporter } = await ensureModules();
 
     const obj = parseObj(objText);
     const mtl = mtlText ? parseMtl(mtlText) : new Map();
+    const excludeSubdivisionSet = new Set(excludeSubdivision || []);
 
     if (obj.polygons.length === 0) {
         throw new Error("FBX conversion failed: the OBJ has no faces.");
@@ -350,8 +352,13 @@ async function buildFbx({
             const c0 = cornerData(poly, 0);
 
             // Mesh quality refines anatomy only; accessories (Handle* groups)
-            // stay at their original density.
-            const level = isBodyGroup(poly.group || "") ? safeSubdivision : 0;
+            // and any explicitly excluded groups (e.g. the head) keep their
+            // original density.
+            const level =
+                isBodyGroup(poly.group || "") &&
+                !excludeSubdivisionSet.has(poly.group)
+                    ? safeSubdivision
+                    : 0;
 
             // Triangle fan, subdivided when a mesh-quality level is selected.
             for (let i = 1; i < poly.corners.length - 1; i++) {

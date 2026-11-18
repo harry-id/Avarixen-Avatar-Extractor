@@ -500,9 +500,13 @@ function computeJoints(partMapping, boxes, offsetX, offsetY, offsetZ, rigType, m
         if (partMapping.Torso) J.Torso = sub(center(get("Torso")));
 
         if (moreJoints && r6TorsoBox) {
-            // Waist pivot at the bottom of the torso so the upper body can bend
-            // forward while the legs stay planted.
-            J.Waist = sub([r6TorsoBox.cx, r6TorsoBox.ymin, r6TorsoBox.cz]);
+            // Waist pivot above the hip (not coincident with the root) so the
+            // upper body can bend without creating a zero-length root bone.
+            J.Waist = sub([
+                r6TorsoBox.cx,
+                r6TorsoBox.ymin + r6TorsoBox.sy * 0.3,
+                r6TorsoBox.cz
+            ]);
         }
     } else {
         if (partMapping.UpperTorso) J.UpperTorso = sub(center(get("UpperTorso")));
@@ -1268,6 +1272,38 @@ function buildDocument(parsed, partMapping, joints, offsetX, offsetY, offsetZ, r
 }
 
 /**
+ * Best-effort name of the head body group, used to keep the head out of the
+ * mesh-quality subdivision. Handles both renamed exports ("Head") and raw
+ * PlayerN groups (matched via body-part detection).
+ */
+function findHeadGroupName(parsed) {
+    const direct = parsed.groups.find(
+        (g) => typeof g.name === "string" && /^head$/i.test(g.name.trim())
+    );
+
+    if (direct) {
+        return direct.name;
+    }
+
+    const players = parsed.groups.filter((g) => /^Player\d+$/.test(g.name));
+
+    if (players.length) {
+        const boxes = {};
+        for (const g of parsed.groups) {
+            boxes[g.name] = computeBox(g.vertexIndices, parsed.positions);
+        }
+
+        const mapping = matchBodyParts(players, boxes);
+
+        if (mapping.Head) {
+            return mapping.Head;
+        }
+    }
+
+    return null;
+}
+
+/**
  * Convert a downloaded avatar (OBJ + MTL + textures) into a glTF document.
  *
  * @param {string} assetDir - directory containing avatar.obj / avatar.mtl / textures
@@ -1291,12 +1327,14 @@ async function convertAvatar(assetDir, {
     const parsed = parseObj(objPath);
 
     if (subdivision > 0) {
-        // Mesh quality refines anatomy only; accessories (Handle* groups) stay
-        // at their original density.
-        const isAccessory = (name) =>
-            typeof name === "string" && /^handle/i.test(name);
+        // Mesh quality refines the body only: accessories (Handle* groups) and
+        // the head keep their original density.
+        const headGroup = findHeadGroupName(parsed);
+        const isExcluded = (name) =>
+            typeof name === "string" &&
+            (/^handle/i.test(name) || name === headGroup);
 
-        subdivideParsed(parsed, subdivision, (face) => !isAccessory(face.group));
+        subdivideParsed(parsed, subdivision, (face) => !isExcluded(face.group));
     }
     parsed._mtls = mtl;
     parsed._assetDir = assetDir;
