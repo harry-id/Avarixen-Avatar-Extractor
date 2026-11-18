@@ -388,15 +388,6 @@
             font-weight: bold;
         }
 
-        .option-checkbox .legacy-badge {
-            font-size: 10px;
-            padding: 2px 6px;
-            border-radius: 4px;
-            background: #2a2a2a;
-            color: #999;
-            font-weight: bold;
-        }
-
         /* Footer */
         .footer {
             max-width: 1400px;
@@ -669,7 +660,7 @@
                     Unduh GLTF
                 </button>
                 <button class="dropdown-item" data-format="fbx" data-i18n="downloadFbx" role="menuitemradio" aria-checked="false">
-                    Unduh FBX (Legacy)
+                    Unduh FBX
                 </button>
             </div>
         </div>
@@ -802,7 +793,7 @@ const LANG = {
         alertZipFailed: "Gagal membuat ZIP: {{message}}",
         downloadGlb: "Unduh GLB",
         downloadGltf: "Unduh GLTF",
-        downloadFbx: "Unduh FBX (Legacy)",
+        downloadFbx: "Unduh FBX",
         errorConvertFailed: "Konversi gagal: {{message}}",
         statusConverting: "Mengonversi model ke {{format}}...",
         explorerTitle: "Penjelajah Model",
@@ -867,7 +858,7 @@ const LANG = {
         alertZipFailed: "Failed to create ZIP: {{message}}",
         downloadGlb: "Download GLB",
         downloadGltf: "Download GLTF",
-        downloadFbx: "Download FBX (Legacy)",
+        downloadFbx: "Download FBX",
         errorConvertFailed: "Conversion failed: {{message}}",
         statusConverting: "Converting model to {{format}}...",
         explorerTitle: "Model Explorer",
@@ -1061,7 +1052,7 @@ const FORMAT_OPTION_SUPPORT = {
     obj: { separate: false, rig: false },
     glb: { separate: false, rig: true },
     gltf: { separate: true, rig: true },
-    fbx: { separate: true, rig: false }
+    fbx: { separate: true, rig: true }
 };
 
 let meshQualityBeforeForce = null;
@@ -1110,7 +1101,7 @@ function updateOptionVisibility() {
     const separateRow = separate.closest("label");
 
     if (autoRigRow) {
-        // FBX and OBJ cannot carry the auto-rig skeleton: disable (gray out).
+        // OBJ cannot carry the auto-rig skeleton; disable (gray out).
         autoRig.disabled = !support.rig;
         autoRigRow.classList.toggle("disabled", !support.rig);
         if (!support.rig) {
