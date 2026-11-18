@@ -15,6 +15,7 @@ const fs = require("fs");
 const path = require("path");
 const { PNG } = require("pngjs");
 const { isBodyGroup } = require("./obj-utils");
+const { computeRig, parseObjString } = require("./auto-rig");
 
 let THREE = null;
 let FBXExporter = null;
@@ -181,7 +182,9 @@ async function buildFbx({
     groupName = "Avatar",
     embedTextures = true,
     subdivision = 0,
-    excludeSubdivision = []
+    excludeSubdivision = [],
+    rig = false,
+    moreJoints = false
 }) {
     const { THREE: T, FBXExporter } = await ensureModules();
 
@@ -192,6 +195,11 @@ async function buildFbx({
     if (obj.polygons.length === 0) {
         throw new Error("FBX conversion failed: the OBJ has no faces.");
     }
+
+    // Build the same R6/R15 skeleton the GLB exporter uses. `skinFor` returns
+    // bone indices/weights from raw OBJ positions, so it is independent of the
+    // axis/offset conversion applied below.
+    const rigData = rig ? computeRig(parseObjString(objText), { moreJoints }) : null;
 
     // Match the GLB export: center the body on X/Z and put the feet at y = 0.
     let safeSubdivision = Math.max(0, Math.min(3, Math.floor(subdivision || 0)));
@@ -262,7 +270,7 @@ async function buildFbx({
         return materialCache.get(name);
     };
 
-    const buildPart = (polys) => {
+    const buildPart = (polys, fixedGroupName = null) => {
         const usedNames = [...new Set(polys.map((poly) => poly.material || "default"))];
         const nameToIndex = new Map(usedNames.map((name, i) => [name, i]));
 
@@ -271,6 +279,8 @@ async function buildFbx({
         const uvs = [];
         const indices = [];
         const groupCounts = {};
+        const skinIndices = [];
+        const skinWeights = [];
 
         let vertexIndex = 0;
 
@@ -295,7 +305,9 @@ async function buildFbx({
                     -(pos[2] - offsetZ)
                 ],
                 n: [-n[0], n[1], -n[2]],
-                t: uv
+                t: uv,
+                // Raw OBJ position, used for skin-weight evaluation.
+                raw: [pos[0], pos[1], pos[2]]
             };
         };
 
@@ -319,11 +331,16 @@ async function buildFbx({
                 t: [
                     (c1.t[0] + c2.t[0]) / 2,
                     (c1.t[1] + c2.t[1]) / 2
+                ],
+                raw: [
+                    (c1.raw[0] + c2.raw[0]) / 2,
+                    (c1.raw[1] + c2.raw[1]) / 2,
+                    (c1.raw[2] + c2.raw[2]) / 2
                 ]
             };
         };
 
-        const emitTriangle = (c1, c2, c3, mi, level) => {
+        const emitTriangle = (c1, c2, c3, mi, level, groupName) => {
             if (level === 0) {
                 groupCounts[mi] = (groupCounts[mi] || 0) + 3;
 
@@ -331,6 +348,19 @@ async function buildFbx({
                     positions.push(c.p[0], c.p[1], c.p[2]);
                     normals.push(c.n[0], c.n[1], c.n[2]);
                     uvs.push(c.t[0], c.t[1]);
+
+                    if (rigData) {
+                        const skin = rigData.skinFor(groupName, c.raw[0], c.raw[1], c.raw[2]);
+                        skinIndices.push(
+                            skin.indices[0], skin.indices[1],
+                            skin.indices[2], skin.indices[3]
+                        );
+                        skinWeights.push(
+                            skin.weights[0], skin.weights[1],
+                            skin.weights[2], skin.weights[3]
+                        );
+                    }
+
                     indices.push(vertexIndex++);
                 }
 
@@ -341,15 +371,16 @@ async function buildFbx({
             const b = midpoint(c2, c3);
             const c = midpoint(c3, c1);
 
-            emitTriangle(c1, a, c, mi, level - 1);
-            emitTriangle(c2, b, a, mi, level - 1);
-            emitTriangle(c3, c, b, mi, level - 1);
-            emitTriangle(a, b, c, mi, level - 1);
+            emitTriangle(c1, a, c, mi, level - 1, groupName);
+            emitTriangle(c2, b, a, mi, level - 1, groupName);
+            emitTriangle(c3, c, b, mi, level - 1, groupName);
+            emitTriangle(a, b, c, mi, level - 1, groupName);
         };
 
         for (const poly of polys) {
             const mi = nameToIndex.get(poly.material || "default");
             const c0 = cornerData(poly, 0);
+            const groupName = fixedGroupName || poly.group || "Avatar";
 
             // Mesh quality refines anatomy only; accessories (Handle* groups)
             // and any explicitly excluded groups (e.g. the head) keep their
@@ -367,7 +398,8 @@ async function buildFbx({
                     cornerData(poly, i),
                     cornerData(poly, i + 1),
                     mi,
-                    level
+                    level,
+                    groupName
                 );
             }
         }
@@ -376,6 +408,12 @@ async function buildFbx({
         geometry.setAttribute("position", new T.Float32BufferAttribute(positions, 3));
         geometry.setAttribute("normal", new T.Float32BufferAttribute(normals, 3));
         geometry.setAttribute("uv", new T.Float32BufferAttribute(uvs, 2));
+
+        if (rigData) {
+            geometry.setAttribute("skinIndex", new T.Uint16BufferAttribute(skinIndices, 4));
+            geometry.setAttribute("skinWeight", new T.Float32BufferAttribute(skinWeights, 4));
+        }
+
         geometry.setIndex(indices);
 
         // One draw range per material.
@@ -388,37 +426,98 @@ async function buildFbx({
             offset += count;
         }
 
-        return new T.Mesh(geometry, usedNames.map(materialFor));
+        return { geometry, materials: usedNames.map(materialFor) };
     };
 
     const scene = new T.Scene();
 
-    if (splitParts) {
-        // Compatibility mode: one mesh object per OBJ group under a container
-        // named after the avatar, matching the OBJ part layout.
-        const container = new T.Group();
-        container.name = groupName || "Avatar";
+    // Collect the parts to build (one entry per OBJ group in split mode, or a
+    // single merged part otherwise).
+    const partList = [];
 
+    if (splitParts) {
         const byGroup = new Map();
+
         for (const poly of obj.polygons) {
             const key = poly.group || "Avatar";
+
             if (!byGroup.has(key)) {
                 byGroup.set(key, []);
             }
+
             byGroup.get(key).push(poly);
         }
 
         for (const [name, polys] of byGroup) {
-            const partMesh = buildPart(polys);
-            partMesh.name = name;
-            container.add(partMesh);
+            partList.push({ name, polys });
+        }
+    } else {
+        partList.push({ name: "character_mesh", polys: obj.polygons });
+    }
+
+    // A container holds the armature and the (skinned) meshes.
+    const container = new T.Group();
+    container.name = groupName || "Avatar";
+    scene.add(container);
+
+    let skeleton = null;
+
+    if (rigData) {
+        const boneByName = {};
+        const bones = [];
+
+        for (const name of Object.keys(rigData.joints)) {
+            const bone = new T.Bone();
+            bone.name = name;
+            boneByName[name] = bone;
+            bones.push(bone);
         }
 
-        scene.add(container);
-    } else {
-        const mesh = buildPart(obj.polygons);
-        mesh.name = "character_mesh";
-        scene.add(mesh);
+        // Convert each raw joint to the same axis/offset space as the geometry
+        // (Y-up, 180° around Y, body-centred, feet at 0).
+        const worldFBX = (name) => {
+            const p = rigData.joints[name];
+            return [-(p[0] - offsetX), p[1] - offsetY, -(p[2] - offsetZ)];
+        };
+
+        for (const name of Object.keys(rigData.joints)) {
+            const bone = boneByName[name];
+            const parentName = rigData.parentOf[name];
+            const w = worldFBX(name);
+
+            if (parentName && boneByName[parentName]) {
+                const pw = worldFBX(parentName);
+                bone.position.set(w[0] - pw[0], w[1] - pw[1], w[2] - pw[2]);
+                boneByName[parentName].add(bone);
+            } else {
+                bone.position.set(w[0], w[1], w[2]);
+                container.add(bone);
+            }
+        }
+
+        // Bone inverses are captured from the rest pose.
+        scene.updateMatrixWorld(true);
+        skeleton = new T.Skeleton(bones);
+    }
+
+    for (const part of partList) {
+        const built = buildPart(part.polys, splitParts ? part.name : null);
+
+        let mesh;
+
+        if (rigData) {
+            mesh = new T.SkinnedMesh(built.geometry, built.materials);
+            mesh.name = part.name;
+            // Identity bind matrix: geometry and bones already share the same
+            // (FBX) space.
+            mesh.bind(skeleton, new T.Matrix4());
+            mesh.frustumCulled = false;
+        } else {
+            mesh = new T.Mesh(built.geometry, built.materials);
+            mesh.name = part.name;
+        }
+
+        container.add(mesh);
     }
 
     const exporter = new FBXExporter();
