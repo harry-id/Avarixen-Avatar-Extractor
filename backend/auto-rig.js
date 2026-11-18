@@ -53,6 +53,10 @@ function resolveAssetTexture(assetDir, filename) {
 }
 
 function parseObj(objPath) {
+    return parseObjString(fs.readFileSync(objPath, "utf8"));
+}
+
+function parseObjString(text) {
     const positions = [];
     const normals = [];
     const uvs = [];
@@ -62,7 +66,7 @@ function parseObj(objPath) {
     let currentMaterial = "default";
     let currentGroup = null;
 
-    const lines = fs.readFileSync(objPath, "utf8").split(/\r?\n/);
+    const lines = text.split(/\r?\n/);
     for (const raw of lines) {
         const line = raw.trim();
         if (!line || line.startsWith("#")) continue;
@@ -704,6 +708,131 @@ function pushAll(target, source) {
     }
 }
 
+// R6 limbs are single meshes; when the extra joints exist, spread each vertex
+// across the upper/lower/end bones along the limb axis so elbows/knees bend.
+const LIMB_BONES = {
+    "Left Arm": ["Left Arm", "Left LowerArm", "Left Hand"],
+    "Right Arm": ["Right Arm", "Right LowerArm", "Right Hand"],
+    "Left Leg": ["Left Leg", "Left LowerLeg", "Left Foot"],
+    "Right Leg": ["Right Leg", "Right LowerLeg", "Right Foot"]
+};
+
+function createSkinner(joints, boneNameToIdx) {
+    const limbSkinFor = (boneName) => {
+        const bones = LIMB_BONES[boneName];
+
+        if (!bones) {
+            return null;
+        }
+
+        for (const name of bones) {
+            if (!joints[name] || boneNameToIdx[name] === undefined) {
+                return null;
+            }
+        }
+
+        return bones;
+    };
+
+    const limbWeightsFor = (bones, px, py, pz) => {
+        const j0 = joints[bones[0]];
+        const j1 = joints[bones[1]];
+        const j2 = joints[bones[2]];
+
+        const ax = j1[0] - j0[0];
+        const ay = j1[1] - j0[1];
+        const az = j1[2] - j0[2];
+        const seg1 = Math.hypot(ax, ay, az) || 1e-6;
+        const ux = ax / seg1;
+        const uy = ay / seg1;
+        const uz = az / seg1;
+        const seg2 = Math.hypot(j2[0] - j1[0], j2[1] - j1[1], j2[2] - j1[2]) || 1e-6;
+
+        const s = (px - j0[0]) * ux + (py - j0[1]) * uy + (pz - j0[2]) * uz;
+        const t1 = seg1;
+        const t2 = seg1 + seg2;
+
+        // Symmetric blend half-width capped to half the shorter segment so the
+        // elbow/knee and wrist/ankle blends never overlap.
+        const w = Math.max(Math.min(seg1, seg2) * 0.45, 1e-3);
+
+        let w0 = 0;
+        let w1 = 0;
+        let w2 = 0;
+
+        if (s <= t1 - w) {
+            w0 = 1;
+        } else if (s < t1 + w) {
+            const f = (s - (t1 - w)) / (2 * w);
+            w0 = 1 - f;
+            w1 = f;
+        } else if (s <= t2 - w) {
+            w1 = 1;
+        } else if (s < t2 + w) {
+            const f = (s - (t2 - w)) / (2 * w);
+            w1 = 1 - f;
+            w2 = f;
+        } else {
+            w2 = 1;
+        }
+
+        return {
+            joints: [
+                boneNameToIdx[bones[0]],
+                boneNameToIdx[bones[1]],
+                boneNameToIdx[bones[2]],
+                0
+            ],
+            weights: [w0, w1, w2, 0]
+        };
+    };
+
+    return { limbSkinFor, limbWeightsFor };
+}
+
+function buildParentMap(rigType, joints) {
+    const rootName = rigType === "R6" ? "HumanoidRootPart" : "Root";
+    const parentOf = {};
+
+    if (rigType === "R6") {
+        parentOf.Torso = joints.Waist ? "Waist" : rootName;
+        parentOf.Waist = rootName;
+        parentOf.Neck = "Torso";
+        parentOf.Head = "Neck";
+        parentOf["Left Arm"] = "Torso";
+        parentOf["Right Arm"] = "Torso";
+        parentOf["Left Hand"] = joints["Left LowerArm"] ? "Left LowerArm" : "Left Arm";
+        parentOf["Right Hand"] = joints["Right LowerArm"] ? "Right LowerArm" : "Right Arm";
+        parentOf["Left LowerArm"] = "Left Arm";
+        parentOf["Right LowerArm"] = "Right Arm";
+        parentOf["Left Leg"] = rootName;
+        parentOf["Right Leg"] = rootName;
+        parentOf["Left LowerLeg"] = "Left Leg";
+        parentOf["Right LowerLeg"] = "Right Leg";
+        parentOf["Left Foot"] = "Left LowerLeg";
+        parentOf["Right Foot"] = "Right LowerLeg";
+    } else if (rigType === "R15") {
+        parentOf.LowerTorso = rootName;
+        parentOf.UpperTorso = "LowerTorso";
+        parentOf.Neck = "UpperTorso";
+        parentOf.Head = "Neck";
+        parentOf["LeftUpperArm"] = "UpperTorso";
+        parentOf["RightUpperArm"] = "UpperTorso";
+        parentOf["LeftLowerArm"] = "LeftUpperArm";
+        parentOf["RightLowerArm"] = "RightUpperArm";
+        parentOf["LeftHand"] = "LeftLowerArm";
+        parentOf["RightHand"] = "RightLowerArm";
+        parentOf["LeftUpperLeg"] = "LowerTorso";
+        parentOf["RightUpperLeg"] = "LowerTorso";
+        parentOf["LeftLowerLeg"] = "LeftUpperLeg";
+        parentOf["RightLowerLeg"] = "RightUpperLeg";
+        parentOf["LeftFoot"] = "LeftLowerLeg";
+        parentOf["RightFoot"] = "RightLowerLeg";
+    }
+
+    return { parentOf, rootName };
+}
+
 function buildDocument(parsed, partMapping, joints, offsetX, offsetY, offsetZ, rigType, handleBoneMap, options = {}) {
     const splitParts = !!options.splitParts;
     const groupName = options.groupName || "Avatar";
@@ -740,44 +869,8 @@ function buildDocument(parsed, partMapping, joints, offsetX, offsetY, offsetZ, r
     }
     const jointNodeMap = {};
     const jointNames = rigged ? Object.keys(joints) : [];
-    const rootName = rigType === "R6" ? "HumanoidRootPart" : "Root";
 
-    const parentOf = {};
-    if (rigType === "R6") {
-        parentOf.Torso = joints.Waist ? "Waist" : rootName;
-        parentOf.Waist = rootName;
-        parentOf.Neck = "Torso";
-        parentOf.Head = "Neck";
-        parentOf["Left Arm"] = "Torso";
-        parentOf["Right Arm"] = "Torso";
-        parentOf["Left Hand"] = joints["Left LowerArm"] ? "Left LowerArm" : "Left Arm";
-        parentOf["Right Hand"] = joints["Right LowerArm"] ? "Right LowerArm" : "Right Arm";
-        parentOf["Left LowerArm"] = "Left Arm";
-        parentOf["Right LowerArm"] = "Right Arm";
-        parentOf["Left Leg"] = rootName;
-        parentOf["Right Leg"] = rootName;
-        parentOf["Left LowerLeg"] = "Left Leg";
-        parentOf["Right LowerLeg"] = "Right Leg";
-        parentOf["Left Foot"] = "Left LowerLeg";
-        parentOf["Right Foot"] = "Right LowerLeg";
-    } else if (rigType === "R15") {
-        parentOf.LowerTorso = rootName;
-        parentOf.UpperTorso = "LowerTorso";
-        parentOf.Neck = "UpperTorso";
-        parentOf.Head = "Neck";
-        parentOf["LeftUpperArm"] = "UpperTorso";
-        parentOf["RightUpperArm"] = "UpperTorso";
-        parentOf["LeftLowerArm"] = "LeftUpperArm";
-        parentOf["RightLowerArm"] = "RightUpperArm";
-        parentOf["LeftHand"] = "LeftLowerArm";
-        parentOf["RightHand"] = "RightLowerArm";
-        parentOf["LeftUpperLeg"] = "LowerTorso";
-        parentOf["RightUpperLeg"] = "LowerTorso";
-        parentOf["LeftLowerLeg"] = "LeftUpperLeg";
-        parentOf["RightLowerLeg"] = "RightUpperLeg";
-        parentOf["LeftFoot"] = "LeftLowerLeg";
-        parentOf["RightFoot"] = "RightLowerLeg";
-    }
+    const { parentOf, rootName } = buildParentMap(rigType, joints);
 
     for (const jname of jointNames) {
         const absPos = joints[jname];
@@ -895,84 +988,7 @@ function buildDocument(parsed, partMapping, joints, offsetX, offsetY, offsetZ, r
     const boneNameToIdx = {};
     jointNames.forEach((name, i) => { boneNameToIdx[name] = i; });
 
-    // R6 limbs are a single mesh each, so when the extra joints exist we spread
-    // every vertex across the upper/lower/end bones along the limb axis. Without
-    // this, rotating an elbow or knee would not bend the mesh.
-    const LIMB_BONES = {
-        "Left Arm": ["Left Arm", "Left LowerArm", "Left Hand"],
-        "Right Arm": ["Right Arm", "Right LowerArm", "Right Hand"],
-        "Left Leg": ["Left Leg", "Left LowerLeg", "Left Foot"],
-        "Right Leg": ["Right Leg", "Right LowerLeg", "Right Foot"]
-    };
-
-    const limbSkinFor = (boneName) => {
-        const bones = LIMB_BONES[boneName];
-
-        if (!bones) {
-            return null;
-        }
-
-        for (const name of bones) {
-            if (!joints[name] || boneNameToIdx[name] === undefined) {
-                return null;
-            }
-        }
-
-        return bones;
-    };
-
-    const limbWeightsFor = (bones, px, py, pz) => {
-        const j0 = joints[bones[0]];
-        const j1 = joints[bones[1]];
-        const j2 = joints[bones[2]];
-
-        const ax = j1[0] - j0[0];
-        const ay = j1[1] - j0[1];
-        const az = j1[2] - j0[2];
-        const seg1 = Math.hypot(ax, ay, az) || 1e-6;
-        const ux = ax / seg1;
-        const uy = ay / seg1;
-        const uz = az / seg1;
-        const seg2 = Math.hypot(j2[0] - j1[0], j2[1] - j1[1], j2[2] - j1[2]) || 1e-6;
-
-        const s = (px - j0[0]) * ux + (py - j0[1]) * uy + (pz - j0[2]) * uz;
-        const t1 = seg1;
-        const t2 = seg1 + seg2;
-
-        // Symmetric blend half-width capped to half the shorter segment so the
-        // elbow/knee and wrist/ankle blends never overlap.
-        const w = Math.max(Math.min(seg1, seg2) * 0.45, 1e-3);
-
-        let w0 = 0;
-        let w1 = 0;
-        let w2 = 0;
-
-        if (s <= t1 - w) {
-            w0 = 1;
-        } else if (s < t1 + w) {
-            const f = (s - (t1 - w)) / (2 * w);
-            w0 = 1 - f;
-            w1 = f;
-        } else if (s <= t2 - w) {
-            w1 = 1;
-        } else if (s < t2 + w) {
-            const f = (s - (t2 - w)) / (2 * w);
-            w1 = 1 - f;
-            w2 = f;
-        } else {
-            w2 = 1;
-        }
-
-        return {
-            joints: [
-                boneNameToIdx[bones[0]],
-                boneNameToIdx[bones[1]],
-                boneNameToIdx[bones[2]],
-                0
-            ],
-            weights: [w0, w1, w2, 0]
-        };
-    };
+    const { limbSkinFor, limbWeightsFor } = createSkinner(joints, boneNameToIdx);
 
     const allPos = [];
     const allNor = [];
@@ -1304,6 +1320,108 @@ function findHeadGroupName(parsed) {
 }
 
 /**
+ * Compute a full R6/R15 rig from a parsed OBJ: joints (in raw OBJ space),
+ * bone hierarchy, and a per-vertex skin function. Shared by the glTF and FBX
+ * exporters so both produce an identical skeleton.
+ */
+function computeRig(parsed, { moreJoints = false } = {}) {
+    const boxes = {};
+    for (const g of parsed.groups) {
+        boxes[g.name] = computeBox(g.vertexIndices, parsed.positions);
+    }
+
+    const playerGroups = parsed.groups.filter((g) => g.name.startsWith("Player"));
+    const handleGroups = parsed.groups.filter((g) => g.name.startsWith("Handle"));
+
+    let rigType = detectRigType(playerGroups.length);
+    let partMapping = {};
+
+    if (rigType) {
+        partMapping = matchBodyParts(playerGroups, boxes);
+    } else {
+        // Exported avatars are renamed (Head, Torso, ...), so fall back to
+        // detecting the rig from those part names.
+        rigType = detectNamedRigType(parsed.groups);
+
+        if (rigType) {
+            partMapping = mappingFromPartNames(rigType, parsed.groups);
+        }
+    }
+
+    if (!rigType) {
+        throw new Error(
+            `Auto-rig requires 6 (R6) or 15 (R15) body groups, found ${playerGroups.length} Player group(s)`
+        );
+    }
+
+    const recenter = computeRecenter(boxes, partMapping);
+
+    // Raw OBJ-space joints (no offset applied).
+    const joints = computeJoints(
+        partMapping,
+        boxes,
+        0,
+        0,
+        0,
+        rigType,
+        moreJoints && rigType === "R6"
+    );
+
+    const playerBoxes = {};
+    for (const [part, gname] of Object.entries(partMapping)) {
+        playerBoxes[part] = boxes[gname];
+    }
+
+    if (rigType === "R6") {
+        addR6HandBoxes(playerBoxes);
+    }
+
+    const handleBoneMap = {};
+    for (const hg of handleGroups) {
+        handleBoneMap[hg.name] = assignHandleBone(hg, playerBoxes, parsed.positions);
+    }
+
+    const groupToPart = {};
+    for (const [part, gname] of Object.entries(partMapping)) {
+        groupToPart[gname] = part;
+    }
+
+    const boneNameToIdx = {};
+    Object.keys(joints).forEach((name, i) => { boneNameToIdx[name] = i; });
+
+    const { parentOf, rootName } = buildParentMap(rigType, joints);
+    const { limbSkinFor, limbWeightsFor } = createSkinner(joints, boneNameToIdx);
+
+    // Weights depend only on relative geometry, so raw-space joints + raw
+    // vertex positions give the same result in any (rotated/recentered) space.
+    const skinFor = (groupName, x, y, z) => {
+        const boneName = groupToPart[groupName] || handleBoneMap[groupName] || rootName;
+        const limbSkin = limbSkinFor(boneName);
+
+        if (limbSkin) {
+            const skin = limbWeightsFor(limbSkin, x, y, z);
+            return { indices: skin.joints, weights: skin.weights };
+        }
+
+        const boneIdx = boneNameToIdx[boneName] !== undefined ? boneNameToIdx[boneName] : 0;
+        return { indices: [boneIdx, 0, 0, 0], weights: [1, 0, 0, 0] };
+    };
+
+    return {
+        rigType,
+        partMapping,
+        recenter,
+        joints,
+        parentOf,
+        rootName,
+        groupToPart,
+        handleBoneMap,
+        boneNameToIdx,
+        skinFor
+    };
+}
+
+/**
  * Convert a downloaded avatar (OBJ + MTL + textures) into a glTF document.
  *
  * @param {string} assetDir - directory containing avatar.obj / avatar.mtl / textures
@@ -1351,53 +1469,20 @@ async function convertAvatar(assetDir, {
     }
 
     if (rig) {
-        const playerGroups = parsed.groups.filter(g => g.name.startsWith("Player"));
-        const handleGroups = parsed.groups.filter(g => g.name.startsWith("Handle"));
+        const rigData = computeRig(parsed, { moreJoints });
 
-        rigType = detectRigType(playerGroups.length);
-        if (rigType) {
-            partMapping = matchBodyParts(playerGroups, boxes);
-        } else {
-            // Exported avatars are renamed (Head, Torso, ...), so fall back to
-            // detecting the rig from those part names.
-            rigType = detectNamedRigType(parsed.groups);
-            if (rigType) {
-                partMapping = mappingFromPartNames(rigType, parsed.groups);
-            }
-        }
+        rigType = rigData.rigType;
+        partMapping = rigData.partMapping;
+        handleBoneMap = rigData.handleBoneMap;
 
-        if (!rigType) {
-            throw new Error(
-                `Auto-rig requires 6 (R6) or 15 (R15) body groups, found ${playerGroups.length} Player group(s)`
-            );
-        }
+        offsetX = rigData.recenter.offsetX;
+        offsetY = rigData.recenter.offsetY;
+        offsetZ = rigData.recenter.offsetZ;
 
-        const recenter = computeRecenter(boxes, partMapping);
-        offsetX = recenter.offsetX;
-        offsetY = recenter.offsetY;
-        offsetZ = recenter.offsetZ;
-
-        joints = computeJoints(
-            partMapping,
-            boxes,
-            offsetX,
-            offsetY,
-            offsetZ,
-            rigType,
-            moreJoints && rigType === "R6"
-        );
-
-        const playerBoxes = {};
-        for (const [part, gname] of Object.entries(partMapping)) {
-            playerBoxes[part] = boxes[gname];
-        }
-
-        if (rigType === "R6") {
-            addR6HandBoxes(playerBoxes);
-        }
-
-        for (const hg of handleGroups) {
-            handleBoneMap[hg.name] = assignHandleBone(hg, playerBoxes, parsed.positions);
+        // buildDocument works in recentered space.
+        joints = {};
+        for (const [name, p] of Object.entries(rigData.joints)) {
+            joints[name] = [p[0] - offsetX, p[1] - offsetY, p[2] - offsetZ];
         }
     } else {
         // Non-rigged: center on the body only (accessories must not pull the
@@ -1524,6 +1609,7 @@ module.exports = {
     convertAvatar,
     getPartInfo,
     parseObj,
+    parseObjString,
     parseMtl,
     subdivideParsed,
     computeBox,
@@ -1533,5 +1619,10 @@ module.exports = {
     matchBodyParts,
     computeRecenter,
     computeJoints,
-    assignHandleBone
+    assignHandleBone,
+    addR6HandBoxes,
+    createSkinner,
+    buildParentMap,
+    computeRig,
+    findHeadGroupName
 };
