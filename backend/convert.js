@@ -187,15 +187,6 @@ module.exports = function (app) {
         );
         const moreJoints = parseBool(req.query.moreJoints);
 
-        // The FBX writer does not emit a skeleton; fail loudly instead of
-        // silently ignoring the requested rig.
-        if (fmt === "fbx" && rig) {
-            return res.status(400).json({
-                success: false,
-                message: t(lang, "convert.rig_unsupported_fbx")
-            });
-        }
-
         const assetDir = path.join(__dirname, "../downloads", userId);
         const objPath = path.join(assetDir, "avatar.obj");
 
@@ -241,7 +232,9 @@ module.exports = function (app) {
                     groupName,
                     embedTextures: !separate,
                     subdivision,
-                    excludeSubdivision: headGroups
+                    excludeSubdivision: headGroups,
+                    rig,
+                    moreJoints
                 });
 
                 if (separate) {
