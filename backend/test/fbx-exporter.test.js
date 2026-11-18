@@ -171,3 +171,57 @@ test("buildFbx subdivides geometry when a level is requested", async () => {
         fs.rmSync(dir, { recursive: true, force: true });
     }
 });
+
+const R6_OBJ = [
+    "g Head", "v 0 10 0", "v 1 10 0", "v 0 11 0", "f 1 2 3",
+    "g Torso", "v -1 5 0", "v 1 5 0", "v 0 7 0", "f 4 5 6",
+    "g LeftArm", "v -2 6 0", "v -1 6 0", "v -1.5 8 0", "f 7 8 9",
+    "g RightArm", "v 1 6 0", "v 2 6 0", "v 1.5 8 0", "f 10 11 12",
+    "g LeftLeg", "v -1 1 0", "v 0 1 0", "v -0.5 4 0", "f 13 14 15",
+    "g RightLeg", "v 0 1 0", "v 1 1 0", "v 0.5 4 0", "f 16 17 18",
+    ""
+].join("\n");
+
+test("buildFbx writes an armature when rig is requested", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "aae-fbx-"));
+
+    try {
+        const fbx = await buildFbx({
+            objText: R6_OBJ,
+            mtlText: "",
+            assetDir: dir,
+            splitParts: true,
+            groupName: "Tester",
+            rig: true,
+            moreJoints: true
+        });
+
+        assert.ok(fbx.length > 0);
+        assert.equal(fbx.includes(Buffer.from("LimbNode")), true);
+        assert.equal(fbx.includes(Buffer.from("Cluster")), true);
+        assert.equal(fbx.includes(Buffer.from("Deformer")), true);
+        assert.equal(fbx.includes(Buffer.from("Left Hand")), true);
+        assert.equal(fbx.includes(Buffer.from("Waist")), true);
+    } finally {
+        fs.rmSync(dir, { recursive: true, force: true });
+    }
+});
+
+test("buildFbx stays static without a rig", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "aae-fbx-"));
+
+    try {
+        const fbx = await buildFbx({
+            objText: R6_OBJ,
+            mtlText: "",
+            assetDir: dir,
+            splitParts: true,
+            groupName: "Tester"
+        });
+
+        assert.equal(fbx.includes(Buffer.from("LimbNode")), false);
+        assert.equal(fbx.includes(Buffer.from("Cluster")), false);
+    } finally {
+        fs.rmSync(dir, { recursive: true, force: true });
+    }
+});
