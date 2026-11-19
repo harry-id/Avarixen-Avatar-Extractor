@@ -137,6 +137,10 @@ None of these formats can store a Blender collection: the exported root is a par
 
 Downloaded files are named `{safeName}_{userId}.{format}` (e.g. `Roblox_11159567260.fbx`), where `safeName` is the Roblox display name/username with filesystem-illegal characters replaced.
 
+## Compatibility
+
+Exports are tested with **Blender 3.6** and **Prisma3D 3.3.5** — covering OBJ, GLB, GLTF, and FBX in standard, separate-assets, and rigged modes. See [tests.md](tests.md) for the full test matrix and per-format notes.
+
 ## Notes
 
 - The frontend targets the backend at `http://localhost:3000` for local dev (auto-detected on localhost). For other deployments, set `window.__AAE_BACKEND_URL__` before the app script or serve the API behind the same origin.
