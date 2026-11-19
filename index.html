@@ -479,10 +479,26 @@
 
         /* About / SEO content section */
         .info {
-            margin-top: 32px;
-            padding-top: 24px;
+            margin-top: 28px;
+            padding-top: 16px;
             border-top: 1px solid #30394d;
             color: #aab4c8;
+        }
+
+        .info > summary {
+            width: fit-content;
+            font-size: 13px;
+            color: #8b96ab;
+            cursor: pointer;
+            transition: color 0.15s ease;
+        }
+
+        .info > summary:hover {
+            color: #aab4c8;
+        }
+
+        .info-body {
+            padding-top: 14px;
         }
 
         .info h2 {
@@ -779,7 +795,9 @@
         </div>
     </details>
 
-    <section class="info" aria-label="About Avarixen">
+    <details class="info">
+        <summary data-i18n="aboutWebsite">About Website</summary>
+        <div class="info-body">
         <h2 data-i18n="aboutTitle">About Avarixen</h2>
         <p data-i18n="aboutBody">Avarixen is a free, browser-based Roblox avatar downloader and 3D exporter. Enter a Roblox username to retrieve the avatar, preview it in interactive 3D, inspect its mesh hierarchy, and export it to OBJ, FBX, GLB, or glTF for 3D modeling and animation workflows.</p>
 
@@ -828,7 +846,8 @@
                 <p data-i18n="faq7a">Yes. The project runs on Node.js 18+. Clone the repository, install dependencies, configure the Roblox API key, then start the backend and frontend. See the README for setup steps.</p>
             </details>
         </div>
-    </section>
+        </div>
+    </details>
 
 </main>
 
@@ -877,6 +896,7 @@ const LANG = {
         appTitle: "Avarixen",
         appSubtitle: "Pengunduh & Eksportir Avatar 3D Roblox",
         appTagline: "Ambil, pratinjau, periksa, rig, dan ekspor avatar Roblox untuk alur kerja pemodelan dan animasi 3D.",
+        aboutWebsite: "Tentang Website",
         aboutTitle: "Tentang Avarixen",
         aboutBody: "Avarixen adalah pengunduh dan eksportir avatar Roblox 3D gratis yang berbasis browser. Masukkan username Roblox untuk mengambil avatar, pratinjau dalam 3D interaktif, periksa hierarki mesh, lalu ekspor ke OBJ, FBX, GLB, atau glTF untuk alur kerja pemodelan dan animasi 3D.",
         featuresTitle: "Fitur",
@@ -971,6 +991,7 @@ const LANG = {
         appTitle: "Avarixen",
         appSubtitle: "Roblox Avatar Downloader & 3D Exporter",
         appTagline: "Retrieve, preview, inspect, rig, and export Roblox avatars for 3D modeling and animation workflows.",
+        aboutWebsite: "About Website",
         aboutTitle: "About Avarixen",
         aboutBody: "Avarixen is a free, browser-based Roblox avatar downloader and 3D exporter. Enter a Roblox username to retrieve the avatar, preview it in interactive 3D, inspect its mesh hierarchy, and export it to OBJ, FBX, GLB, or glTF for 3D modeling and animation workflows.",
         featuresTitle: "Features",
