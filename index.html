@@ -1,0 +1,2200 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <title data-i18n="appTitle">Avarixen Avatar Extractor</title>
+
+    <style>
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+            background: #10131c;
+            color: white;
+            font-family: Arial, sans-serif;
+        }
+
+        header {
+            padding: 20px;
+            background: #191e2b;
+            border-bottom: 1px solid #30394d;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .brand {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+
+        .brand-row {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+
+        header h1 {
+            margin: 0;
+            font-size: 22px;
+        }
+
+        header p {
+            color: #aab4c8;
+            margin: 0;
+        }
+
+        .lang-selector {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-top: 4px;
+        }
+
+        .lang-selector label {
+            color: #aab4c8;
+            font-size: 13px;
+            white-space: nowrap;
+        }
+
+        .lang-selector select {
+            background: #191e2b;
+            color: #fff;
+            border: 1px solid #39445c;
+            border-radius: 6px;
+            padding: 6px 10px;
+            font-size: 13px;
+            cursor: pointer;
+        }
+
+        .lang-selector select:focus {
+            border-color: #4285f4;
+            outline: none;
+        }
+
+        .api-status {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 12px;
+            color: #aab4c8;
+            padding: 4px 10px;
+            background: #191e2b;
+            border: 1px solid #30394d;
+            border-radius: 6px;
+            white-space: nowrap;
+        }
+
+        .api-status .api-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: #4caf50;
+            flex-shrink: 0;
+            box-shadow: 0 0 4px rgba(76, 175, 80, 0.6);
+        }
+
+        .api-status.offline .api-dot {
+            background: #f44336;
+            box-shadow: 0 0 4px rgba(244, 67, 54, 0.6);
+        }
+
+        .api-status.offline {
+            color: #f44336;
+        }
+
+        main {
+            max-width: 1400px;
+            margin: auto;
+            padding: 20px;
+        }
+
+        .search-box {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 15px;
+        }
+
+        input {
+            flex: 1;
+            min-width: 0;
+            padding: 13px;
+            border: 1px solid #39445c;
+            border-radius: 8px;
+            background: #191e2b;
+            color: white;
+            font-size: 15px;
+            outline: none;
+        }
+
+        input:focus {
+            border-color: #4285f4;
+        }
+
+        button {
+            padding: 12px 20px;
+            border: none;
+            border-radius: 8px;
+            background: #4285f4;
+            color: white;
+            font-weight: bold;
+            cursor: pointer;
+        }
+
+        button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        #accountInfo {
+            display: none;
+            position: absolute;
+            top: 12px;
+            left: 12px;
+            z-index: 10;
+            padding: 12px 14px;
+            background: rgba(25, 30, 43, 0.7);
+            border: 1px solid #39445c;
+            border-radius: 8px;
+            font-size: 13px;
+            line-height: 1.7;
+            pointer-events: none;
+            max-width: 60%;
+            backdrop-filter: blur(4px);
+            -webkit-backdrop-filter: blur(4px);
+        }
+
+        #viewer {
+            width: 100%;
+            height: 500px;
+            background: #202738;
+            border-radius: 14px;
+            overflow: hidden;
+            position: relative;
+        }
+
+        /* Viewer + model explorer sidebar layout */
+        .viewer-layout {
+            display: flex;
+            gap: 12px;
+            align-items: stretch;
+        }
+
+        .viewer-layout #viewer {
+            flex: 1;
+            min-width: 0;
+        }
+
+        #explorer {
+            width: 240px;
+            height: 500px;
+            flex-shrink: 0;
+            background: #191e2b;
+            border: 1px solid #30394d;
+            border-radius: 14px;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        .explorer-header {
+            padding: 12px 14px;
+            border-bottom: 1px solid #30394d;
+            font-size: 13px;
+            font-weight: bold;
+            color: #aab4c8;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .explorer-header .explorer-count {
+            font-weight: normal;
+            color: #6c7a94;
+            font-size: 12px;
+        }
+
+        .explorer-title-group {
+            display: flex;
+            align-items: baseline;
+            gap: 8px;
+            min-width: 0;
+        }
+
+        .explorer-header .explorer-size {
+            font-weight: normal;
+            color: #556070;
+            font-size: 11px;
+            white-space: nowrap;
+        }
+
+        .explorer-tree {
+            flex: 1;
+            overflow-y: auto;
+            padding: 8px 0;
+            font-size: 13px;
+            scrollbar-width: none;
+            -ms-overflow-style: none;
+        }
+
+        .explorer-tree::-webkit-scrollbar {
+            display: none;
+        }
+
+        .explorer-empty {
+            padding: 20px 14px;
+            color: #6c7a94;
+            text-align: center;
+            font-size: 13px;
+            line-height: 1.6;
+        }
+
+        .explorer-node {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            padding: 5px 12px;
+            cursor: default;
+            white-space: nowrap;
+        }
+
+        .explorer-node:hover {
+            background: #202738;
+        }
+
+        .explorer-node .node-icon {
+            width: 8px;
+            height: 8px;
+            border-radius: 2px;
+            flex-shrink: 0;
+        }
+
+        .explorer-node .node-icon.player {
+            background: #4285f4;
+        }
+
+        .explorer-node .node-icon.handle {
+            background: #a142f4;
+        }
+
+        .explorer-node .node-icon.other {
+            background: #6c7a94;
+        }
+
+        .explorer-node .node-name {
+            flex: 1;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .explorer-node .node-meta {
+            color: #6c7a94;
+            font-size: 11px;
+            flex-shrink: 0;
+        }
+
+        .explorer-section-label {
+            padding: 10px 12px 4px;
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            color: #6c7a94;
+        }
+
+        /* Download options (checkboxes) */
+        .options {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 16px;
+            margin-top: 12px;
+            padding: 0;
+            background: transparent;
+            border: none;
+            border-radius: 0;
+        }
+
+        .option-checkbox {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 14px;
+            color: #d0d8e8;
+            cursor: pointer;
+            user-select: none;
+        }
+
+        .option-checkbox[hidden] {
+            display: none;
+        }
+
+        .option-checkbox.disabled {
+            opacity: 0.45;
+            cursor: not-allowed;
+        }
+
+        .option-checkbox.disabled input {
+            cursor: not-allowed;
+        }
+
+        .advanced {
+            margin-top: 12px;
+            border-top: 1px solid #30394d;
+            padding-top: 10px;
+        }
+
+        .advanced summary {
+            cursor: pointer;
+            font-size: 13px;
+            color: #aab4c8;
+            user-select: none;
+        }
+
+        .advanced-body {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            gap: 16px;
+            margin-top: 10px;
+        }
+
+        .advanced select {
+            background: #191e2b;
+            color: #fff;
+            border: 1px solid #39445c;
+            border-radius: 6px;
+            padding: 6px 10px;
+            font-size: 13px;
+        }
+
+        .option-checkbox input[type="checkbox"] {
+            width: 16px;
+            height: 16px;
+            accent-color: #4285f4;
+            cursor: pointer;
+        }
+
+        .option-checkbox .experimental-badge {
+            font-size: 10px;
+            padding: 2px 6px;
+            border-radius: 4px;
+            background: #3a2a1a;
+            color: #f0a030;
+            font-weight: bold;
+        }
+
+        /* Footer */
+        .footer {
+            max-width: 1400px;
+            margin: 28px auto 0;
+            padding: 20px 20px 12px;
+            border-top: 1px solid #30394d;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            align-items: flex-start;
+            text-align: left;
+        }
+
+        .footer-links {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            justify-content: flex-start;
+            align-items: flex-start;
+        }
+
+        .footer-links a {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            color: #aab4c8;
+            text-decoration: none;
+            font-size: 13px;
+            transition: color 0.15s ease;
+        }
+
+        .footer-links a:hover {
+            color: #4285f4;
+        }
+
+        .footer-links a svg {
+            flex-shrink: 0;
+        }
+
+        .footer-tag {
+            font-size: 11px;
+            padding: 1px 6px;
+            border-radius: 4px;
+            background: #202738;
+            color: #6c7a94;
+            font-weight: normal;
+        }
+
+        .footer .copyright {
+            color: #6c7a94;
+            font-size: 12px;
+            margin: 0;
+        }
+
+        .footer .copyright a {
+            color: #6c7a94;
+            text-decoration: none;
+        }
+
+        .footer .copyright a:hover {
+            color: #4285f4;
+        }
+
+        @media (max-width: 900px) {
+            .viewer-layout {
+                flex-direction: column;
+            }
+
+            #explorer {
+                width: 100%;
+                max-height: 200px;
+            }
+        }
+
+        .status {
+            margin-top: 15px;
+            color: #aab4c8;
+            line-height: 1.5;
+        }
+
+        .controls {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+
+        .dropdown {
+            position: relative;
+            display: inline-block;
+        }
+
+        .split-button {
+            display: flex;
+        }
+
+        .split-button #downloadButton {
+            min-width: 140px;
+            border-top-right-radius: 0;
+            border-bottom-right-radius: 0;
+        }
+
+        .split-button .arrow-button {
+            padding: 12px 14px;
+            font-size: 12px;
+            line-height: 1;
+            border-top-left-radius: 0;
+            border-bottom-left-radius: 0;
+            border-left: 1px solid rgba(255, 255, 255, 0.35);
+        }
+
+        .dropdown-content {
+            display: none;
+            position: fixed;
+            background-color: #191e2b;
+            width: 240px;
+            max-height: 280px;
+            overflow-y: auto;
+            box-shadow: 0 8px 16px rgba(0, 0, 0, 0.5);
+            border-radius: 8px;
+            border: 1px solid #39445c;
+            z-index: 1000;
+            scrollbar-width: thin;
+        }
+
+        .dropdown-content.show {
+            display: block;
+        }
+
+        .dropdown-content button {
+            width: 100%;
+            padding: 9px 14px;
+            text-align: left;
+            background: none;
+            border: none;
+            color: white;
+            cursor: pointer;
+            font-size: 13px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .dropdown-content button:hover {
+            background: #202738;
+        }
+
+        .dropdown-content button.selected::before {
+            content: "✓ ";
+            color: #4285f4;
+        }
+
+        .dropdown-content button.disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        @media (max-width: 600px) {
+            .search-box {
+                flex-direction: column;
+            }
+
+            .search-box button {
+                width: 100%;
+            }
+
+            #viewer {
+                height: 380px;
+            }
+        }
+    </style>
+
+    <script type="importmap">
+    {
+        "imports": {
+            "three": "https://cdn.jsdelivr.net/npm/three@0.180.0/build/three.module.js"
+        }
+    }
+    </script>
+</head>
+
+<body>
+
+<header>
+    <div class="brand">
+        <div class="brand-row">
+            <h1 data-i18n="appTitle">Avarixen Avatar Extractor</h1>
+            <div class="api-status" id="apiStatus" title="Backend API status">
+                <span class="api-dot"></span>
+                <span id="apiStatusText">API Online</span>
+            </div>
+        </div>
+        <p data-i18n="appSubtitle">Roblox Avatar 3D Preview</p>
+    </div>
+    <div class="lang-selector">
+        <label for="langSelector" data-i18n="languageLabel">Bahasa / Language:</label>
+        <select id="langSelector">
+            <option value="id">Indonesia</option>
+            <option value="en">English</option>
+        </select>
+    </div>
+</header>
+
+<main>
+
+    <form class="search-box" id="searchForm">
+        <input
+            type="text"
+            id="searchInput"
+            placeholder="Masukkan username Roblox..."
+            autocomplete="off"
+        >
+
+        <button type="submit" id="searchButton" data-i18n="searchButton">
+            Cari Avatar
+        </button>
+    </form>
+
+    <div class="viewer-layout">
+        <div id="viewer">
+            <div id="accountInfo"></div>
+        </div>
+        <aside id="explorer">
+            <div class="explorer-header">
+                <div class="explorer-title-group">
+                    <span data-i18n="explorerTitle">Model Explorer</span>
+                    <span class="explorer-size" id="explorerSize"></span>
+                </div>
+                <span class="explorer-count" id="explorerCount"></span>
+            </div>
+            <div class="explorer-tree" id="explorerTree">
+                <div class="explorer-empty" data-i18n="explorerEmpty">
+                    Load an avatar to see its parts.
+                </div>
+            </div>
+        </aside>
+    </div>
+
+    <div class="status" id="status" data-i18n="statusWaiting">
+        Masukkan username Roblox untuk memuat pratinjau 3D.
+    </div>
+
+    <div class="controls">
+        <button id="reloadButton" data-i18n="reloadButton">
+            Muat Ulang Model
+        </button>
+
+        <div class="dropdown">
+            <div class="split-button">
+                <button id="downloadButton" data-i18n="downloadObj">
+                    Unduh OBJ
+                </button>
+                <button
+                    type="button"
+                    id="downloadToggle"
+                    class="arrow-button"
+                    data-i18n-title="downloadFormatLabel"
+                    title="Pilih format unduhan"
+                    aria-haspopup="true"
+                    aria-expanded="false"
+                >▼</button>
+            </div>
+            <div id="downloadDropdown" class="dropdown-content" role="menu">
+                <button class="dropdown-item" data-format="obj" data-i18n="downloadObjOption" role="menuitemradio" aria-checked="false">
+                    Unduh OBJ (OBJ + MTL + Texture)
+                </button>
+                <button class="dropdown-item" data-format="glb" data-i18n="downloadGlb" role="menuitemradio" aria-checked="false">
+                    Unduh GLB
+                </button>
+                <button class="dropdown-item" data-format="gltf" data-i18n="downloadGltf" role="menuitemradio" aria-checked="false">
+                    Unduh GLTF
+                </button>
+                <button class="dropdown-item" data-format="fbx" data-i18n="downloadFbx" role="menuitemradio" aria-checked="false">
+                    Unduh FBX
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <div class="options">
+        <label class="option-checkbox">
+            <input type="checkbox" id="separateAssets">
+            <span data-i18n="optionSeparateAssets"
+                  data-i18n-title="optionSeparateAssetsHint"
+                  title="Export separate asset files (textures/bin) in one ZIP.">Separate assets</span>
+        </label>
+        <label class="option-checkbox">
+            <input type="checkbox" id="autoRig">
+            <span data-i18n="optionAutoRig">Auto-rig (R6/R15)</span>
+            <span class="experimental-badge">Experimental</span>
+        </label>
+    </div>
+
+    <details class="advanced">
+        <summary data-i18n="advancedSettings">Advanced settings</summary>
+        <div class="advanced-body">
+            <label class="option-checkbox">
+                <span data-i18n="meshQualityLabel">Mesh quality</span>
+                <select id="meshQuality">
+                    <option value="0" data-i18n="meshQualityDefault">Default</option>
+                    <option value="1" data-i18n="meshQualityLow">Low (Subdivision 1)</option>
+                    <option value="2" data-i18n="meshQualityMedium">Medium (Subdivision 2)</option>
+                    <option value="3" data-i18n="meshQualityHigh">High (Subdivision 3)</option>
+                    <option value="4" data-i18n="meshQualityExtreme">Extreme (Subdivision 4)</option>
+                </select>
+            </label>
+            <label class="option-checkbox" id="moreJointsRow"
+                   data-i18n-title="moreJointsHint"
+                   title="R6 only: add extra attachment bones (hands, elbows/knees, feet)."
+                   hidden>
+                <input type="checkbox" id="moreJoints">
+                <span data-i18n="moreJoints">More joints</span>
+            </label>
+        </div>
+    </details>
+
+</main>
+
+<footer class="footer">
+    <div class="footer-links">
+        <a href="https://github.com/Avarixen/Avarixen-Avatar-Extractor" target="_blank" rel="noopener noreferrer">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+                <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/>
+            </svg>
+            Avarixen/Avarixen-Avatar-Extractor
+            <span class="footer-tag">Original</span>
+        </a>
+        <a href="https://github.com/harry-id/Avarixen-Avatar-Extractor" target="_blank" rel="noopener noreferrer">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+                <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/>
+            </svg>
+            harry-id/Avarixen-Avatar-Extractor
+            <span class="footer-tag">Fork (Current)</span>
+        </a>
+    </div>
+    <p class="copyright">
+        © 2026 <a href="https://github.com/Avarixen" target="_blank" rel="noopener noreferrer">Avarixen</a>. All rights reserved.
+    </p>
+</footer>
+
+<script type="module">
+
+import * as THREE from "three";
+
+import JSZip from
+    "https://cdn.jsdelivr.net/npm/jszip@3.10.1/+esm";
+
+import { OrbitControls } from
+    "https://cdn.jsdelivr.net/npm/three@0.180.0/examples/jsm/controls/OrbitControls.js";
+
+import { MTLLoader } from
+    "https://cdn.jsdelivr.net/npm/three@0.180.0/examples/jsm/loaders/MTLLoader.js";
+
+import { OBJLoader } from
+    "https://cdn.jsdelivr.net/npm/three@0.180.0/examples/jsm/loaders/OBJLoader.js";
+
+
+
+const LANG = {
+    id: {
+        appTitle: "Avarixen Avatar Extractor",
+        appSubtitle: "Pratinjau Avatar 3D Roblox",
+        languageLabel: "Bahasa / Language:",
+        usernamePlaceholder: "Masukkan username Roblox...",
+        searchButton: "Cari Avatar",
+        searchButtonSearching: "Mencari...",
+        accountInfoTitle: "Informasi Akun",
+        usernameLabel: "Username",
+        displayNameLabel: "Nama Tampilan",
+        userIdLabel: "ID Pengguna",
+        avatarTypeLabel: "Tipe Avatar",
+        avatarTypeUnknown: "Tidak diketahui",
+        advancedSettings: "Pengaturan Lanjutan",
+        meshQualityLabel: "Kualitas Mesh",
+        meshQualityDefault: "Default",
+        meshQualityLow: "Low (Subdivisi 1)",
+        meshQualityMedium: "Medium (Subdivisi 2)",
+        meshQualityHigh: "High (Subdivisi 3)",
+        meshQualityExtreme: "Extreme (Subdivisi 4)",
+        moreJoints: "Lebih banyak sendi",
+        moreJointsHint: "R6 saja: tambahkan tangan, siku, lutut, pinggang (torso bisa menekuk), dan kaki.",
+        statusWaiting: "Masukkan username Roblox untuk memuat pratinjau 3D.",
+        statusLoadingMaterial: "Memuat material dan tekstur...",
+        statusLoadingModel: "Memuat model 3D...",
+        statusLoaded: "Model 3D berhasil dimuat!",
+        statusLoadObjFailed: "Gagal memuat model OBJ.",
+        statusLoadMtlFailed: "Gagal memuat material MTL.",
+        statusNoLocalModel: "Belum ada model lokal. Cari avatar Roblox untuk memulai.",
+        statusSearching: "Mencari akun Roblox...",
+        statusFetchMetadata: "Mengambil metadata avatar...",
+        statusDownloadAssets: "Mengunduh aset avatar Roblox...",
+        statusDownloaded: "Aset berhasil diunduh! Memuat pratinjau 3D...",
+        errorEmptyUsername: "Masukkan username Roblox terlebih dahulu.",
+        errorNotFound: "Akun Roblox tidak ditemukan.",
+        errorFetchMetadata: "Gagal mengambil metadata avatar.",
+        errorDownloadAssets: "Gagal mengunduh aset avatar.",
+        errorOccurred: "Terjadi kesalahan: {{message}}",
+        reloadButton: "Muat Ulang Model",
+        reloadNoAvatar: "Cari avatar Roblox terlebih dahulu untuk memuat pratinjau.",
+        downloadObj: "Unduh OBJ",
+        downloadObjOption: "Unduh OBJ (OBJ + MTL + Texture)",
+        downloadFormatLabel: "Pilih format unduhan",
+        downloadCreating: "Membuat ZIP...",
+        errorNoAvatarZip: "Cari avatar Roblox terlebih dahulu.",
+        errorZipFetch: "Gagal mengambil {{file}}",
+        alertZipFailed: "Gagal membuat ZIP: {{message}}",
+        downloadGlb: "Unduh GLB",
+        downloadGltf: "Unduh GLTF",
+        downloadFbx: "Unduh FBX",
+        errorConvertFailed: "Konversi gagal: {{message}}",
+        statusConverting: "Mengonversi model ke {{format}}...",
+        explorerTitle: "Penjelajah Model",
+        explorerEmpty: "Muat avatar untuk melihat bagian-bagiannya.",
+        explorerPlayers: "Player (Tubuh)",
+        explorerHandles: "Handle (Aksesori)",
+        explorerOther: "Lainnya",
+        optionSeparateAssets: "Pisahkan aset",
+        optionSeparateAssetsHint: "Ekspor aset terpisah (tekstur/bin) dalam satu ZIP.",
+        optionAutoRig: "Auto-rig (R6/R15)",
+        statusRigging: "Membuat rig otomatis...",
+        verticesLabel: "vertices",
+        apiOnline: "API Online",
+        apiOffline: "API Offline",
+        apiChecking: "Checking..."
+    },
+    en: {
+        appTitle: "Avarixen Avatar Extractor",
+        appSubtitle: "Roblox Avatar 3D Preview",
+        languageLabel: "Language / Bahasa:",
+        usernamePlaceholder: "Enter Roblox username...",
+        searchButton: "Search Avatar",
+        searchButtonSearching: "Searching...",
+        accountInfoTitle: "Account Information",
+        usernameLabel: "Username",
+        displayNameLabel: "Display Name",
+        userIdLabel: "User ID",
+        avatarTypeLabel: "Avatar Type",
+        avatarTypeUnknown: "Unknown",
+        advancedSettings: "Advanced settings",
+        meshQualityLabel: "Mesh quality",
+        meshQualityDefault: "Default",
+        meshQualityLow: "Low (Subdivision 1)",
+        meshQualityMedium: "Medium (Subdivision 2)",
+        meshQualityHigh: "High (Subdivision 3)",
+        meshQualityExtreme: "Extreme (Subdivision 4)",
+        moreJoints: "More joints",
+        moreJointsHint: "R6 only: add hands, elbows, knees, waist (bendable torso), and feet.",
+        statusWaiting: "Enter a Roblox username to load 3D preview.",
+        statusLoadingMaterial: "Loading materials and textures...",
+        statusLoadingModel: "Loading 3D model...",
+        statusLoaded: "3D model loaded successfully!",
+        statusLoadObjFailed: "Failed to load OBJ model.",
+        statusLoadMtlFailed: "Failed to load MTL material.",
+        statusNoLocalModel: "No local model available. Search for a Roblox avatar to start.",
+        statusSearching: "Searching Roblox account...",
+        statusFetchMetadata: "Fetching avatar metadata...",
+        statusDownloadAssets: "Downloading Roblox avatar assets...",
+        statusDownloaded: "Assets downloaded! Loading 3D preview...",
+        errorEmptyUsername: "Please enter a Roblox username first.",
+        errorNotFound: "Roblox account not found.",
+        errorFetchMetadata: "Failed to fetch avatar metadata.",
+        errorDownloadAssets: "Failed to download avatar assets.",
+        errorOccurred: "An error occurred: {{message}}",
+        reloadButton: "Reload Model",
+        reloadNoAvatar: "Please search for a Roblox avatar first to load preview.",
+        downloadObj: "Download OBJ",
+        downloadObjOption: "Download OBJ (OBJ + MTL + Texture)",
+        downloadFormatLabel: "Choose download format",
+        downloadCreating: "Creating ZIP...",
+        errorNoAvatarZip: "Please search for a Roblox avatar first.",
+        errorZipFetch: "Failed to fetch {{file}}",
+        alertZipFailed: "Failed to create ZIP: {{message}}",
+        downloadGlb: "Download GLB",
+        downloadGltf: "Download GLTF",
+        downloadFbx: "Download FBX",
+        errorConvertFailed: "Conversion failed: {{message}}",
+        statusConverting: "Converting model to {{format}}...",
+        explorerTitle: "Model Explorer",
+        explorerEmpty: "Load an avatar to see its parts.",
+        explorerPlayers: "Player (Body)",
+        explorerHandles: "Handle (Accessories)",
+        explorerOther: "Other",
+        optionSeparateAssets: "Separate assets",
+        optionSeparateAssetsHint: "Export separate asset files (textures/bin) in one ZIP.",
+        optionAutoRig: "Auto-rig (R6/R15)",
+        statusRigging: "Building auto-rig...",
+        verticesLabel: "vertices",
+        apiOnline: "API Online",
+        apiOffline: "API Offline",
+        apiChecking: "Checking..."
+    }
+};
+
+let currentLang = (() => {
+    const stored = localStorage.getItem("aae_lang");
+    if (stored === "id" || stored === "en") {
+        return stored;
+    }
+    const nav = (navigator.language || navigator.userLanguage || "id").toLowerCase();
+    return nav.startsWith("id") ? "id" : "en";
+})();
+
+function t(key, params = {}) {
+    const dict = LANG[currentLang] || LANG.en;
+    let text = dict[key] || LANG.en[key] || key;
+    return text.replace(/\{\{(\w+)\}\}/g, (match, name) => {
+        return params[name] !== undefined ? params[name] : match;
+    });
+}
+
+function setLang(lang) {
+    currentLang = lang;
+    localStorage.setItem("aae_lang", lang);
+    document.documentElement.lang = lang;
+
+    document.querySelectorAll("[data-i18n]").forEach((el) => {
+        el.textContent = t(el.dataset.i18n);
+    });
+
+    document.querySelectorAll("[data-i18n-placeholder]").forEach((el) => {
+        el.placeholder = t(el.dataset.i18nPlaceholder);
+    });
+
+    document.querySelectorAll("[data-i18n-title]").forEach((el) => {
+        el.title = t(el.dataset.i18nTitle);
+    });
+
+    const searchInputEl = document.getElementById("searchInput");
+    if (searchInputEl) {
+        searchInputEl.placeholder = t("usernamePlaceholder");
+    }
+
+    const sel = document.getElementById("langSelector");
+    if (sel) {
+        sel.value = lang;
+    }
+
+    // Re-apply the last tracked dynamic status so it translates too.
+    if (currentStatusKey) {
+        status.textContent = t(currentStatusKey, currentStatusParams || {});
+    }
+
+    if (apiStatusState) {
+        renderApiStatus(apiStatusState);
+    }
+
+    // Keep the download button label and format menu in the active language.
+    if (typeof setDownloadButtonLabel === "function") {
+        setDownloadButtonLabel();
+    }
+}
+
+let currentStatusKey = null;
+let currentStatusParams = {};
+
+function setStatus(key, params = {}) {
+    currentStatusKey = key;
+    currentStatusParams = params;
+    status.textContent = t(key, params);
+}
+
+function apiHeaders() {
+    return {
+        "Content-Type": "application/json",
+        "Accept-Language": currentLang
+    };
+}
+
+const langSelector = document.getElementById("langSelector");
+langSelector.addEventListener("change", () => {
+    setLang(langSelector.value);
+});
+
+
+// Backend API origin. Override by setting window.__AAE_BACKEND_URL__ before this
+// module loads, or by editing this constant. The dev servers (3001/5173) proxy
+// to the local API on :3000; every other host (GitHub Pages, custom domains)
+// uses the production API.
+const BACKEND_URL =
+    window.__AAE_BACKEND_URL__ ||
+    (location.port === "3001" || location.port === "5173"
+        ? `${location.protocol}//${location.hostname}:3000`
+        : "https://api.harrycore.web.id");
+
+
+// API status indicator in the header (green = online, red = offline).
+
+const apiStatusEl = document.getElementById("apiStatus");
+const apiStatusText = document.getElementById("apiStatusText");
+let apiStatusState = null;
+
+function renderApiStatus(state) {
+    apiStatusState = state;
+    apiStatusEl.classList.toggle("offline", state === "offline");
+    apiStatusText.textContent =
+        state === "online" ? t("apiOnline")
+            : state === "offline" ? t("apiOffline")
+                : t("apiChecking");
+}
+
+async function checkApiStatus() {
+    try {
+        const resp = await fetch(`${BACKEND_URL}/api/health`, { cache: "no-store" });
+        if (!resp.ok) throw new Error("bad status");
+        renderApiStatus("online");
+    } catch {
+        renderApiStatus("offline");
+    }
+}
+
+
+const viewer = document.getElementById("viewer");
+const status = document.getElementById("status");
+
+const searchInput =
+    document.getElementById("searchInput");
+
+const searchForm =
+    document.getElementById("searchForm");
+
+const searchButton =
+    document.getElementById("searchButton");
+
+const accountInfo =
+    document.getElementById("accountInfo");
+
+const downloadButton =
+    document.getElementById("downloadButton");
+
+const downloadToggle =
+    document.getElementById("downloadToggle");
+
+const downloadDropdown =
+    document.getElementById("downloadDropdown");
+
+const dropdownItems =
+    document.querySelectorAll(".dropdown-item");
+
+let selectedFormat = "obj";
+
+const DOWNLOAD_LABEL_KEYS = {
+    obj: "downloadObj",
+    glb: "downloadGlb",
+    gltf: "downloadGltf",
+    fbx: "downloadFbx"
+};
+
+function formatLabel(format) {
+    return t(DOWNLOAD_LABEL_KEYS[format] || "downloadObj");
+}
+
+function setDownloadButtonLabel() {
+    downloadButton.textContent = formatLabel(selectedFormat);
+}
+
+function setSelectedFormat(format) {
+    selectedFormat = format;
+
+    dropdownItems.forEach((item) => {
+        const active = item.dataset.format === format;
+        item.classList.toggle("selected", active);
+        item.setAttribute("aria-checked", active ? "true" : "false");
+    });
+
+    setDownloadButtonLabel();
+    updateOptionVisibility();
+}
+
+const FORMAT_OPTION_SUPPORT = {
+    obj: { separate: false, rig: false },
+    glb: { separate: false, rig: true },
+    gltf: { separate: true, rig: true },
+    fbx: { separate: true, rig: true }
+};
+
+let meshQualityBeforeForce = null;
+
+function applyForcedMeshQuality() {
+    const moreJoints = document.getElementById("moreJoints");
+    const meshQuality = document.getElementById("meshQuality");
+
+    if (!meshQuality) {
+        return;
+    }
+
+    // Option values: 0 Default, 1 Low, 2 Medium, 3 High, 4 Extreme.
+    const MIN_LOCKED = 3;
+    const options = Array.from(meshQuality.options);
+
+    if (moreJoints && moreJoints.checked) {
+        // More joints only supports High and Extreme; disable the rest.
+        for (const opt of options) {
+            opt.disabled = Number(opt.value) < MIN_LOCKED;
+        }
+
+        if (Number(meshQuality.value) < MIN_LOCKED) {
+            if (meshQualityBeforeForce === null) {
+                meshQualityBeforeForce = meshQuality.value;
+            }
+            meshQuality.value = String(MIN_LOCKED);
+        }
+    } else {
+        for (const opt of options) {
+            opt.disabled = false;
+        }
+
+        if (meshQualityBeforeForce !== null) {
+            meshQuality.value = meshQualityBeforeForce;
+            meshQualityBeforeForce = null;
+        }
+    }
+}
+
+function updateOptionVisibility() {
+    const support = FORMAT_OPTION_SUPPORT[selectedFormat] || {
+        separate: true,
+        rig: true
+    };
+
+    const autoRig = document.getElementById("autoRig");
+    const separate = document.getElementById("separateAssets");
+    const autoRigRow = autoRig.closest("label");
+    const separateRow = separate.closest("label");
+
+    if (autoRigRow) {
+        // OBJ cannot carry the auto-rig skeleton; disable (gray out).
+        autoRig.disabled = !support.rig;
+        autoRigRow.classList.toggle("disabled", !support.rig);
+        if (!support.rig) {
+            autoRig.checked = false;
+        }
+    }
+
+    if (separateRow) {
+        // GLB is a single embedded binary and OBJ is always split by part.
+        separate.disabled = !support.separate;
+        separateRow.classList.toggle("disabled", !support.separate);
+        if (!support.separate) {
+            separate.checked = false;
+        }
+    }
+
+    const moreJoints = document.getElementById("moreJoints");
+    const moreJointsRow = document.getElementById("moreJointsRow");
+    const showMoreJoints = autoRig.checked && currentRigType === "R6";
+
+    if (moreJointsRow) {
+        // Extra R6 attachment joints only make sense with auto-rig on R6.
+        moreJointsRow.hidden = !showMoreJoints;
+        if (!showMoreJoints) {
+            moreJoints.checked = false;
+        }
+    }
+
+    applyForcedMeshQuality();
+}
+
+const reloadButton =
+    document.getElementById("reloadButton");
+
+
+const scene = new THREE.Scene();
+
+scene.background = new THREE.Color(0x202738);
+
+
+const initialViewerWidth = viewer.clientWidth || window.innerWidth || 800;
+const initialViewerHeight = viewer.clientHeight || 500;
+
+const camera = new THREE.PerspectiveCamera(
+    45,
+    initialViewerWidth / initialViewerHeight,
+    0.1,
+    1000
+);
+
+camera.position.set(0, 0, 12);
+
+
+const renderer = new THREE.WebGLRenderer({
+    antialias: true,
+    outputColorSpace: THREE.SRGBColorSpace
+});
+
+renderer.setSize(
+    initialViewerWidth,
+    initialViewerHeight
+);
+
+renderer.setPixelRatio(
+    Math.min(window.devicePixelRatio, 2)
+);
+
+viewer.appendChild(renderer.domElement);
+
+
+const controls = new OrbitControls(
+    camera,
+    renderer.domElement
+);
+
+controls.enableDamping = true;
+
+
+scene.add(
+    new THREE.AmbientLight(0xffffff, 0.5)
+);
+
+
+const light = new THREE.DirectionalLight(
+    0xffffff,
+    1.2
+);
+
+light.position.set(5, 10, 7);
+light.castShadow = false;
+
+scene.add(light);
+
+// Fill light to prevent black/dark areas on sides not facing main light
+const fillLight = new THREE.HemisphereLight(0xffffff, 0x444444, 0.8);
+scene.add(fillLight);
+
+// Front fill light to brighten legs and front-facing surfaces
+const frontLight = new THREE.DirectionalLight(0xffffff, 0.8);
+frontLight.position.set(0, 5, 10);
+scene.add(frontLight);
+
+
+let currentModel = null;
+let currentUserId = null;
+let currentDisplayName = null;
+let currentRigType = null;
+let currentAssetFiles = null;
+
+
+
+function loadModel(userId = null, bustCache = false) {
+
+    const cacheBust = bustCache ? `?v=${Date.now()}` : "";
+
+    const assetPath = userId
+        ? `${BACKEND_URL}/assets/${encodeURIComponent(userId)}/`
+        : `${BACKEND_URL}/assets/`;
+
+    setStatus("statusLoadingMaterial");
+
+    const mtlLoader = new MTLLoader();
+
+    mtlLoader.setPath(assetPath);
+
+    mtlLoader.load(
+        "avatar.mtl" + cacheBust,
+
+        materials => {
+
+            materials.preload();
+
+            materials.materials = materials.materials || {};
+            Object.values(materials.materials).forEach((material) => {
+                if (!material) return;
+
+                // Use both sides so faces aren't invisible
+                material.side = THREE.DoubleSide;
+
+                // Fix transparency: MTL "d" / "Tr" can force transparent:true
+                // Keep opaque unless explicitly set in MTL
+                if (material.transparent && material.opacity === 1) {
+                    material.transparent = false;
+                }
+
+                // Ensure base color is white so MTL tint doesn't discolor textures (blue torso, etc.)
+                material.color.setHex(0xffffff);
+
+                // Default PBR values so legs don't go black in shadow
+                material.roughness = material.roughness !== undefined ? material.roughness : 0.6;
+                material.metalness = material.metalness !== undefined ? material.metalness : 0.05;
+
+                // Fix texture color space (sRGB for diffuse/albedo maps)
+                if (material.map) {
+                    material.map.colorSpace = THREE.SRGBColorSpace;
+                    material.map.needsUpdate = true;
+                }
+                if (material.aoMap) {
+                    material.aoMap.colorSpace = THREE.SRGBColorSpace;
+                    material.aoMap.needsUpdate = true;
+                }
+                if (material.emissiveMap) {
+                    material.emissiveMap.colorSpace = THREE.SRGBColorSpace;
+                    material.emissiveMap.needsUpdate = true;
+                }
+                if (material.specularMap) {
+                    material.specularMap.colorSpace = THREE.SRGBColorSpace;
+                    material.specularMap.needsUpdate = true;
+                }
+                if (material.alphaMap) {
+                    material.alphaMap.colorSpace = THREE.SRGBColorSpace;
+                    material.alphaMap.needsUpdate = true;
+                }
+
+                material.needsUpdate = true;
+            });
+
+            const objLoader = new OBJLoader();
+
+            objLoader.setMaterials(materials);
+
+            objLoader.setPath(assetPath);
+
+            setStatus("statusLoadingModel");
+
+            objLoader.load(
+                "avatar.obj" + cacheBust,
+
+                object => {
+
+                    if (currentModel) {
+                        scene.remove(currentModel);
+                    }
+
+                    currentModel = object;
+
+                    scene.add(object);
+
+                    const box = new THREE.Box3()
+                        .setFromObject(object);
+
+                    const center = box.getCenter(
+                        new THREE.Vector3()
+                    );
+
+                    const size = box.getSize(
+                        new THREE.Vector3()
+                    );
+
+                    object.position.sub(center);
+
+                    const maxSize = Math.max(
+                        size.x,
+                        size.y,
+                        size.z
+                    );
+
+                    camera.position.set(
+                        0,
+                        0,
+                        -maxSize * 2.5
+                    );
+
+                    camera.lookAt(0, 0, 0);
+
+                    controls.target.set(0, 0, 0);
+
+                    controls.update();
+
+                    setStatus("statusLoaded");
+
+                },
+
+                undefined,
+
+                error => {
+
+                    console.error(error);
+
+                    setStatus(userId ? "statusLoadObjFailed" : "statusNoLocalModel");
+
+                }
+            );
+
+        },
+
+        undefined,
+
+        error => {
+
+            console.error(error);
+
+            setStatus(userId ? "statusLoadMtlFailed" : "statusNoLocalModel");
+
+        }
+    );
+
+}
+
+
+
+function clearPreview() {
+
+    if (currentModel) {
+
+        scene.remove(currentModel);
+
+        currentModel = null;
+
+    }
+
+
+    camera.position.set(0, 0, 12);
+
+    camera.lookAt(0, 0, 0);
+
+    controls.target.set(0, 0, 0);
+
+    controls.update();
+
+    renderer.render(scene, camera);
+
+    currentUserId = null;
+
+    currentRigType = null;
+
+    currentAssetFiles = null;
+
+    accountInfo.style.display = "none";
+
+    buildExplorer(null);
+
+}
+
+function setAccountAvatarType(rigType) {
+    currentRigType = rigType || null;
+
+    const el = document.getElementById("accountAvatarType");
+    if (el) {
+        el.textContent = currentRigType || t("avatarTypeUnknown");
+    }
+
+    updateOptionVisibility();
+}
+
+
+// Model explorer sidebar
+
+function formatSize(bytes) {
+    if (!bytes || bytes < 0) return "";
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
+}
+
+function setExplorerSize(bytes) {
+    const sizeEl = document.getElementById("explorerSize");
+    if (sizeEl) sizeEl.textContent = formatSize(bytes);
+}
+
+async function buildExplorer(userId) {
+
+    const treeEl = document.getElementById("explorerTree");
+
+    const countEl = document.getElementById("explorerCount");
+
+    if (!userId) {
+
+        treeEl.innerHTML = `<div class="explorer-empty">${t("explorerEmpty")}</div>`;
+
+        countEl.textContent = "";
+
+        setExplorerSize(null);
+
+        return;
+
+    }
+
+    let groups = null;
+
+    // Try the backend part-mapping endpoint first (gives body-part names).
+    try {
+
+        const resp = await fetch(
+
+            `${BACKEND_URL}/api/roblox/parts/${encodeURIComponent(userId)}`,
+
+            { headers: apiHeaders() }
+
+        );
+
+        if (resp.ok) {
+
+            const data = await resp.json();
+
+            if (data.success && Array.isArray(data.groups)) {
+
+                groups = data.groups;
+
+            }
+
+        }
+
+    } catch (e) {
+
+        console.warn("Parts endpoint failed, falling back to client-side parse", e);
+
+    }
+
+    // Fallback: parse the OBJ client-side (group names only, no body-part mapping).
+    if (!groups) {
+
+        try {
+
+            const assetPath = `${BACKEND_URL}/assets/${encodeURIComponent(userId)}/`;
+
+            const response = await fetch(assetPath + "avatar.obj");
+
+            if (!response.ok) throw new Error("Failed to fetch OBJ");
+
+            const text = await response.text();
+
+            const parsed = {};
+
+            let currentGroup = null;
+
+            for (const raw of text.split(/\r?\n/)) {
+
+                const line = raw.trim();
+
+                if (line.startsWith("g ")) {
+
+                    currentGroup = line.slice(2).trim() || null;
+
+                    if (currentGroup && !parsed[currentGroup]) {
+
+                        parsed[currentGroup] = { faces: 0, vertices: new Set() };
+
+                    }
+
+                } else if (line.startsWith("f ") && currentGroup) {
+
+                    parsed[currentGroup].faces++;
+
+                    const parts = line.split(/\s+/);
+
+                    for (let i = 1; i < parts.length; i++) {
+
+                        const v = parts[i].split("/")[0];
+
+                        if (v) parsed[currentGroup].vertices.add(parseInt(v, 10));
+
+                    }
+
+                }
+
+            }
+
+            groups = Object.keys(parsed)
+
+                .filter(n => parsed[n].faces > 0)
+
+                .map(name => {
+
+                    const type = name.startsWith("Player") ? "player"
+
+                        : name.startsWith("Handle") ? "handle" : "other";
+
+                    return { name, vertices: parsed[name].vertices.size, faces: parsed[name].faces, type, part: null };
+
+                });
+
+        } catch (e) {
+
+            console.error(e);
+
+            groups = [];
+
+        }
+
+    }
+
+    const playerGroups = groups.filter(g => g.type === "player");
+
+    const handleGroups = groups.filter(g => g.type === "handle");
+
+    const otherGroups = groups.filter(g => g.type === "other");
+
+    countEl.textContent = `${groups.length}`;
+
+    let html = "";
+
+    const renderSection = (label, list, cls) => {
+
+        if (!list.length) return;
+
+        html += `<div class="explorer-section-label">${label} (${list.length})</div>`;
+
+        for (const g of list) {
+
+            // Primary label = mapped body part (e.g. "Head"); secondary = group name + vertex count.
+            const primary = g.part ? escapeHTML(g.part) : escapeHTML(g.name);
+
+            const secondary = g.part
+
+                ? `${escapeHTML(g.name)} · ${g.vertices} v`
+
+                : `${g.vertices} v`;
+
+            html += `<div class="explorer-node" title="${escapeHTML(g.name)}">`
+
+                + `<span class="node-icon ${cls}"></span>`
+
+                + `<span class="node-name">${primary}</span>`
+
+                + `<span class="node-meta">${secondary}</span>`
+
+                + `</div>`;
+
+        }
+
+    };
+
+    renderSection(t("explorerPlayers"), playerGroups, "player");
+
+    renderSection(t("explorerHandles"), handleGroups, "handle");
+
+    renderSection(t("explorerOther"), otherGroups, "other");
+
+    treeEl.innerHTML = html || `<div class="explorer-empty">${t("explorerEmpty")}</div>`;
+
+}
+
+
+
+searchButton.addEventListener(
+    "click",
+    async () => {
+
+        const username = searchInput.value.trim();
+
+        if (!username) {
+
+            setStatus("errorEmptyUsername");
+
+            return;
+
+        }
+
+        clearPreview();
+
+        searchButton.disabled = true;
+
+        searchButton.textContent = t("searchButtonSearching");
+
+        accountInfo.style.display = "none";
+
+        try {
+
+            setStatus("statusSearching");
+
+            const userResponse = await fetch(
+                BACKEND_URL + "/api/roblox/user",
+                {
+                    method: "POST",
+                    headers: apiHeaders(),
+                    body: JSON.stringify({
+                        username: username
+                    })
+                }
+            );
+
+            const userResult = await userResponse.json();
+
+            if (!userResponse.ok || !userResult.success) {
+                throw new Error(
+                    userResult.message ||
+                    t("errorNotFound")
+                );
+            }
+
+            const user = userResult.user;
+            currentDisplayName = user.displayName || user.username;
+
+            accountInfo.innerHTML = `
+                <strong>${t("accountInfoTitle")}</strong><br>
+                ${t("usernameLabel")}: ${escapeHTML(user.username)}<br>
+                ${t("displayNameLabel")}: ${escapeHTML(user.displayName)}<br>
+                ${t("userIdLabel")}: ${user.id}<br>
+                ${t("avatarTypeLabel")}: <span id="accountAvatarType">${t("avatarTypeUnknown")}</span>
+            `;
+
+            accountInfo.style.display = "block";
+
+
+            setStatus("statusFetchMetadata");
+
+
+            const avatarResponse = await fetch(
+                BACKEND_URL +
+                "/api/roblox/avatar/" +
+                encodeURIComponent(user.id),
+                { headers: apiHeaders() }
+            );
+
+            const avatarResult = await avatarResponse.json();
+
+            if (!avatarResponse.ok || !avatarResult.success) {
+                throw new Error(
+                    avatarResult.message ||
+                    t("errorFetchMetadata")
+                );
+            }
+
+            setStatus("statusDownloadAssets");
+
+            const downloadResponse = await fetch(
+                BACKEND_URL +
+                "/api/roblox/download/" +
+                encodeURIComponent(user.id),
+                { headers: apiHeaders() }
+            );
+
+            const downloadResult = await downloadResponse.json();
+
+            if (!downloadResponse.ok || !downloadResult.success) {
+                throw new Error(
+                    downloadResult.message ||
+                    t("errorDownloadAssets")
+                );
+            }
+
+            currentUserId = user.id;
+
+            setAccountAvatarType(downloadResult.rigType);
+
+            currentAssetFiles = Array.isArray(downloadResult.files)
+                ? downloadResult.files
+                : null;
+
+            setStatus("statusDownloaded");
+
+            setExplorerSize(downloadResult.totalSize);
+
+            loadModel(currentUserId);
+
+            buildExplorer(currentUserId);
+
+        } catch (error) {
+
+            console.error(error);
+
+            setStatus("errorOccurred", { message: error.message });
+
+        } finally {
+
+            searchButton.disabled = false;
+
+            searchButton.textContent = t("searchButton");
+
+        }
+
+    }
+);
+
+
+
+searchForm.addEventListener("submit", (event) => {
+
+    event.preventDefault();
+
+    searchButton.click();
+
+});
+
+
+
+function escapeHTML(value) {
+
+    return String(value).replace(
+        /[&<>"']/g,
+        character => ({
+            "&": "&amp;",
+            "<": "&lt;",
+            ">": "&gt;",
+            '"': "&quot;",
+            "'": "&#039;"
+        })[character]
+    );
+
+}
+
+
+
+reloadButton.addEventListener(
+    "click",
+    async () => {
+
+        if (!currentUserId) {
+            setStatus("reloadNoAvatar");
+            return;
+        }
+
+        reloadButton.disabled = true;
+
+        try {
+
+            setStatus("statusDownloadAssets");
+
+            // Always re-download from the endpoint so the preview is fresh,
+            // instead of reusing files already cached in downloads/.
+            const response = await fetch(
+                BACKEND_URL +
+                "/api/roblox/download/" +
+                encodeURIComponent(currentUserId),
+                { headers: apiHeaders() }
+            );
+
+            const result = await response.json();
+
+            if (!response.ok || !result.success) {
+                throw new Error(
+                    result.message ||
+                    t("errorDownloadAssets")
+                );
+            }
+
+            setAccountAvatarType(result.rigType);
+
+            currentAssetFiles = Array.isArray(result.files)
+                ? result.files
+                : null;
+
+            setStatus("statusDownloaded");
+
+            setExplorerSize(result.totalSize);
+
+            loadModel(currentUserId, true);
+
+            buildExplorer(currentUserId);
+
+        } catch (error) {
+
+            console.error(error);
+
+            setStatus("errorOccurred", { message: error.message });
+
+        } finally {
+
+            reloadButton.disabled = false;
+
+        }
+
+    }
+);
+
+
+
+function closeDropdown() {
+
+    downloadDropdown.classList.remove("show");
+    downloadToggle.setAttribute("aria-expanded", "false");
+
+}
+
+function positionDropdown() {
+
+    const anchor = downloadToggle.parentElement.getBoundingClientRect();
+    downloadDropdown.classList.add("show");
+    const dropRect = downloadDropdown.getBoundingClientRect();
+    const gap = 6;
+
+    let top = anchor.bottom + gap;
+
+    if (top + dropRect.height > window.innerHeight - 8) {
+        top = anchor.top - dropRect.height - gap;
+        if (top < 8) top = 8;
+    }
+
+    let left = anchor.right - dropRect.width;
+    if (left < 8) left = 8;
+    if (left + dropRect.width > window.innerWidth - 8) {
+        left = window.innerWidth - dropRect.width - 8;
+    }
+
+    downloadDropdown.style.top = `${Math.round(top)}px`;
+    downloadDropdown.style.left = `${Math.round(left)}px`;
+
+}
+
+function openDropdown() {
+
+    updateOptionVisibility();
+    positionDropdown();
+    downloadToggle.setAttribute("aria-expanded", "true");
+
+}
+
+downloadToggle.addEventListener("click", (event) => {
+
+    event.stopPropagation();
+
+    if (downloadDropdown.classList.contains("show")) {
+        closeDropdown();
+    } else {
+        openDropdown();
+    }
+
+});
+
+document.addEventListener("click", closeDropdown);
+
+document
+    .getElementById("autoRig")
+    .addEventListener("change", updateOptionVisibility);
+
+document
+    .getElementById("moreJoints")
+    .addEventListener("change", applyForcedMeshQuality);
+
+window.addEventListener("resize", () => {
+    if (downloadDropdown.classList.contains("show")) {
+        positionDropdown();
+    }
+});
+
+window.addEventListener("scroll", () => {
+    if (downloadDropdown.classList.contains("show")) {
+        positionDropdown();
+    }
+}, true);
+
+
+// Choosing an option only selects the format; the main button downloads it.
+dropdownItems.forEach((item) => {
+
+    item.addEventListener("click", (event) => {
+
+        event.stopPropagation();
+
+        setSelectedFormat(item.dataset.format);
+        closeDropdown();
+
+    });
+
+});
+
+
+async function runDownload(format) {
+
+    if (!currentUserId) {
+
+        alert(t("errorNoAvatarZip"));
+        return;
+
+    }
+
+    downloadButton.disabled = true;
+    downloadToggle.disabled = true;
+
+    try {
+
+        if (format === "obj") {
+            await downloadZip();
+        } else {
+            await downloadConverted(format);
+        }
+
+    } catch (error) {
+
+        alert(
+            t(
+                format === "obj" ? "alertZipFailed" : "errorConvertFailed",
+                { message: error.message }
+            )
+        );
+
+    } finally {
+
+        downloadButton.disabled = false;
+        downloadToggle.disabled = false;
+        setDownloadButtonLabel();
+
+    }
+
+}
+
+downloadButton.addEventListener("click", () => {
+
+    runDownload(selectedFormat);
+
+});
+
+updateOptionVisibility();
+setSelectedFormat(selectedFormat);
+
+
+async function downloadZip() {
+
+    downloadButton.textContent = t("downloadCreating");
+
+    const assetPath =
+        `${BACKEND_URL}/assets/${encodeURIComponent(currentUserId)}/`;
+
+    const safeName = String(currentDisplayName || "Avarixen").replace(/[\\/:*?"<>|]/g, "_").trim().replace(/[. ]+$/g, "") || "Avarixen";
+    const baseName = safeName.toLowerCase();
+
+    // Prefer the exact file list the download endpoint reported. The old HEAD
+    // probe stopped at the first gap and silently dropped later textures.
+    let files = [];
+
+    if (currentAssetFiles && currentAssetFiles.length) {
+        files = currentAssetFiles.map((file) => String(file).split("/").pop());
+    } else {
+        files = [
+            "avatar.obj",
+            "avatar.mtl"
+        ];
+
+        let textureIndex = 1;
+
+        while (true) {
+            const filename = `texture${textureIndex}.png`;
+
+            const check = await fetch(assetPath + filename, {
+                method: "HEAD"
+            });
+
+            if (!check.ok) break;
+
+            files.push(filename);
+            textureIndex++;
+        }
+    }
+
+    const zip = new JSZip();
+
+    for (const file of files) {
+
+        const response = await fetch(
+            assetPath + file
+        );
+
+        if (!response.ok) {
+
+            throw new Error(
+                t("errorZipFetch", { file })
+            );
+
+        }
+
+        let content = await response.blob();
+
+        if (file === "avatar.obj") {
+            let objText = await content.text();
+            objText = objText.replace(/^mtllib\s+.*$/m, `mtllib ${baseName}.mtl`);
+            content = new Blob([objText], { type: "text/plain" });
+        }
+
+        if (file === "avatar.mtl") {
+            content = new Blob(
+                [await content.text()],
+                { type: "text/plain" }
+            );
+        }
+
+        const zipFileName =
+            file === "avatar.obj" ? `${baseName}.obj` :
+            file === "avatar.mtl" ? `${baseName}.mtl` :
+            file;
+
+        zip.file(
+            `${safeName}/${zipFileName}`,
+            content
+        );
+
+    }
+
+    const blob = await zip.generateAsync({
+        type: "blob"
+    });
+
+    const url = URL.createObjectURL(blob);
+
+    const link = document.createElement("a");
+
+    link.href = url;
+
+    link.download = `${safeName}_${currentUserId}.zip`;
+
+    document.body.appendChild(link);
+
+    link.click();
+
+    link.remove();
+
+    setTimeout(
+        () => URL.revokeObjectURL(url),
+        1000
+    );
+
+    setDownloadButtonLabel();
+}
+
+async function downloadConverted(format) {
+
+    const rig = document.getElementById("autoRig").checked;
+
+    // Separate assets: keep body parts as objects and bundle the model with
+    // external texture/buffer files in one ZIP.
+    const separate = document.getElementById("separateAssets").checked;
+
+    const subdivision = Number(document.getElementById("meshQuality").value) || 0;
+    const moreJoints =
+        rig &&
+        currentRigType === "R6" &&
+        document.getElementById("moreJoints").checked;
+
+    const convertUrl = `${BACKEND_URL}/api/roblox/convert/${encodeURIComponent(currentUserId)}/${format}`;
+
+    const params = new URLSearchParams();
+    if (rig) params.set("rig", "1");
+    if (separate) params.set("separate", "1");
+    if (subdivision > 0) params.set("subdivision", String(subdivision));
+    if (moreJoints) params.set("moreJoints", "1");
+    if (currentDisplayName) params.set("name", currentDisplayName);
+    const qs = params.toString();
+    const url = qs ? `${convertUrl}?${qs}` : convertUrl;
+
+    if (rig) {
+        setStatus("statusRigging");
+    } else {
+        setStatus("statusConverting", { format: format.toUpperCase() });
+    }
+
+    const response = await fetch(url, {
+        headers: apiHeaders()
+    });
+
+    if (!response.ok) {
+        const err = await response.json().catch(() => ({}));
+        throw new Error(err.message || t("errorConvertFailed", { message: "Unknown error" }));
+    }
+
+    const contentType = response.headers.get("content-type") || "";
+    const blob = await response.blob();
+    const objUrl = URL.createObjectURL(blob);
+
+    const safeName = String(currentDisplayName || "Avarixen").replace(
+        /[\\/:*?"<>|]/g,
+        "_"
+    ).trim().replace(/[. ]+$/g, "") || "Avarixen";
+
+    // Separate mode returns a ZIP instead of a bare model file.
+    let ext = format;
+    if (contentType.includes("zip")) ext = "zip";
+
+    const link = document.createElement("a");
+    link.href = objUrl;
+    link.download = `${safeName}_${currentUserId}.${ext}`;
+
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+
+    setTimeout(() => URL.revokeObjectURL(objUrl), 1000);
+    setStatus("statusDownloaded");
+}
+
+
+
+function resizeViewer() {
+
+    const width = viewer.clientWidth;
+    const height = viewer.clientHeight;
+
+    // Mobile browsers can report 0 before the first layout pass.
+    if (!width || !height) {
+        return;
+    }
+
+    camera.aspect = width / height;
+
+    camera.updateProjectionMatrix();
+
+    renderer.setSize(width, height);
+
+}
+
+window.addEventListener("resize", resizeViewer);
+window.addEventListener("orientationchange", resizeViewer);
+window.addEventListener("load", resizeViewer);
+
+if ("ResizeObserver" in window) {
+    new ResizeObserver(resizeViewer).observe(viewer);
+}
+
+requestAnimationFrame(resizeViewer);
+
+
+
+function animate() {
+
+    requestAnimationFrame(animate);
+
+    controls.update();
+
+    renderer.render(scene, camera);
+
+}
+
+animate();
+
+
+
+setLang(currentLang);
+
+renderApiStatus("checking");
+checkApiStatus();
+setInterval(checkApiStatus, 30000);
+
+</script>
+
+</body>
+</html>
