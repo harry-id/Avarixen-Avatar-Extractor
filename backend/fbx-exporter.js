@@ -463,39 +463,107 @@ async function buildFbx({
     let skeleton = null;
 
     if (rigData) {
+        const boneNames = Object.keys(rigData.joints);
         const boneByName = {};
         const bones = [];
 
-        for (const name of Object.keys(rigData.joints)) {
+        for (const name of boneNames) {
             const bone = new T.Bone();
             bone.name = name;
             boneByName[name] = bone;
             bones.push(bone);
         }
 
-        // Convert each raw joint to the same axis/offset space as the geometry
-        // (Y-up, 180° around Y, body-centred, feet at 0).
-        const worldFBX = (name) => {
+        // World head positions in the same space as the geometry (Y-up,
+        // 180° around Y, body-centred, feet at 0).
+        const head = {};
+        for (const name of boneNames) {
             const p = rigData.joints[name];
-            return [-(p[0] - offsetX), p[1] - offsetY, -(p[2] - offsetZ)];
-        };
+            head[name] = new T.Vector3(
+                -(p[0] - offsetX),
+                p[1] - offsetY,
+                -(p[2] - offsetZ)
+            );
+        }
 
-        for (const name of Object.keys(rigData.joints)) {
-            const bone = boneByName[name];
+        // Build the parent→child hierarchy.
+        const childrenOf = {};
+        let rootName = null;
+
+        for (const name of boneNames) {
             const parentName = rigData.parentOf[name];
-            const w = worldFBX(name);
 
             if (parentName && boneByName[parentName]) {
-                const pw = worldFBX(parentName);
-                bone.position.set(w[0] - pw[0], w[1] - pw[1], w[2] - pw[2]);
-                boneByName[parentName].add(bone);
+                boneByName[parentName].add(boneByName[name]);
+                (childrenOf[parentName] = childrenOf[parentName] || []).push(name);
             } else {
-                bone.position.set(w[0], w[1], w[2]);
-                container.add(bone);
+                rootName = name;
             }
         }
 
-        // Bone inverses are captured from the rest pose.
+        // Orient each bone's local +Y (head→tail) toward its first child so
+        // Blender draws the bones along the limbs instead of pointing them all
+        // up. Leaf bones continue the parent's direction. Parents are processed
+        // before children, and each child's local position is recomputed in the
+        // parent's rotated frame so the joint positions never move.
+        const yAxis = new T.Vector3(0, 1, 0);
+        const worldQuat = {};
+        const dir = new T.Vector3();
+        const desired = new T.Quaternion();
+        const invParent = new T.Quaternion();
+
+        const parentWorldQuat = (name) =>
+            worldQuat[rigData.parentOf[name]] || new T.Quaternion();
+
+        const orient = (name) => {
+            const bone = boneByName[name];
+            const kids = childrenOf[name] || [];
+
+            if (kids.length) {
+                dir.copy(head[kids[0]]).sub(head[name]);
+
+                if (dir.lengthSq() < 1e-8) {
+                    dir.copy(yAxis).applyQuaternion(parentWorldQuat(name));
+                } else {
+                    dir.normalize();
+                }
+            } else {
+                // Leaf: keep pointing the way the parent points.
+                dir.copy(yAxis).applyQuaternion(parentWorldQuat(name)).normalize();
+            }
+
+            desired.setFromUnitVectors(yAxis, dir);
+            worldQuat[name] = desired.clone();
+
+            const parentName = rigData.parentOf[name];
+
+            if (parentName && boneByName[parentName]) {
+                const pq = parentWorldQuat(name);
+
+                bone.quaternion.copy(pq).invert().multiply(desired);
+
+                invParent.copy(pq).invert();
+                bone.position
+                    .copy(head[name])
+                    .sub(head[parentName])
+                    .applyQuaternion(invParent);
+            } else {
+                bone.position.copy(head[name]);
+                bone.quaternion.copy(desired);
+            }
+
+            for (const child of kids) {
+                orient(child);
+            }
+        };
+
+        if (rootName) {
+            orient(rootName);
+        }
+
+        container.add(boneByName[rootName]);
+
+        // Bone inverses are captured from the rest pose (after orientation).
         scene.updateMatrixWorld(true);
         skeleton = new T.Skeleton(bones);
     }
