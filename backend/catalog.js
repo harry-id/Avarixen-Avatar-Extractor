@@ -223,7 +223,8 @@ async function getCatalogThumbnails(fetchWithTimeout, assetIds) {
  * Fetch Creator Store / catalog asset details.
  */
 async function getCatalogAsset(fetchWithTimeout, assetId) {
-    const url = `https://apis.roblox.com/toolbox-service/v2/assets/${encodeURIComponent(assetId)}`;
+    // Public economy endpoint: works for catalog items and returns Name/AssetTypeId.
+    const url = `https://economy.roblox.com/v2/assets/${encodeURIComponent(assetId)}/details`;
 
     const response = await fetchWithTimeout(
         url,
@@ -414,8 +415,20 @@ function registerCatalogRoutes(app, options = {}) {
         }
 
         try {
-            const asset = await getCatalogAsset(fetchWithTimeout, assetId);
-            res.json({ success: true, asset });
+            const raw = await getCatalogAsset(fetchWithTimeout, assetId);
+            const source = raw?.asset || raw || {};
+            res.json({
+                success: true,
+                asset: {
+                    id: source.TargetId ?? source.id ?? assetId,
+                    name: source.Name ?? source.name ?? null,
+                    description: source.Description ?? source.description ?? "",
+                    assetType: source.AssetTypeId ?? source.assetType ?? null,
+                    creatorName: source.Creator?.Name ?? source.creatorName ?? null,
+                    creatorType: source.Creator?.CreatorType ?? source.creatorType ?? null,
+                    price: source.Price ?? source.price ?? null
+                }
+            });
         } catch (error) {
             console.error("Catalog asset lookup failed:", error);
             res.status(502).json({

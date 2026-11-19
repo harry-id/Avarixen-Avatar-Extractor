@@ -737,7 +737,7 @@
                 type="text"
                 id="catalogInput"
                 data-i18n-placeholder="catalogPlaceholder"
-                placeholder="Search Roblox catalog..."
+                placeholder="Search or paste a Roblox asset ID..."
                 autocomplete="off"
             >
             <select id="catalogCategory" aria-label="Category">
@@ -899,12 +899,14 @@ const LANG = {
         appSubtitle: "Pratinjau Avatar 3D Roblox",
         modeAvatar: "Avatar",
         modeCatalog: "Katalog",
-        catalogPlaceholder: "Cari aset di katalog Roblox...",
+        catalogPlaceholder: "Cari atau tempel ID aset Roblox...",
         catalogSearch: "Cari",
         catalogCategoryAll: "Semua",
         catalogCategoryCommunity: "Community Creations",
         catalogLoadMore: "Muat lebih banyak",
         catalogSearching: "Mencari aset...",
+        catalogLoadingAsset: "Memuat aset...",
+        catalogLoaded: "Aset dimuat.",
         catalogEmpty: "Tidak ada hasil.",
         catalogLoadFailed: "Pencarian katalog gagal.",
         catalogResultsCount: "{{count}} aset ditemukan.",
@@ -981,12 +983,14 @@ const LANG = {
         appSubtitle: "Roblox Avatar 3D Preview",
         modeAvatar: "Avatar",
         modeCatalog: "Catalog",
-        catalogPlaceholder: "Search the Roblox catalog...",
+        catalogPlaceholder: "Search or paste a Roblox asset ID...",
         catalogSearch: "Search",
         catalogCategoryAll: "All",
         catalogCategoryCommunity: "Community Creations",
         catalogLoadMore: "Load more",
         catalogSearching: "Searching assets...",
+        catalogLoadingAsset: "Loading asset...",
+        catalogLoaded: "Asset loaded.",
         catalogEmpty: "No results.",
         catalogLoadFailed: "Catalog search failed.",
         catalogResultsCount: "{{count}} assets found.",
@@ -1826,12 +1830,23 @@ async function searchCatalog(reset = true) {
     }
 
     catalogSearchButton.disabled = true;
+
+    const query = catalogInput.value.trim();
+
+    // Pasting a numeric asset ID loads that item directly instead of searching.
+    if (/^\d+$/.test(query)) {
+        catalogStatus.textContent = t("catalogLoadingAsset");
+        const ok = await loadCatalogAsset(query, null);
+        catalogStatus.textContent = ok ? t("catalogLoaded") : t("catalogLoadFailed");
+        catalogSearchButton.disabled = false;
+        return;
+    }
+
     catalogStatus.textContent = t("catalogSearching");
 
     const params = new URLSearchParams();
-    const q = catalogInput.value.trim();
     const category = catalogCategory.value;
-    if (q) params.set("q", q);
+    if (query) params.set("q", query);
     if (category) params.set("category", category);
     params.set("limit", "28");
     if (!reset && catalogCursor) params.set("cursor", catalogCursor);
@@ -1911,7 +1926,7 @@ function renderCatalogResults(items, reset) {
 
 async function loadCatalogAsset(assetId, name) {
     if (assetId === null || assetId === undefined) {
-        return;
+        return false;
     }
 
     clearPreview();
@@ -1928,9 +1943,24 @@ async function loadCatalogAsset(assetId, name) {
             throw new Error(result.message || t("errorDownloadAssets"));
         }
 
+        let displayName = name;
+        if (!displayName) {
+            try {
+                const detailResponse = await fetch(
+                    `${BACKEND_URL}/api/roblox/catalog/asset/${encodeURIComponent(assetId)}`,
+                    { headers: apiHeaders() }
+                );
+                const detail = await detailResponse.json();
+                const rawAsset = detail?.asset || {};
+                displayName = rawAsset.name || rawAsset.asset?.name || null;
+            } catch (detailError) {
+                console.warn("Catalog asset detail lookup failed:", detailError);
+            }
+        }
+
         currentMode = "catalog";
         currentUserId = result.assetKey || `asset-${assetId}`;
-        currentDisplayName = name || currentUserId;
+        currentDisplayName = displayName || `Asset ${assetId}`;
         currentRigType = null;
         currentAssetFiles = Array.isArray(result.files) ? result.files : null;
 
@@ -1946,9 +1976,11 @@ async function loadCatalogAsset(assetId, name) {
         setExplorerSize(result.totalSize);
         loadModel(currentUserId, true);
         buildExplorer(currentUserId);
+        return true;
     } catch (error) {
         console.error(error);
         setStatus("errorOccurred", { message: error.message });
+        return false;
     }
 }
 

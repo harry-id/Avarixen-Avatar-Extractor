@@ -48,7 +48,7 @@ cp backend/.env.example backend/.env
 ```env
 ROBLOX_API_KEY=your_roblox_api_key_here
 # PORT=3000
-# CORS_ORIGINS=http://localhost:3001
+# CORS_ORIGINS=http://localhost:3001,https://harry-id.github.io
 ```
 
 ### Create a Roblox API key
@@ -57,14 +57,14 @@ ROBLOX_API_KEY=your_roblox_api_key_here
 2. Click **Create API Key**
 3. Enter a name (e.g. `AAE Avatar Extractor`)
 4. Under **Access Permissions**, add:
-   - `thumbnails:read` — required for avatar metadata
+   - `thumbnails:read` — required for avatar metadata and catalog 3D previews
    - `users.advanced:read` — optional, for user lookup
 5. Click **Save & Generate**
 6. Copy the key into `backend/.env` as `ROBLOX_API_KEY`
 
 Notes:
 - `ROBLOX_API_KEY` is required for avatar metadata and download endpoints.
-- `CORS_ORIGINS` is optional (comma-separated). If unset, CORS is permissive by default; set explicit origins for production.
+- `CORS_ORIGINS` is optional (comma-separated). If unset, CORS is permissive by default; set explicit origins for production. Include `http://localhost:3001` when testing locally, otherwise the local frontend cannot reach the backend.
 
 ### 3. Run (single command)
 
@@ -141,7 +141,7 @@ Downloaded files are named `{safeName}_{userId}.{format}` (e.g. `Roblox_11159567
 
 Switch the header to **Catalog** mode to search the Roblox catalog and export 3D items (accessories, hair, clothing, etc.) without entering a user ID.
 
-- Search by keyword/category, browse thumbnail results, and click any item.
+- Search by keyword/category, paste a numeric asset ID to load it directly, or click any result.
 - The backend fetches Roblox's 3D asset thumbnail (`assets-thumbnail-3d`), downloads the OBJ/MTL/textures, and reuses the same conversion pipeline as avatars.
 - GLB/GLTF/FBX/OBJ downloads, mesh-quality presets, and separate-assets all work. Auto-rig and More joints are disabled because catalog items have no skeleton.
 - Coverage is partial: bundles and Studio models/meshes have no 3D thumbnail (`state: Error`). Those would need the raw asset-delivery path (not implemented).
