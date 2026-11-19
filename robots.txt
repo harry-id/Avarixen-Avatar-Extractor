@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://harry-id.github.io/Avarixen-Avatar-Extractor/sitemap.xml

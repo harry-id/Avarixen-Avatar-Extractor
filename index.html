@@ -1,23 +1,31 @@
 <!DOCTYPE html>
-<html lang="id">
+<html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
-    <title>Avarixen - Roblox Avatar 3D Preview &amp; Exporter</title>
-    <meta name="description" content="Avarixen is a Roblox avatar 3D preview and export tool. Retrieve avatars, inspect model hierarchy, and export 3D assets in OBJ, GLB, glTF, and FBX formats with experimental auto-rigging support.">
+    <title>Avarixen - Roblox Avatar Downloader &amp; 3D Exporter</title>
+    <meta name="description" content="Avarixen is a Roblox avatar downloader and 3D exporter. Retrieve Roblox avatars, preview 3D models, inspect mesh hierarchy, configure rigging, and export assets into FBX, GLB, glTF, and OBJ formats.">
     <meta name="robots" content="index, follow">
+    <meta name="theme-color" content="#10131c">
     <link rel="canonical" href="https://harry-id.github.io/Avarixen-Avatar-Extractor/">
 
     <meta property="og:type" content="website">
-    <meta property="og:title" content="Avarixen - Roblox Avatar 3D Exporter">
-    <meta property="og:description" content="Preview, inspect, and export Roblox avatars into multiple 3D formats.">
+    <meta property="og:site_name" content="Avarixen">
+    <meta property="og:title" content="Avarixen - Roblox Avatar Downloader &amp; 3D Exporter">
+    <meta property="og:description" content="Retrieve, preview, inspect, rig, and export Roblox avatars into FBX, GLB, glTF, and OBJ for 3D modeling and animation.">
     <meta property="og:url" content="https://harry-id.github.io/Avarixen-Avatar-Extractor/">
     <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:title" content="Avarixen - Roblox Avatar Downloader &amp; 3D Exporter">
+    <meta name="twitter:description" content="Retrieve, preview, inspect, rig, and export Roblox avatars into multiple 3D formats.">
 
     <style>
         * {
             box-sizing: border-box;
+        }
+
+        [hidden] {
+            display: none !important;
         }
 
         body {
@@ -460,6 +468,74 @@
             color: #4285f4;
         }
 
+        /* Header tagline */
+        .brand-desc {
+            color: #8b96ab;
+            margin: 2px 0 0;
+            font-size: 13px;
+            line-height: 1.5;
+            max-width: 720px;
+        }
+
+        /* About / SEO content section */
+        .info {
+            margin-top: 32px;
+            padding-top: 24px;
+            border-top: 1px solid #30394d;
+            color: #aab4c8;
+        }
+
+        .info h2 {
+            margin: 0 0 10px;
+            font-size: 18px;
+            color: #fff;
+        }
+
+        .info h2:not(:first-child) {
+            margin-top: 26px;
+        }
+
+        .info p {
+            margin: 0 0 12px;
+            line-height: 1.7;
+        }
+
+        .info-list {
+            margin: 0 0 12px;
+            padding-left: 20px;
+            line-height: 1.7;
+        }
+
+        .info-list li {
+            margin-bottom: 6px;
+        }
+
+        .info .faq {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .info .faq details {
+            background: #191e2b;
+            border: 1px solid #30394d;
+            border-radius: 8px;
+            padding: 10px 14px;
+        }
+
+        .info .faq summary {
+            cursor: pointer;
+            color: #fff;
+            font-weight: bold;
+            font-size: 14px;
+        }
+
+        .info .faq details p {
+            margin: 8px 0 0;
+            font-size: 14px;
+            line-height: 1.6;
+        }
+
         @media (max-width: 900px) {
             .viewer-layout {
                 flex-direction: column;
@@ -565,6 +641,14 @@
             #viewer {
                 height: 380px;
             }
+
+            .brand-desc {
+                font-size: 12px;
+            }
+
+            .info h2 {
+                font-size: 16px;
+            }
         }
     </style>
 
@@ -582,16 +666,17 @@
 <header>
     <div class="brand">
         <div class="brand-row">
-            <h1 data-i18n="appTitle">Avarixen Avatar Extractor</h1>
+            <h1 data-i18n="appTitle">Avarixen</h1>
             <div class="api-status" id="apiStatus" title="Backend API status">
                 <span class="api-dot"></span>
                 <span id="apiStatusText">API Online</span>
             </div>
         </div>
-        <p data-i18n="appSubtitle">Roblox Avatar 3D Preview</p>
+        <p data-i18n="appSubtitle">Roblox Avatar Downloader &amp; 3D Exporter</p>
+        <p class="brand-desc" data-i18n="appTagline">Retrieve, preview, inspect, rig, and export Roblox avatars for 3D modeling and animation workflows.</p>
     </div>
     <div class="lang-selector">
-        <label for="langSelector" data-i18n="languageLabel">Bahasa / Language:</label>
+        <label for="langSelector" data-i18n="languageLabel">Language / Bahasa:</label>
         <select id="langSelector">
             <option value="id">Indonesia</option>
             <option value="en">English</option>
@@ -605,13 +690,11 @@
         <input
             type="text"
             id="searchInput"
-            placeholder="Masukkan username Roblox..."
+            placeholder="Enter a Roblox username..."
             autocomplete="off"
         >
 
-        <button type="submit" id="searchButton" data-i18n="searchButton">
-            Cari Avatar
-        </button>
+        <button type="submit" id="searchButton" data-i18n="searchButton">Search Avatar</button>
     </form>
 
     <div class="viewer-layout">
@@ -627,50 +710,34 @@
                 <span class="explorer-count" id="explorerCount"></span>
             </div>
             <div class="explorer-tree" id="explorerTree">
-                <div class="explorer-empty" data-i18n="explorerEmpty">
-                    Load an avatar to see its parts.
-                </div>
+                <div class="explorer-empty" data-i18n="explorerEmpty">Load an avatar to see its parts.</div>
             </div>
         </aside>
     </div>
 
-    <div class="status" id="status" data-i18n="statusWaiting">
-        Masukkan username Roblox untuk memuat pratinjau 3D.
-    </div>
+    <div class="status" id="status" data-i18n="statusWaiting">Enter a Roblox username to load 3D preview.</div>
 
     <div class="controls">
-        <button id="reloadButton" data-i18n="reloadButton">
-            Muat Ulang Model
-        </button>
+        <button id="reloadButton" data-i18n="reloadButton">Reload Model</button>
 
         <div class="dropdown">
             <div class="split-button">
-                <button id="downloadButton" data-i18n="downloadObj">
-                    Unduh OBJ
-                </button>
+                <button id="downloadButton" data-i18n="downloadObj">Download OBJ</button>
                 <button
                     type="button"
                     id="downloadToggle"
                     class="arrow-button"
                     data-i18n-title="downloadFormatLabel"
-                    title="Pilih format unduhan"
+                    title="Choose download format"
                     aria-haspopup="true"
                     aria-expanded="false"
                 >▼</button>
             </div>
             <div id="downloadDropdown" class="dropdown-content" role="menu">
-                <button class="dropdown-item" data-format="obj" data-i18n="downloadObjOption" role="menuitemradio" aria-checked="false">
-                    Unduh OBJ (OBJ + MTL + Texture)
-                </button>
-                <button class="dropdown-item" data-format="glb" data-i18n="downloadGlb" role="menuitemradio" aria-checked="false">
-                    Unduh GLB
-                </button>
-                <button class="dropdown-item" data-format="gltf" data-i18n="downloadGltf" role="menuitemradio" aria-checked="false">
-                    Unduh GLTF
-                </button>
-                <button class="dropdown-item" data-format="fbx" data-i18n="downloadFbx" role="menuitemradio" aria-checked="false">
-                    Unduh FBX
-                </button>
+                <button class="dropdown-item" data-format="obj" data-i18n="downloadObjOption" role="menuitemradio" aria-checked="false">Download OBJ (OBJ + MTL + Texture)</button>
+                <button class="dropdown-item" data-format="glb" data-i18n="downloadGlb" role="menuitemradio" aria-checked="false">Download GLB</button>
+                <button class="dropdown-item" data-format="gltf" data-i18n="downloadGltf" role="menuitemradio" aria-checked="false">Download GLTF</button>
+                <button class="dropdown-item" data-format="fbx" data-i18n="downloadFbx" role="menuitemradio" aria-checked="false">Download FBX</button>
             </div>
         </div>
     </div>
@@ -711,6 +778,57 @@
             </label>
         </div>
     </details>
+
+    <section class="info" aria-label="About Avarixen">
+        <h2 data-i18n="aboutTitle">About Avarixen</h2>
+        <p data-i18n="aboutBody">Avarixen is a free, browser-based Roblox avatar downloader and 3D exporter. Enter a Roblox username to retrieve the avatar, preview it in interactive 3D, inspect its mesh hierarchy, and export it to OBJ, FBX, GLB, or glTF for 3D modeling and animation workflows.</p>
+
+        <h2 data-i18n="featuresTitle">Features</h2>
+        <ul class="info-list">
+            <li data-i18n="featRetrieve">Retrieve any Roblox avatar by username and view its 3D model.</li>
+            <li data-i18n="featPreview">Interactive 3D preview with orbit, pan, and zoom.</li>
+            <li data-i18n="featInspect">Model hierarchy inspection — browse body parts and accessories.</li>
+            <li data-i18n="featSeparate">Separate asset handling — export textures and buffers as external files in a ZIP.</li>
+            <li data-i18n="featExport">Export to OBJ, FBX, GLB, and glTF formats.</li>
+            <li data-i18n="featRig">Experimental R6/R15 auto-rigging, with optional extra joints for R6.</li>
+            <li data-i18n="featMesh">Mesh subdivision quality presets from Minimal to Extreme.</li>
+        </ul>
+
+        <h2 data-i18n="workflowsTitle">Supported workflows</h2>
+        <p data-i18n="workflowsBody">Exports are tested with Blender 3.6 and Prisma3D 3.3.5. Import the downloaded OBJ, GLB, glTF, or FBX file into your preferred 3D application for modeling, rigging, and animation.</p>
+
+        <h2 data-i18n="faqTitle" hidden>Frequently Asked Questions</h2>
+        <div class="faq" hidden>
+            <details>
+                <summary data-i18n="faq1q">How do I download my Roblox avatar as a 3D model?</summary>
+                <p data-i18n="faq1a">Enter your Roblox username, wait for the 3D preview to load, then use the download button. The main button downloads an OBJ (ZIP) bundle; the arrow menu offers GLB, glTF, and FBX.</p>
+            </details>
+            <details>
+                <summary data-i18n="faq2q">Can I export Roblox avatars to FBX?</summary>
+                <p data-i18n="faq2a">Yes. Choose FBX from the download menu. Avarixen produces a binary FBX 7.4 file, optionally rigged and with separate textures in a ZIP.</p>
+            </details>
+            <details>
+                <summary data-i18n="faq3q">Can I use Avarixen with Blender?</summary>
+                <p data-i18n="faq3a">Yes. Blender imports OBJ, FBX, GLB, and glTF directly (File ▸ Import). Exports are tested with Blender 3.6.</p>
+            </details>
+            <details>
+                <summary data-i18n="faq4q">Can I import exported avatars into Prisma3D?</summary>
+                <p data-i18n="faq4a">Yes. Prisma3D can import OBJ, FBX, GLB, and glTF exports. Tested with Prisma3D 3.3.5.</p>
+            </details>
+            <details>
+                <summary data-i18n="faq5q">Does Avarixen support R6 and R15?</summary>
+                <p data-i18n="faq5a">Yes. Avarixen detects the avatar type and supports both R6 and R15 rigs. R6 also offers an optional "More joints" mode for extra bones.</p>
+            </details>
+            <details>
+                <summary data-i18n="faq6q">Do I need to install anything?</summary>
+                <p data-i18n="faq6a">No. Avarixen runs entirely in your browser. The hosted demo needs no installation — just open the website.</p>
+            </details>
+            <details>
+                <summary data-i18n="faq7q">Can I host Avarixen locally?</summary>
+                <p data-i18n="faq7a">Yes. The project runs on Node.js 18+. Clone the repository, install dependencies, configure the Roblox API key, then start the backend and frontend. See the README for setup steps.</p>
+            </details>
+        </div>
+    </section>
 
 </main>
 
@@ -756,8 +874,36 @@ import { OBJLoader } from
 
 const LANG = {
     id: {
-        appTitle: "Avarixen Avatar Extractor",
-        appSubtitle: "Pratinjau Avatar 3D Roblox",
+        appTitle: "Avarixen",
+        appSubtitle: "Pengunduh & Eksportir Avatar 3D Roblox",
+        appTagline: "Ambil, pratinjau, periksa, rig, dan ekspor avatar Roblox untuk alur kerja pemodelan dan animasi 3D.",
+        aboutTitle: "Tentang Avarixen",
+        aboutBody: "Avarixen adalah pengunduh dan eksportir avatar Roblox 3D gratis yang berbasis browser. Masukkan username Roblox untuk mengambil avatar, pratinjau dalam 3D interaktif, periksa hierarki mesh, lalu ekspor ke OBJ, FBX, GLB, atau glTF untuk alur kerja pemodelan dan animasi 3D.",
+        featuresTitle: "Fitur",
+        featRetrieve: "Ambil avatar Roblox mana pun melalui username dan lihat model 3D-nya.",
+        featPreview: "Pratinjau 3D interaktif dengan orbit, geser, dan zoom.",
+        featInspect: "Inspeksi hierarki model — jelajahi bagian tubuh dan aksesori.",
+        featSeparate: "Penanganan aset terpisah — ekspor tekstur dan buffer sebagai berkas eksternal dalam satu ZIP.",
+        featExport: "Ekspor ke format OBJ, FBX, GLB, dan glTF.",
+        featRig: "Auto-rig R6/R15 (eksperimental), dengan opsi sendi tambahan untuk R6.",
+        featMesh: "Preset kualitas subdivisi mesh dari Minimal hingga Extreme.",
+        workflowsTitle: "Alur kerja yang didukung",
+        workflowsBody: "Ekspor diuji dengan Blender 3.6 dan Prisma3D 3.3.5. Impor berkas OBJ, GLB, glTF, atau FBX yang diunduh ke aplikasi 3D pilihan Anda untuk pemodelan, rigging, dan animasi.",
+        faqTitle: "Pertanyaan yang Sering Diajukan",
+        faq1q: "Bagaimana cara mengunduh avatar Roblox saya sebagai model 3D?",
+        faq1a: "Masukkan username Roblox, tunggu pratinjau 3D dimuat, lalu gunakan tombol unduh. Tombol utama mengunduh bundel OBJ (ZIP); menu panah menawarkan GLB, glTF, dan FBX.",
+        faq2q: "Bisakah saya mengekspor avatar Roblox ke FBX?",
+        faq2a: "Bisa. Pilih FBX dari menu unduh. Avarixen menghasilkan berkas FBX 7.4 biner, opsional dengan rig dan tekstur terpisah dalam ZIP.",
+        faq3q: "Bisakah saya menggunakan Avarixen dengan Blender?",
+        faq3a: "Bisa. Blender dapat mengimpor OBJ, FBX, GLB, dan glTF secara langsung (File ▸ Import). Ekspor diuji dengan Blender 3.6.",
+        faq4q: "Bisakah saya mengimpor avatar yang diekspor ke Prisma3D?",
+        faq4a: "Bisa. Prisma3D dapat mengimpor ekspor OBJ, FBX, GLB, dan glTF. Diuji dengan Prisma3D 3.3.5.",
+        faq5q: "Apakah Avarixen mendukung R6 dan R15?",
+        faq5a: "Ya. Avarixen mendeteksi tipe avatar dan mendukung rig R6 maupun R15. R6 juga menawarkan mode \"More joints\" opsional untuk sendi tambahan.",
+        faq6q: "Apakah saya perlu memasang sesuatu?",
+        faq6a: "Tidak. Avarixen berjalan sepenuhnya di browser Anda. Demo yang dihosting tidak perlu instalasi — cukup buka situsnya.",
+        faq7q: "Bisakah saya menghosting Avarixen secara lokal?",
+        faq7a: "Bisa. Proyek ini berjalan di Node.js 18+. Klon repositori, pasang dependensi, konfigurasikan kunci API Roblox, lalu jalankan backend dan frontend. Lihat README untuk langkah setup.",
         languageLabel: "Bahasa / Language:",
         usernamePlaceholder: "Masukkan username Roblox...",
         searchButton: "Cari Avatar",
@@ -822,8 +968,36 @@ const LANG = {
         apiChecking: "Checking..."
     },
     en: {
-        appTitle: "Avarixen Avatar Extractor",
-        appSubtitle: "Roblox Avatar 3D Preview",
+        appTitle: "Avarixen",
+        appSubtitle: "Roblox Avatar Downloader & 3D Exporter",
+        appTagline: "Retrieve, preview, inspect, rig, and export Roblox avatars for 3D modeling and animation workflows.",
+        aboutTitle: "About Avarixen",
+        aboutBody: "Avarixen is a free, browser-based Roblox avatar downloader and 3D exporter. Enter a Roblox username to retrieve the avatar, preview it in interactive 3D, inspect its mesh hierarchy, and export it to OBJ, FBX, GLB, or glTF for 3D modeling and animation workflows.",
+        featuresTitle: "Features",
+        featRetrieve: "Retrieve any Roblox avatar by username and view its 3D model.",
+        featPreview: "Interactive 3D preview with orbit, pan, and zoom.",
+        featInspect: "Model hierarchy inspection — browse body parts and accessories.",
+        featSeparate: "Separate asset handling — export textures and buffers as external files in a ZIP.",
+        featExport: "Export to OBJ, FBX, GLB, and glTF formats.",
+        featRig: "Experimental R6/R15 auto-rigging, with optional extra joints for R6.",
+        featMesh: "Mesh subdivision quality presets from Minimal to Extreme.",
+        workflowsTitle: "Supported workflows",
+        workflowsBody: "Exports are tested with Blender 3.6 and Prisma3D 3.3.5. Import the downloaded OBJ, GLB, glTF, or FBX file into your preferred 3D application for modeling, rigging, and animation.",
+        faqTitle: "Frequently Asked Questions",
+        faq1q: "How do I download my Roblox avatar as a 3D model?",
+        faq1a: "Enter your Roblox username, wait for the 3D preview to load, then use the download button. The main button downloads an OBJ (ZIP) bundle; the arrow menu offers GLB, glTF, and FBX.",
+        faq2q: "Can I export Roblox avatars to FBX?",
+        faq2a: "Yes. Choose FBX from the download menu. Avarixen produces a binary FBX 7.4 file, optionally rigged and with separate textures in a ZIP.",
+        faq3q: "Can I use Avarixen with Blender?",
+        faq3a: "Yes. Blender imports OBJ, FBX, GLB, and glTF directly (File ▸ Import). Exports are tested with Blender 3.6.",
+        faq4q: "Can I import exported avatars into Prisma3D?",
+        faq4a: "Yes. Prisma3D can import OBJ, FBX, GLB, and glTF exports. Tested with Prisma3D 3.3.5.",
+        faq5q: "Does Avarixen support R6 and R15?",
+        faq5a: "Yes. Avarixen detects the avatar type and supports both R6 and R15 rigs. R6 also offers an optional \"More joints\" mode for extra bones.",
+        faq6q: "Do I need to install anything?",
+        faq6a: "No. Avarixen runs entirely in your browser. The hosted demo needs no installation — just open the website.",
+        faq7q: "Can I host Avarixen locally?",
+        faq7a: "Yes. The project runs on Node.js 18+. Clone the repository, install dependencies, configure the Roblox API key, then start the backend and frontend. See the README for setup steps.",
         languageLabel: "Language / Bahasa:",
         usernamePlaceholder: "Enter Roblox username...",
         searchButton: "Search Avatar",
@@ -894,8 +1068,8 @@ let currentLang = (() => {
     if (stored === "id" || stored === "en") {
         return stored;
     }
-    const nav = (navigator.language || navigator.userLanguage || "id").toLowerCase();
-    return nav.startsWith("id") ? "id" : "en";
+    // English is the default; visitors can switch to Indonesian anytime.
+    return "en";
 })();
 
 function t(key, params = {}) {
