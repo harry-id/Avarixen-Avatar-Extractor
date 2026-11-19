@@ -27,6 +27,13 @@ const MESSAGES = {
         "convert.failed": "Konversi model gagal.",
         "convert.rig_failed": "Auto-rig gagal: {{message}}",
         "convert.rig_unsupported_fbx": "Auto-rig tidak didukung untuk format FBX.",
+        "catalog.search_failed": "Pencarian katalog gagal.",
+        "catalog.invalid_asset_id": "ID aset tidak valid.",
+        "catalog.not_ready": "Pratinjau 3D belum siap. Coba lagi.",
+        "catalog.no_3d": "Aset ini tidak memiliki pratinjau 3D.",
+        "catalog.metadata_invalid": "Metadata aset tidak valid atau tidak lengkap.",
+        "catalog.metadata_failed": "Gagal mengunduh aset katalog.",
+        "catalog.download_success": "Aset katalog berhasil diunduh.",
         "rate_limited": "Terlalu banyak permintaan. Coba lagi nanti."
     },
     en: {
@@ -57,6 +64,13 @@ const MESSAGES = {
         "convert.failed": "Model conversion failed.",
         "convert.rig_failed": "Auto-rig failed: {{message}}",
         "convert.rig_unsupported_fbx": "Auto-rig is not supported for the FBX format.",
+        "catalog.search_failed": "Catalog search failed.",
+        "catalog.invalid_asset_id": "Invalid asset ID.",
+        "catalog.not_ready": "The 3D preview is not ready yet. Try again.",
+        "catalog.no_3d": "This asset does not have a 3D preview.",
+        "catalog.metadata_invalid": "Asset metadata is invalid or incomplete.",
+        "catalog.metadata_failed": "Failed to download catalog asset.",
+        "catalog.download_success": "Catalog asset downloaded successfully.",
         "rate_limited": "Too many requests. Try again later."
     }
 };

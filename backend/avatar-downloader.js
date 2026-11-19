@@ -404,3 +404,5 @@ module.exports = function (app, options = {}) {
 
 // Exported for unit tests (pure helper, no Express dependency).
 module.exports.planTextures = planTextures;
+module.exports.downloadAsset = downloadAsset;
+module.exports.decompress = decompress;

@@ -115,7 +115,7 @@ module.exports = function (app) {
         const lang = getLang(req);
         const { userId } = req.params;
 
-        if (!/^\d+$/.test(userId)) {
+        if (!/^(?:\d+|asset-\d+)$/.test(userId)) {
             return res.status(400).json({
                 success: false,
                 message: t(lang, "convert.invalid_user_id")
@@ -153,8 +153,9 @@ module.exports = function (app) {
         const lang = getLang(req);
         const { userId } = req.params;
         const fmt = (req.params.format || "").toLowerCase();
+        const isCatalog = /^asset-\d+$/.test(userId);
 
-        if (!/^\d+$/.test(userId)) {
+        if (!/^(?:\d+|asset-\d+)$/.test(userId)) {
             return res.status(400).json({
                 success: false,
                 message: t(lang, "convert.invalid_user_id")
@@ -168,7 +169,7 @@ module.exports = function (app) {
             });
         }
 
-        const rig = parseBool(req.query.rig);
+        const rig = !isCatalog && parseBool(req.query.rig);
         // Every export keeps body parts as separate objects. "Separate assets"
         // only chooses packaging for GLTF/FBX: one self-contained file vs ZIP
         // with external assets. GLB is always one embedded binary; OBJ is
@@ -177,13 +178,15 @@ module.exports = function (app) {
         const separate =
             fmt !== "glb" &&
             (parseBool(req.query.separate) || parseBool(req.query.compat));
-        const splitParts = true;
-        const groupName = sanitizeGroupName(req.query.name);
+        const splitParts = !isCatalog;
+        const groupName = sanitizeGroupName(
+            req.query.name || (isCatalog ? "Catalog Asset" : "Avatar")
+        );
         const subdivision = Math.max(
             0,
             Math.min(4, Number.parseInt(req.query.subdivision, 10) || 0)
         );
-        const moreJoints = parseBool(req.query.moreJoints);
+        const moreJoints = !isCatalog && parseBool(req.query.moreJoints);
 
         const assetDir = path.join(__dirname, "../downloads", userId);
         const objPath = path.join(assetDir, "avatar.obj");
@@ -207,7 +210,7 @@ module.exports = function (app) {
                 // Keep the head out of the mesh-quality subdivision (matches
                 // the GLB/GLTF behaviour).
                 let headGroups = [];
-                if (subdivision > 0) {
+                if (subdivision > 0 && !isCatalog) {
                     try {
                         const info = getPartInfo(assetDir);
                         headGroups = info.groups
@@ -271,7 +274,8 @@ module.exports = function (app) {
                     splitParts,
                     groupName,
                     subdivision,
-                    moreJoints
+                    moreJoints,
+                    catalogMode: isCatalog
                 });
             } catch (rigError) {
                 // Auto-rig failed (e.g. not 6/15 Player groups).

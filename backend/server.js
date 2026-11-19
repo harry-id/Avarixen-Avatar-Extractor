@@ -118,6 +118,7 @@ function getApiKey() {
 }
 
 require("./avatar-downloader")(app, { fetchWithTimeout, getApiKey });
+require("./catalog").registerCatalogRoutes(app, { fetchWithTimeout, getApiKey });
 require("./convert")(app);
 
 app.get("/", (req, res) => {

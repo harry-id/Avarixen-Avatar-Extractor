@@ -1233,7 +1233,7 @@ function buildDocument(parsed, partMapping, joints, offsetX, offsetY, offsetZ, r
         return { doc, root, scene, buffer };
     }
 
-    const mesh = doc.createMesh("character_mesh");
+    const mesh = doc.createMesh(`${groupName}_mesh`);
 
     // Convert float colors (0-1) to Uint8 (0-255) for UNSIGNED_BYTE normalized accessor.
     const colorBytes = new Uint8Array(allCol.length);
@@ -1276,7 +1276,7 @@ function buildDocument(parsed, partMapping, joints, offsetX, offsetY, offsetZ, r
         mesh.addPrimitive(prim);
     }
 
-    const meshNode = doc.createNode("character_mesh");
+    const meshNode = doc.createNode(groupName);
     meshNode.setMesh(mesh);
     scene.addChild(meshNode);
     if (rigged) {
@@ -1433,7 +1433,8 @@ async function convertAvatar(assetDir, {
     splitParts = false,
     groupName = "Avatar",
     subdivision = 0,
-    moreJoints = false
+    moreJoints = false,
+    catalogMode = false
 } = {}) {
     const objPath = path.join(assetDir, "avatar.obj");
     if (!fs.existsSync(objPath)) {
@@ -1445,9 +1446,11 @@ async function convertAvatar(assetDir, {
 
     if (subdivision > 0) {
         // Mesh quality refines the body only: accessories (Handle* groups) and
-        // the head keep their original density.
-        const headGroup = findHeadGroupName(parsed);
+        // the head keep their original density. Catalog items are standalone
+        // assets, so they are refined as a whole.
+        const headGroup = catalogMode ? null : findHeadGroupName(parsed);
         const isExcluded = (name) =>
+            !catalogMode &&
             typeof name === "string" &&
             (/^handle/i.test(name) || name === headGroup);
 
