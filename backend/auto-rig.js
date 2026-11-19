@@ -153,11 +153,11 @@ function rebuildGroups(faces) {
  * Levels are capped so an avatar cannot explode past ~2M faces.
  */
 function subdivideParsed(parsed, levels, shouldSubdivide = null) {
-    let safeLevels = Math.max(0, Math.min(3, Math.floor(levels || 0)));
+    let safeLevels = Math.max(0, Math.min(4, Math.floor(levels || 0)));
 
     while (
         safeLevels > 0 &&
-        parsed.faces.length * Math.pow(4, safeLevels) > 2_000_000
+        parsed.faces.length * Math.pow(4, safeLevels) > 3_500_000
     ) {
         safeLevels -= 1;
     }
@@ -755,6 +755,9 @@ function createSkinner(joints, boneNameToIdx) {
         // Symmetric blend half-width capped to half the shorter segment so the
         // elbow/knee and wrist/ankle blends never overlap.
         const w = Math.max(Math.min(seg1, seg2) * 0.45, 1e-3);
+        // Smoothstep keeps the transition soft at both ends of the blend, which
+        // removes the linear-skinning pinch when a joint bends.
+        const smooth = (f) => f * f * (3 - 2 * f);
 
         let w0 = 0;
         let w1 = 0;
@@ -763,13 +766,13 @@ function createSkinner(joints, boneNameToIdx) {
         if (s <= t1 - w) {
             w0 = 1;
         } else if (s < t1 + w) {
-            const f = (s - (t1 - w)) / (2 * w);
+            const f = smooth((s - (t1 - w)) / (2 * w));
             w0 = 1 - f;
             w1 = f;
         } else if (s <= t2 - w) {
             w1 = 1;
         } else if (s < t2 + w) {
-            const f = (s - (t2 - w)) / (2 * w);
+            const f = smooth((s - (t2 - w)) / (2 * w));
             w1 = 1 - f;
             w2 = f;
         } else {

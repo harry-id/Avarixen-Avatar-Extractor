@@ -202,7 +202,7 @@ async function buildFbx({
     const rigData = rig ? computeRig(parseObjString(objText), { moreJoints }) : null;
 
     // Match the GLB export: center the body on X/Z and put the feet at y = 0.
-    let safeSubdivision = Math.max(0, Math.min(3, Math.floor(subdivision || 0)));
+    let safeSubdivision = Math.max(0, Math.min(4, Math.floor(subdivision || 0)));
 
     const baseTriangleCount = obj.polygons.reduce(
         (sum, poly) => sum + Math.max(1, poly.corners.length - 2),
@@ -211,7 +211,7 @@ async function buildFbx({
 
     while (
         safeSubdivision > 0 &&
-        baseTriangleCount * Math.pow(4, safeSubdivision) > 2_000_000
+        baseTriangleCount * Math.pow(4, safeSubdivision) > 3_500_000
     ) {
         safeSubdivision -= 1;
     }

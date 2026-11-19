@@ -183,7 +183,7 @@ module.exports = function (app) {
         const groupName = sanitizeGroupName(req.query.name);
         const subdivision = Math.max(
             0,
-            Math.min(3, Number.parseInt(req.query.subdivision, 10) || 0)
+            Math.min(4, Number.parseInt(req.query.subdivision, 10) || 0)
         );
         const moreJoints = parseBool(req.query.moreJoints);
 
