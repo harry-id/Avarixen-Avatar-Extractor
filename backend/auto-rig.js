@@ -1,9 +1,5 @@
 "use strict";
 
-// Avatar converter with optional R6/R15 auto-rigging. Applies the fixes from
-// the standalone prototype: UV V-flip for glTF, position+UV dedup, Uint8
-// vertex colors, white baseColorFactor when textured, and feet recentered to y=0.
-
 const fs = require("fs");
 const path = require("path");
 const { Document, Accessor } = require("@gltf-transform/core");
@@ -150,7 +146,7 @@ function rebuildGroups(faces) {
 /**
  * Linear midpoint subdivision. Each level turns every triangle into four and
  * preserves UVs, normals, vertex colors, materials, and OBJ groups.
- * Levels are capped so an avatar cannot explode past ~2M faces.
+ * Levels are capped so an avatar cannot explode past ~3.5M faces.
  */
 function subdivideParsed(parsed, levels, shouldSubdivide = null) {
     let safeLevels = Math.max(0, Math.min(4, Math.floor(levels || 0)));

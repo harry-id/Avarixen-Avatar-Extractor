@@ -82,7 +82,6 @@ async function writeGltfEmbedded(doc) {
 
         const json = JSON.parse(await fs.readFile(gltfPath, "utf8"));
 
-        // Replace buffer URIs with data URIs
         if (json.buffers) {
             for (const buf of json.buffers) {
                 if (buf.uri && !buf.uri.startsWith("data:")) {
@@ -93,7 +92,6 @@ async function writeGltfEmbedded(doc) {
             }
         }
 
-        // Replace image URIs with data URIs
         if (json.images) {
             for (const img of json.images) {
                 if (img.uri && !img.uri.startsWith("data:")) {
@@ -238,7 +236,6 @@ module.exports = function (app) {
                 });
 
                 if (separate) {
-                    // Model + external textures in one ZIP.
                     const zip = new JSZip();
                     zip.file(`${userId}.fbx`, fbx);
 
@@ -286,7 +283,6 @@ module.exports = function (app) {
             }
 
             if (separate) {
-                // ZIP with .gltf + .bin + textures
                 const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "aae-convert-"));
                 try {
                     const files = await writeGltfSeparate(conversion.doc, tmpDir);
@@ -294,7 +290,6 @@ module.exports = function (app) {
                     const baseName = String(userId);
                     for (const file of files) {
                         const data = await fs.readFile(file.path);
-                        // Rename model.gltf for clarity
                         const zipName = file.name === "model.gltf"
                             ? `${baseName}.gltf`
                             : file.name;

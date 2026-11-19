@@ -262,14 +262,6 @@ module.exports = function (app, options = {}) {
 
             const metadata = metadataResult.metadata;
 
-            // Debug: log metadata shape for troubleshooting
-            console.log(
-                "Avatar metadata keys:",
-                metadata && typeof metadata === "object"
-                    ? Object.keys(metadata)
-                    : typeof metadata
-            );
-
             if (
                 !metadata ||
                 typeof metadata !== "object" ||

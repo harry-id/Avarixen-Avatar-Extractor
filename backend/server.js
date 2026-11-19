@@ -102,7 +102,6 @@ function getApiKey() {
 require("./avatar-downloader")(app, { fetchWithTimeout, getApiKey });
 require("./convert")(app);
 
-// Status server
 app.get("/", (req, res) => {
     res.json({
         status: "online",

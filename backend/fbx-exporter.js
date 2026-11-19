@@ -1,15 +1,9 @@
 "use strict";
 
-// Binary FBX 7.4 exporter.
-// Builds a Three.js scene from the downloaded avatar OBJ + MTL (+ textures) and
-// serializes it with @comfyorg/fbx-exporter-three (binary FBX, embedded textures).
-//
-// The output is a genuine binary .fbx ("Kaydara FBX Binary") that Blender 3.6+,
-// Unity, Unreal, F3D and other importers accept — unlike ASCII FBX, which many
-// tools reject.
-//
-// Interface (kept stable for backend/convert.js):
-//   buildFbx({ objText, mtlText, assetDir }) -> Promise<Buffer>
+// Binary FBX 7.4 exporter. Builds a Three.js scene from the avatar OBJ/MTL and
+// serializes it with @comfyorg/fbx-exporter-three. The output is a genuine
+// binary .fbx ("Kaydara FBX Binary") that Blender, Unity, Unreal, F3D and other
+// importers accept, unlike ASCII FBX which many tools reject.
 
 const fs = require("fs");
 const path = require("path");
@@ -243,7 +237,6 @@ async function buildFbx({
 
     const matNames = [...new Set(obj.polygons.map((poly) => poly.material || "default"))];
 
-    // Load embedded textures.
     const texMap = new Map();
     for (const name of matNames) {
         const material = mtl.get(name);
@@ -416,7 +409,6 @@ async function buildFbx({
 
         geometry.setIndex(indices);
 
-        // One draw range per material.
         let offset = 0;
         for (let mi = 0; mi < usedNames.length; mi++) {
             const count = groupCounts[mi] || 0;
@@ -486,7 +478,6 @@ async function buildFbx({
             );
         }
 
-        // Build the parent→child hierarchy.
         const childrenOf = {};
         let rootName = null;
 
