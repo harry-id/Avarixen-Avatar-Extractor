@@ -137,6 +137,17 @@ None of these formats can store a Blender collection: the exported root is a par
 
 Downloaded files are named `{safeName}_{userId}.{format}` (e.g. `Roblox_11159567260.fbx`), where `safeName` is the Roblox display name/username with filesystem-illegal characters replaced.
 
+## Catalog (experimental)
+
+Switch the header to **Catalog** mode to search the Roblox catalog and export 3D items (accessories, hair, clothing, etc.) without entering a user ID.
+
+- Search by keyword/category, browse thumbnail results, and click any item.
+- The backend fetches Roblox's 3D asset thumbnail (`assets-thumbnail-3d`), downloads the OBJ/MTL/textures, and reuses the same conversion pipeline as avatars.
+- GLB/GLTF/FBX/OBJ downloads, mesh-quality presets, and separate-assets all work. Auto-rig and More joints are disabled because catalog items have no skeleton.
+- Coverage is partial: bundles and Studio models/meshes have no 3D thumbnail (`state: Error`). Those would need the raw asset-delivery path (not implemented).
+
+Requires `ROBLOX_API_KEY` with the `thumbnail:read` scope (the same scope avatars use).
+
 ## Compatibility
 
 Exports are tested with **Blender 3.6** and **Prisma3D 3.3.5** — covering OBJ, GLB, GLTF, and FBX in standard, separate-assets, and rigged modes. See [tests.md](tests.md) for the full test matrix and per-format notes.
