@@ -2,6 +2,12 @@
 
 Avarixen Avatar Extractor (AAE) is a web-based Roblox avatar extraction tool that retrieves avatar models, previews them in 3D, and exports them as ZIP files containing OBJ, MTL, and texture files.
 
+## Try the demo
+
+**[Try out the demo →](https://harry-id.github.io/Avarixen-Avatar-Extractor/)**
+
+The live demo is hosted on GitHub Pages, with the API running on a server in Europe.
+
 ## Preview
 
 <img src="preview.png" alt="Avarixen Avatar Extractor preview" width="480">
