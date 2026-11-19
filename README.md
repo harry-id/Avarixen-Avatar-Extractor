@@ -63,10 +63,9 @@ ROBLOX_API_KEY=your_roblox_api_key_here
 6. Copy the key into `backend/.env` as `ROBLOX_API_KEY`
 
 Notes:
-- `ROBLOX_API_KEY` is required for avatar metadata and download endpoints.
-- `CORS_ORIGINS` is optional (comma-separated). If unset, CORS is permissive by default; set explicit origins for production.
-- Request logging is on by default; every request is printed to the server log (and the panel console with `start.sh`). Set `LOG_REQUESTS=false` to disable, or `LOG_REQUESTS=verbose` to also log request bodies and user agents.
-- Set `LOG_ASSETS=1` to also log each CDN asset download (noisy; off by default).
+- `ROBLOX_API_KEY` is required for avatar metadata and downloads.
+- `CORS_ORIGINS` (comma-separated) — leave unset for permissive CORS; set explicit origins in production.
+- Request logging is on by default. `LOG_REQUESTS=false` disables it; `LOG_REQUESTS=verbose` adds bodies/user agents; `LOG_ASSETS=1` adds per-file CDN logs (noisy).
 
 ### 3. Run (single command)
 
@@ -100,44 +99,25 @@ The frontend supports **Indonesian (`id`)** and **English (`en`)**:
 
 ## Model Conversion
 
-The download control is a split button: clicking the main button downloads OBJ (ZIP) directly, and the adjacent arrow opens a dropdown with the other formats.
+The download button is split: the main button downloads **OBJ (ZIP)**; the arrow opens a format menu.
 
 | Format | Endpoint | Notes |
-|--------|----------|-------|
-| OBJ (ZIP) | Frontend-side | Bundles OBJ, MTL, and textures into a ZIP |
-| GLB | `GET /api/roblox/convert/:userId/glb` | Binary GLTF, backend-converted via `@gltf-transform/core` |
-| GLTF | `GET /api/roblox/convert/:userId/gltf` | JSON GLTF, backend-converted via `@gltf-transform/core` |
-| FBX | `GET /api/roblox/convert/:userId/fbx` | Binary FBX 7.4, written by the built-in exporter (`backend/fbx-exporter.js`) with embedded textures |
+|---|---|---|
+| OBJ (ZIP) | client-side | OBJ + MTL + textures |
+| GLB | `GET /api/roblox/convert/:userId/glb` | self-contained binary glTF |
+| GLTF | `GET /api/roblox/convert/:userId/gltf` | JSON glTF (`@gltf-transform/core`) |
+| FBX | `GET /api/roblox/convert/:userId/fbx` | binary FBX 7.4 (`backend/fbx-exporter.js`) |
 
-The conversion requires the avatar to be downloaded first (so the OBJ/MTL/texture files exist under `downloads/<userId>/`).
+Download the avatar first (files live in `downloads/<userId>/`).
 
-Auto-rig (`?rig=1`) is available for GLB, GLTF, and FBX. The FBX writer emits a real skeleton (`LimbNode` bones, `Cluster` skin deformers, `BindPose`) using the same joints/weights as the glTF exporters, so rigged FBX imports with an armature in Blender/Unity/Unreal. Add `?moreJoints=1` for the R6 extra bones.
-
-Account info shows the detected **avatar type** (`R6` / `R15`, or `Unknown` when the avatar has no body groups). R6 rigs also get **hand bones** (`Left Hand` / `Right Hand`) at the bottom of each arm so accessories can be attached there.
-
-With an R6 avatar and Auto-rig enabled, the **Advanced settings** section (below the checkboxes) reveals **More joints**, which adds extra bones: **hands** (always), plus **lower arms (elbows)**, **lower legs (knees)**, **feet**, and a **waist** so the torso can bend (`HumanoidRootPart → Waist → Torso`). Enabling **More joints** locks **Mesh quality** to **High** / **Extreme** (Default/Low/Medium are disabled) and defaults to **High**. The same section contains the global **Mesh quality** presets for GLB/GLTF/FBX:
-
-| Preset | Subdivision |
-|---|---|
-| Default | none |
-| Low | 1 |
-| Medium | 2 |
-| High | 3 |
-| Extreme | 4 |
-
-Subdivision refines the mesh while preserving UVs and normals, and is capped at ~3.5M faces for cross-device safety. It applies to the **body only** — the **head** and all `Handle*` accessories keep their original density. The OBJ export is always the original downloaded geometry. Limb weights use a smoothstep falloff so elbows/knees bend without the linear-skinning pinch.
-
-Unsupported options are **disabled (grayed out)** rather than hidden: OBJ disables both *Separate assets* and *Auto-rig*; GLB disables *Separate assets*; GLTF and FBX enable both.
-
-OBJ files are normalized during download: the body (excluding accessories) is centred on X/Z with the feet at Y=0, and every `g` group is mirrored as an `o` object. Player groups are renamed to body parts (`Head`, `Torso`, `LeftArm`, `RightArm`, `LeftLeg`, `RightLeg`, or the R15 names); `Handle*` accessories keep their names.
-
-Every GLB, GLTF, and FBX export keeps the body parts as separate objects under a node named after the avatar's display name — there is no merged `character_mesh` anymore. **Separate assets** (the checkbox above the download buttons) only chooses packaging: off returns one self-contained file with embedded textures; on returns a ZIP with external assets for **GLTF** (`.gltf` + `.bin` + textures) and **FBX** (`.fbx` + textures). **GLB is always a single embedded binary**, and OBJ is generated client-side as a ZIP of parts + textures. OBJ has no collection concept, so Blender lists the parts as separate flat objects.
-
-GLB/GLTF/FBX are centred on the body (accessories are excluded from the offsets) with the feet at Y=0. FBX is written with Blender's axis/unit preset (`UnitScaleFactor=100`) so it imports upright and at the right scale.
-
-None of these formats can store a Blender collection: the exported root is a parent empty. To get folder semantics, select the imported parts and use **M → New Collection** in Blender.
-
-Downloaded files are named `{safeName}_{userId}.{format}` (e.g. `Roblox_11159567260.fbx`), where `safeName` is the Roblox display name/username with filesystem-illegal characters replaced.
+- **Auto-rig** (GLB/GLTF/FBX): adds an R6/R15 skeleton. R6 **More joints** (Advanced settings) adds hands, elbows, knees, feet, and a waist. Rigged FBX uses the same bones/weights as glTF.
+- **Mesh quality** (GLB/GLTF/FBX, body only — Head + `Handle*` excluded): Minimal (Default) / Low / Medium / High / Extreme = subdivision 0–4. Preserves UVs/normals, capped at ~3.5M faces. OBJ is always original geometry. More joints locks to High/Extreme and defaults to High.
+- **Separate assets** → ZIP with external `.bin`/textures for GLTF/FBX; GLB is always one embedded binary; OBJ is always client-side. Unsupported options are **disabled (grayed out)**, not hidden.
+- Body parts export as separate objects under a node named after the display name (no merged `character_mesh`).
+- GLB/GLTF/FBX are body-centered with feet at Y=0; FBX uses Blender units (`UnitScaleFactor=100`) and imports upright.
+- No format stores a Blender collection — select the imported parts and press **M → New Collection**.
+- OBJ is normalized on download: centered on X/Z, feet at Y=0, `g` groups mirrored as `o` objects, player groups renamed to body parts (`Head`, `Torso`, `LeftArm`, …); `Handle*` kept.
+- Files are named `{safeName}_{userId}.{format}`.
 
 ## Compatibility
 
@@ -145,11 +125,11 @@ Exports are tested with **Blender 3.6** and **Prisma3D 3.3.5** — covering OBJ,
 
 ## Notes
 
-- The frontend targets the backend at `http://localhost:3000` for local dev (auto-detected on localhost). For other deployments, set `window.__AAE_BACKEND_URL__` before the app script or serve the API behind the same origin.
-- Downloaded assets are cached under `downloads/<userId>/`. The Reload button re-requests the download endpoint and reloads the preview with a cache-busting query, so it always uses fresh files.
-- Roblox avatar metadata is retried up to 5 times (1.5 s apart) when the avatar is not ready yet; authentication errors fail immediately.
-- Do not commit real API keys; keep secrets in `backend/.env`.
-- Rate limiting is in-memory per process (resets on restart). Set `TRUST_PROXY` (e.g. `1` or `true`) in `backend/.env` when running behind a reverse proxy so the real client IP is used. For multi-instance production deployments, use a shared store or gateway/WAF rate limiting.
+- The frontend auto-detects `http://localhost:3000` in local dev; elsewhere set `window.__AAE_BACKEND_URL__` or serve the API behind the same origin.
+- Avatars are cached in `downloads/<userId>/`; the Reload button re-downloads and reloads with a cache-busting query.
+- Avatar metadata is retried up to 5× (1.5 s apart) while pending; auth errors fail immediately.
+- Keep real API keys in `backend/.env` (never commit).
+- Rate limiting is in-memory per process. Set `TRUST_PROXY` (e.g. `1`) behind a reverse proxy so the real client IP is used; use a shared store/gateway for multi-instance.
 
 ## Tests
 
