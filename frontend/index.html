@@ -961,11 +961,15 @@ langSelector.addEventListener("change", () => {
 });
 
 
+// Backend API origin. Override by setting window.__AAE_BACKEND_URL__ before this
+// module loads, or by editing this constant. The dev servers (3001/5173) proxy
+// to the local API on :3000; every other host (GitHub Pages, custom domains)
+// uses the production API.
 const BACKEND_URL =
     window.__AAE_BACKEND_URL__ ||
     (location.port === "3001" || location.port === "5173"
         ? `${location.protocol}//${location.hostname}:3000`
-        : "");
+        : "https://api.harrycore.web.id");
 
 
 // API status indicator in the header (green = online, red = offline).
@@ -1225,8 +1229,8 @@ function loadModel(userId = null, bustCache = false) {
     const cacheBust = bustCache ? `?v=${Date.now()}` : "";
 
     const assetPath = userId
-        ? `/assets/${encodeURIComponent(userId)}/`
-        : "/assets/";
+        ? `${BACKEND_URL}/assets/${encodeURIComponent(userId)}/`
+        : `${BACKEND_URL}/assets/`;
 
     setStatus("statusLoadingMaterial");
 
@@ -1483,7 +1487,7 @@ async function buildExplorer(userId) {
 
         try {
 
-            const assetPath = `/assets/${encodeURIComponent(userId)}/`;
+            const assetPath = `${BACKEND_URL}/assets/${encodeURIComponent(userId)}/`;
 
             const response = await fetch(assetPath + "avatar.obj");
 
@@ -1971,7 +1975,7 @@ async function downloadZip() {
     downloadButton.textContent = t("downloadCreating");
 
     const assetPath =
-        `/assets/${encodeURIComponent(currentUserId)}/`;
+        `${BACKEND_URL}/assets/${encodeURIComponent(currentUserId)}/`;
 
     const safeName = String(currentDisplayName || "Avarixen").replace(/[\\/:*?"<>|]/g, "_").trim().replace(/[. ]+$/g, "") || "Avarixen";
     const baseName = safeName.toLowerCase();
