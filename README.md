@@ -107,7 +107,7 @@ Auto-rig (`?rig=1`) is available for GLB, GLTF, and FBX. The FBX writer emits a 
 
 Account info shows the detected **avatar type** (`R6` / `R15`, or `Unknown` when the avatar has no body groups). R6 rigs also get **hand bones** (`Left Hand` / `Right Hand`) at the bottom of each arm so accessories can be attached there.
 
-With an R6 avatar and Auto-rig enabled, the **Advanced settings** section (below the checkboxes) reveals **More joints**, which adds extra bones: **hands** (always), plus **lower arms (elbows)**, **lower legs (knees)**, **feet**, and a **waist** so the torso can bend (`HumanoidRootPart → Waist → Torso`). Enabling **More joints** forces the **Mesh quality** preset to **High** (the selector is disabled while it is on). The same section contains the global **Mesh quality** presets for GLB/GLTF/FBX:
+With an R6 avatar and Auto-rig enabled, the **Advanced settings** section (below the checkboxes) reveals **More joints**, which adds extra bones: **hands** (always), plus **lower arms (elbows)**, **lower legs (knees)**, **feet**, and a **waist** so the torso can bend (`HumanoidRootPart → Waist → Torso`). Enabling **More joints** locks **Mesh quality** to **High** / **Extreme** (Default/Low/Medium are disabled) and defaults to **High**. The same section contains the global **Mesh quality** presets for GLB/GLTF/FBX:
 
 | Preset | Subdivision |
 |---|---|
@@ -115,8 +115,9 @@ With an R6 avatar and Auto-rig enabled, the **Advanced settings** section (below
 | Low | 1 |
 | Medium | 2 |
 | High | 3 |
+| Extreme | 4 |
 
-Subdivision refines the mesh while preserving UVs and normals, and is capped at ~2M faces for cross-device safety. It applies to the **body only** — the **head** and all `Handle*` accessories keep their original density. The OBJ export is always the original downloaded geometry.
+Subdivision refines the mesh while preserving UVs and normals, and is capped at ~3.5M faces for cross-device safety. It applies to the **body only** — the **head** and all `Handle*` accessories keep their original density. The OBJ export is always the original downloaded geometry. Limb weights use a smoothstep falloff so elbows/knees bend without the linear-skinning pinch.
 
 Unsupported options are **disabled (grayed out)** rather than hidden: OBJ disables both *Separate assets* and *Auto-rig*; GLB disables *Separate assets*; GLTF and FBX enable both.
 
