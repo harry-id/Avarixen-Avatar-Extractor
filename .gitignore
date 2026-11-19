@@ -28,3 +28,9 @@ textures/
 
 # Local export test files (mounted into Waydroid)
 temp/
+
+# Host deployment script (lives on the server, not in git)
+/start.sh
+
+# Build artifacts
+backend.tar.gz
