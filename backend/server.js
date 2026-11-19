@@ -5,6 +5,8 @@ const cors = require("cors");
 const path = require("path");
 const { getLang, t } = require("./i18n");
 const { fetchAvatar3D } = require("./avatar-metadata");
+const { version: APP_VERSION } = require("./package.json");
+const { startDownloadsCleanup } = require("./downloads-cleanup");
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -40,7 +42,17 @@ if (trustProxy) {
 // Serve cached avatar files (OBJ/MTL/textures) for the 3D preview and the
 // client-side OBJ download. In production this lets the GitHub Pages frontend
 // load assets from the API origin (api.harrycore.web.id).
-app.use("/assets", express.static(path.join(__dirname, "../downloads")));
+const downloadsDir = path.join(__dirname, "../downloads");
+app.use("/assets", express.static(downloadsDir));
+
+// Delete cached avatars older than DOWNLOADS_TTL_HOURS (default 24h) so the
+// cache does not grow without bound. The timer is unref'd, so it never keeps
+// the process alive on its own.
+const downloadsTtlHours = Number(process.env.DOWNLOADS_TTL_HOURS) || 24;
+const downloadsCleanup = startDownloadsCleanup({
+    dir: downloadsDir,
+    maxAgeMs: downloadsTtlHours * 60 * 60 * 1000
+});
 
 const rateWindowMs = 60_000;
 const rateMax = 60;
@@ -112,7 +124,7 @@ app.get("/", (req, res) => {
     res.json({
         status: "online",
         name: "Avarixen Avatar Extractor",
-        version: "1.0.0"
+        version: APP_VERSION
     });
 });
 
@@ -271,3 +283,23 @@ server.on("error", (error) => {
 
     process.exit(1);
 });
+
+let shuttingDown = false;
+
+function shutdown(signal) {
+    if (shuttingDown) {
+        return;
+    }
+    shuttingDown = true;
+    console.log(`Received ${signal}, shutting down...`);
+
+    downloadsCleanup.stop();
+
+    server.close(() => process.exit(0));
+
+    // Do not hang forever if keep-alive connections stay open.
+    setTimeout(() => process.exit(0), 10_000).unref();
+}
+
+process.on("SIGTERM", () => shutdown("SIGTERM"));
+process.on("SIGINT", () => shutdown("SIGINT"));

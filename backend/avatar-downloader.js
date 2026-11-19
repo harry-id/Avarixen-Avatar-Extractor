@@ -5,6 +5,7 @@ const { getLang, t } = require("./i18n");
 const { fetchAvatar3D, fetchAvatarMetadataJson } = require("./avatar-metadata");
 const { normalizeObjForExport, renameObjGroups } = require("./obj-utils");
 const { getPartInfo } = require("./auto-rig");
+const { version: APP_VERSION } = require("./package.json");
 
 function decompress(buffer) {
     if (buffer.length >= 2 && buffer[0] === 0x1f && buffer[1] === 0x8b) {
@@ -31,7 +32,7 @@ function getHost(hash) {
 
 const ASSET_HEADERS = {
     "User-Agent":
-        "Avarixen/1.0.0 (x64) Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36",
+        `Avarixen/${APP_VERSION} (x64) Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36`,
     "Accept": "*/*",
     "Accept-Language": "en-US,en;q=0.9,id;q=0.8",
     "Referer": "https://www.roblox.com/",
