@@ -50,20 +50,38 @@ if (logRequests) {
         const start = process.hrtime.bigint();
         const ip = req.ip || req.socket.remoteAddress || "-";
 
+        const RESET = "\x1b[0m";
+        const DIM = "\x1b[2m";
+        const methodColor =
+            req.method === "GET" ? "\x1b[32m" :
+            req.method === "POST" ? "\x1b[34m" :
+            "\x1b[35m";
+
         if (logVerbose) {
             const ua = req.get("user-agent") || "-";
             const body = req.body && Object.keys(req.body).length
                 ? ` body=${JSON.stringify(req.body)}`
                 : "";
-            console.log(`[req] ${req.method} ${req.originalUrl} ua="${ua}"${body}`);
+            console.log(
+                `${DIM}[req]${RESET} ${methodColor}${req.method}${RESET} ` +
+                `${req.originalUrl} ua="${ua}"${body}`
+            );
         }
 
         res.on("finish", () => {
             const ms = Number(process.hrtime.bigint() - start) / 1e6;
-            const size = res.getHeader("content-length") || "-";
+            const size = res.getHeader("content-length");
+            const sizeText = size ? `${size}b` : "-";
+            const statusColor =
+                res.statusCode >= 500 ? "\x1b[31m" :
+                res.statusCode >= 400 ? "\x1b[33m" :
+                res.statusCode >= 300 ? "\x1b[36m" :
+                "\x1b[32m";
             console.log(
-                `[${new Date().toISOString()}] ${req.method} ${req.originalUrl} ` +
-                `${res.statusCode} ${ms.toFixed(1)}ms ${size}b ${ip}`
+                `${DIM}[${new Date().toISOString()}]${RESET} ` +
+                `${methodColor}${req.method}${RESET} ${req.originalUrl} ` +
+                `${statusColor}${res.statusCode}${RESET} ` +
+                `${DIM}${ms.toFixed(1)}ms ${sizeText} ${ip}${RESET}`
             );
         });
 

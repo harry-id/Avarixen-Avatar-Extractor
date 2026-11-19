@@ -7,6 +7,9 @@ const { normalizeObjForExport, renameObjGroups } = require("./obj-utils");
 const { getPartInfo } = require("./auto-rig");
 const { version: APP_VERSION } = require("./package.json");
 
+// Per-file asset download chatter is noisy; enable with LOG_ASSETS=1.
+const logAssets = process.env.LOG_ASSETS === "1";
+
 function decompress(buffer) {
     if (buffer.length >= 2 && buffer[0] === 0x1f && buffer[1] === 0x8b) {
         return zlib.gunzipSync(buffer);
@@ -147,7 +150,9 @@ async function downloadAsset(hash, fetchWithTimeout, options = {}) {
     for (const host of hosts) {
         const url = `https://${host}/${hash}`;
         try {
-            console.log(`Downloading asset from: ${url}`);
+            if (logAssets) {
+                console.log(`Downloading asset from: ${url}`);
+            }
             return await tryDownloadUrl(
                 url,
                 fetchWithTimeout,
@@ -156,7 +161,9 @@ async function downloadAsset(hash, fetchWithTimeout, options = {}) {
         } catch (err) {
             lastError.push(`${host}: ${err.message}`);
             if (options.allowFailure) {
-                console.warn(`Asset download failed for ${url}, skipping`);
+                if (logAssets) {
+                    console.warn(`Asset download failed for ${url}, skipping`);
+                }
                 continue;
             }
             // For required assets (obj/mtl), try next host before giving up
@@ -165,7 +172,9 @@ async function downloadAsset(hash, fetchWithTimeout, options = {}) {
     }
 
     if (options.allowFailure) {
-        console.warn(`All CDN hosts failed for ${hash}: ${lastError.join(", ")}`);
+        if (logAssets) {
+            console.warn(`All CDN hosts failed for ${hash}: ${lastError.join(", ")}`);
+        }
         return null;
     }
 
@@ -309,8 +318,10 @@ module.exports = function (app, options = {}) {
                 mtl
             );
 
-            for (const hash of texturePlan.missing) {
-                console.warn(`Skipping texture ${hash} (download failed)`);
+            if (texturePlan.missing.length) {
+                console.warn(
+                    `[assets] ${texturePlan.missing.length} texture(s) unavailable for ${userId}`
+                );
             }
 
             const textureFiles = texturePlan.textures;

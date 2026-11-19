@@ -66,6 +66,7 @@ Notes:
 - `ROBLOX_API_KEY` is required for avatar metadata and download endpoints.
 - `CORS_ORIGINS` is optional (comma-separated). If unset, CORS is permissive by default; set explicit origins for production.
 - Request logging is on by default; every request is printed to the server log (and the panel console with `start.sh`). Set `LOG_REQUESTS=false` to disable, or `LOG_REQUESTS=verbose` to also log request bodies and user agents.
+- Set `LOG_ASSETS=1` to also log each CDN asset download (noisy; off by default).
 
 ### 3. Run (single command)
 
