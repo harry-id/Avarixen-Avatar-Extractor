@@ -690,6 +690,7 @@
                     <option value="1" data-i18n="meshQualityLow">Low (Subdivision 1)</option>
                     <option value="2" data-i18n="meshQualityMedium">Medium (Subdivision 2)</option>
                     <option value="3" data-i18n="meshQualityHigh">High (Subdivision 3)</option>
+                    <option value="4" data-i18n="meshQualityExtreme">Extreme (Subdivision 4)</option>
                 </select>
             </label>
             <label class="option-checkbox" id="moreJointsRow"
@@ -764,6 +765,7 @@ const LANG = {
         meshQualityLow: "Low (Subdivisi 1)",
         meshQualityMedium: "Medium (Subdivisi 2)",
         meshQualityHigh: "High (Subdivisi 3)",
+        meshQualityExtreme: "Extreme (Subdivisi 4)",
         moreJoints: "Lebih banyak sendi",
         moreJointsHint: "R6 saja: tambahkan tangan, siku, lutut, pinggang (torso bisa menekuk), dan kaki.",
         statusWaiting: "Masukkan username Roblox untuk memuat pratinjau 3D.",
@@ -829,6 +831,7 @@ const LANG = {
         meshQualityLow: "Low (Subdivision 1)",
         meshQualityMedium: "Medium (Subdivision 2)",
         meshQualityHigh: "High (Subdivision 3)",
+        meshQualityExtreme: "Extreme (Subdivision 4)",
         moreJoints: "More joints",
         moreJointsHint: "R6 only: add hands, elbows, knees, waist (bendable torso), and feet.",
         statusWaiting: "Enter a Roblox username to load 3D preview.",
@@ -1065,23 +1068,27 @@ function applyForcedMeshQuality() {
         return;
     }
 
-    const meshQualityRow = meshQuality.closest("label");
+    // Option values: 0 Default, 1 Low, 2 Medium, 3 High, 4 Extreme.
+    const MIN_LOCKED = 3;
+    const options = Array.from(meshQuality.options);
 
     if (moreJoints && moreJoints.checked) {
-        // More joints forces the highest mesh quality.
-        if (meshQuality.value !== "3") {
-            meshQualityBeforeForce = meshQuality.value;
+        // More joints only supports High and Extreme; disable the rest.
+        for (const opt of options) {
+            opt.disabled = Number(opt.value) < MIN_LOCKED;
         }
-        meshQuality.value = "3";
-        meshQuality.disabled = true;
-        if (meshQualityRow) {
-            meshQualityRow.classList.add("disabled");
+
+        if (Number(meshQuality.value) < MIN_LOCKED) {
+            if (meshQualityBeforeForce === null) {
+                meshQualityBeforeForce = meshQuality.value;
+            }
+            meshQuality.value = String(MIN_LOCKED);
         }
     } else {
-        meshQuality.disabled = false;
-        if (meshQualityRow) {
-            meshQualityRow.classList.remove("disabled");
+        for (const opt of options) {
+            opt.disabled = false;
         }
+
         if (meshQualityBeforeForce !== null) {
             meshQuality.value = meshQualityBeforeForce;
             meshQualityBeforeForce = null;
