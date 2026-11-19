@@ -39,23 +39,46 @@ if (trustProxy) {
     );
 }
 
-// Request logging: every request is printed to stdout (and therefore to the
-// container/panel log). Set LOG_REQUESTS=false to disable, or
-// LOG_REQUESTS=verbose to also log request bodies and user agents.
+// Request logging: colored, fixed-width lines. Set LOG_REQUESTS=false to
+// disable, or LOG_REQUESTS=verbose to also log request bodies and user agents.
 const logRequests = process.env.LOG_REQUESTS !== "false";
 const logVerbose = process.env.LOG_REQUESTS === "verbose";
+
+const LOG_RESET = "\x1b[0m";
+const LOG_DIM = "\x1b[2m";
+const LOG_GREEN = "\x1b[32m";
+
+function logTimestamp(date) {
+    const pad = (value) => String(value).padStart(2, "0");
+    return (
+        `${date.getFullYear()}/${pad(date.getMonth() + 1)}/${pad(date.getDate())} - ` +
+        `${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`
+    );
+}
+
+function logDuration(ms) {
+    if (ms < 1) return `${(ms * 1000).toFixed(3)}µs`;
+    if (ms < 1000) return `${ms.toFixed(2)}ms`;
+    return `${(ms / 1000).toFixed(2)}s`;
+}
+
+function logMethodColor(method) {
+    switch (method) {
+        case "GET": return "\x1b[34m";
+        case "POST": return "\x1b[36m";
+        case "PUT": return "\x1b[33m";
+        case "DELETE": return "\x1b[31m";
+        case "PATCH": return "\x1b[32m";
+        case "HEAD": return "\x1b[35m";
+        case "OPTIONS": return "\x1b[37m";
+        default: return LOG_RESET;
+    }
+}
 
 if (logRequests) {
     app.use((req, res, next) => {
         const start = process.hrtime.bigint();
         const ip = req.ip || req.socket.remoteAddress || "-";
-
-        const RESET = "\x1b[0m";
-        const DIM = "\x1b[2m";
-        const methodColor =
-            req.method === "GET" ? "\x1b[32m" :
-            req.method === "POST" ? "\x1b[34m" :
-            "\x1b[35m";
 
         if (logVerbose) {
             const ua = req.get("user-agent") || "-";
@@ -63,25 +86,29 @@ if (logRequests) {
                 ? ` body=${JSON.stringify(req.body)}`
                 : "";
             console.log(
-                `${DIM}[req]${RESET} ${methodColor}${req.method}${RESET} ` +
+                `${LOG_GREEN}[AAE]${LOG_RESET} ${LOG_DIM}[req]${LOG_RESET} ` +
+                `${logMethodColor(req.method)}${req.method}${LOG_RESET} ` +
                 `${req.originalUrl} ua="${ua}"${body}`
             );
         }
 
         res.on("finish", () => {
             const ms = Number(process.hrtime.bigint() - start) / 1e6;
-            const size = res.getHeader("content-length");
-            const sizeText = size ? `${size}b` : "-";
             const statusColor =
                 res.statusCode >= 500 ? "\x1b[31m" :
                 res.statusCode >= 400 ? "\x1b[33m" :
                 res.statusCode >= 300 ? "\x1b[36m" :
                 "\x1b[32m";
+            const latency = logDuration(ms).padStart(8);
+            const ipPadded = ip.padStart(15);
+            const method = req.method.padEnd(7);
+
             console.log(
-                `${DIM}[${new Date().toISOString()}]${RESET} ` +
-                `${methodColor}${req.method}${RESET} ${req.originalUrl} ` +
-                `${statusColor}${res.statusCode}${RESET} ` +
-                `${DIM}${ms.toFixed(1)}ms ${sizeText} ${ip}${RESET}`
+                `${LOG_GREEN}[AAE]${LOG_RESET} ${LOG_DIM}${logTimestamp(new Date())}${LOG_RESET} | ` +
+                `${statusColor}${res.statusCode}${LOG_RESET} | ` +
+                `${LOG_DIM}${latency}${LOG_RESET} | ` +
+                `${LOG_DIM}${ipPadded}${LOG_RESET} | ` +
+                `${logMethodColor(req.method)}${method}${LOG_RESET}  "${req.originalUrl}"`
             );
         });
 
