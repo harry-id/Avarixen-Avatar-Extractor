@@ -39,6 +39,41 @@ if (trustProxy) {
     );
 }
 
+// Request logging: every request is printed to stdout (and therefore to the
+// container/panel log). Set LOG_REQUESTS=false to disable, or
+// LOG_REQUESTS=verbose to also log request bodies and user agents.
+const logRequests = process.env.LOG_REQUESTS !== "false";
+const logVerbose = process.env.LOG_REQUESTS === "verbose";
+
+if (logRequests) {
+    app.use((req, res, next) => {
+        const start = process.hrtime.bigint();
+        const ip = req.ip || req.socket.remoteAddress || "-";
+
+        if (logVerbose) {
+            const ua = req.get("user-agent") || "-";
+            const body = req.body && Object.keys(req.body).length
+                ? ` body=${JSON.stringify(req.body)}`
+                : "";
+            console.log(`[req] ${req.method} ${req.originalUrl} ua="${ua}"${body}`);
+        }
+
+        res.on("finish", () => {
+            const ms = Number(process.hrtime.bigint() - start) / 1e6;
+            const size = res.getHeader("content-length") || "-";
+            console.log(
+                `[${new Date().toISOString()}] ${req.method} ${req.originalUrl} ` +
+                `${res.statusCode} ${ms.toFixed(1)}ms ${size}b ${ip}`
+            );
+        });
+
+        next();
+    });
+    console.log(`[log] request logging enabled${logVerbose ? " (verbose)" : ""}`);
+} else {
+    console.log("[log] request logging disabled");
+}
+
 // Serve cached avatar files (OBJ/MTL/textures) for the 3D preview and the
 // client-side OBJ download. In production this lets the GitHub Pages frontend
 // load assets from the API origin (api.harrycore.web.id).
