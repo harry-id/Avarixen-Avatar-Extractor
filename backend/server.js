@@ -2,6 +2,7 @@ require("dotenv").config();
 
 const express = require("express");
 const cors = require("cors");
+const path = require("path");
 const { getLang, t } = require("./i18n");
 const { fetchAvatar3D } = require("./avatar-metadata");
 
@@ -35,6 +36,11 @@ if (trustProxy) {
                 : trustProxy
     );
 }
+
+// Serve cached avatar files (OBJ/MTL/textures) for the 3D preview and the
+// client-side OBJ download. In production this lets the GitHub Pages frontend
+// load assets from the API origin (api.harrycore.web.id).
+app.use("/assets", express.static(path.join(__dirname, "../downloads")));
 
 const rateWindowMs = 60_000;
 const rateMax = 60;
