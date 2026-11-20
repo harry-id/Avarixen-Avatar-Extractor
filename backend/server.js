@@ -124,10 +124,8 @@ if (logRequests) {
 // load assets from the API origin (api.harrycore.web.id).
 const downloadsDir = path.join(__dirname, "../downloads");
 
-// Serve cached avatar files with explicit, short cache headers. Avatar files can
-// change when a user changes their avatar and the client re-downloads them, so
-// they must revalidate (no-cache) instead of being served stale from the browser
-// cache. A short max-age keeps repeat loads fast within a session.
+// Revalidate assets (no-cache) so re-downloaded avatars aren't served stale;
+// short max-age keeps repeat loads fast.
 app.use(
     "/assets",
     express.static(downloadsDir, {

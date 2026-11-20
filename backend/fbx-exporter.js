@@ -425,8 +425,7 @@ async function buildFbx({
         return { geometry, materials: usedNames.map(materialFor) };
     };
 
-    // Bounding-box centre (FBX space) of a part's polygons. Used to recenter
-    // accessory geometry around its own pivot.
+    // Bounding-box centre (FBX space) of a part's polygons.
     const partCenter = (polys) => {
         const box = new T.Box3();
         const v = new T.Vector3();
@@ -604,9 +603,8 @@ async function buildFbx({
             mesh.frustumCulled = false;
             container.add(mesh);
         } else if (isHandle) {
-            // Accessories are rigid children of their parent bone (not skinned),
-            // with geometry centered on its own pivot. The node transform keeps
-            // the accessory at its original world position.
+            // Rigid child of the parent bone (not skinned); node transform keeps
+            // the centered geometry at its original world position.
             mesh = new T.Mesh(built.geometry, built.materials);
             mesh.name = part.name;
             mesh.frustumCulled = false;

@@ -473,7 +473,6 @@
             color: #4285f4;
         }
 
-        /* Header tagline */
         .brand-desc {
             color: #8b96ab;
             margin: 2px 0 0;
@@ -1178,9 +1177,7 @@ function setLang(lang) {
 let currentStatusKey = null;
 let currentStatusParams = {};
 
-// Spinner frames for the "processing" animation. We deliberately avoid
-// setInterval-driven rendering so the animation stays smooth and pauses when
-// the tab is hidden (requestAnimationFrame throttles automatically).
+// Spinner frames for the processing animation (requestAnimationFrame pauses when the tab is hidden).
 const STATUS_SPINNER_FRAMES = ["|", "/", "-", "\\"];
 let statusSpinnerIndex = 0;
 let statusRafId = null;
@@ -1273,9 +1270,7 @@ function apiHeaders() {
     };
 }
 
-// Wrapper around fetch() for backend calls. Network failures (no response at
-// all) are converted into a friendly "API offline" error so the UI doesn't show
-// a raw "NetworkError"/"Failed to fetch" message.
+// fetch() wrapper: convert network failures into a friendly "API offline" error.
 async function apiFetch(url, options = {}) {
     try {
         return await fetch(url, options);
@@ -1316,9 +1311,6 @@ function renderApiStatus(state) {
                 : t("apiChecking");
 }
 
-// Network-level failures (no response at all) usually mean the API is
-// unreachable rather than the request itself being invalid. Surface that as a
-// friendly "API offline" message instead of leaking the raw TypeError text.
 function apiFetchError() {
     const err = new Error(t("errorApiOffline"));
     err.isApiOffline = true;
@@ -1338,15 +1330,13 @@ async function checkApiStatus() {
         const resp = await fetch(`${BACKEND_URL}/api/health`, { cache: "no-store" });
         if (!resp.ok) throw new Error("bad status");
         renderApiStatus("online");
-        // Clear a stale "API Offline" error message if one was showing and the
-        // API has come back.
+        // Clear a stale "API Offline" message once the API is back.
         if (currentStatusKey === "apiOffline") {
             setStatus(currentUserId ? "statusLoaded" : "statusWaiting");
         }
     } catch {
         renderApiStatus("offline");
-        // Surface the offline state in the status area too, unless a real
-        // operation is in progress.
+        // Surface "API Offline" unless an operation is in progress.
         if (!currentStatusKey || isStatusErrorKey(currentStatusKey) || currentStatusKey === "statusWaiting" || currentStatusKey === "statusLoaded") {
             setStatus("apiOffline");
         }
@@ -1595,14 +1585,10 @@ function loadModel(userId = null, bustCache = false) {
 
     mtlLoader.setPath(assetPath);
 
-    // When busting the cache, also rewrite texture references inside the MTL so
-    // the freshly downloaded textures are used instead of a stale cached copy.
-    // MTLLoader resolves map_* values relative to the MTL path; appending a
-    // version query forces the browser to fetch the new file.
+    // On reload, rewrite MTL texture references with a version query so the
+    // freshly downloaded textures are used instead of a stale cached copy.
     if (bustCache) {
         const manager = new THREE.LoadingManager();
-        // setURLModifier receives the already-resolved URL; appending a version
-        // query forces the browser to fetch the freshly downloaded texture.
         manager.setURLModifier((url) => {
             const clean = url.split("#")[0];
             if (/\.(png|jpe?g|webp|gif|bmp|tga)$/i.test(clean)) {
@@ -1829,9 +1815,8 @@ function partOrderIndex(rigType, part) {
     return i === -1 ? order.length + 1 : i;
 }
 
-// Mesh subdivision refines the body only (Head and Handle* accessories are
-// excluded), and each level roughly quadruples the vertex count. Simulate the
-// displayed amount from the selected mesh-quality level.
+// Mesh subdivision refines the body (Head and Handle* excluded); each level
+// roughly quadruples the vertex count. Simulates the displayed amount.
 function simulatedVertices(group) {
     if (!group || group.type !== "player") {
         return group ? group.vertices : 0;
@@ -1846,7 +1831,6 @@ function simulatedVertices(group) {
     return Math.round(group.vertices * Math.pow(4, level));
 }
 
-// Build a parent -> children tree from the backend bone list.
 function buildRigTree(bones) {
     const names = new Set(bones.map((b) => b.name));
     const childrenOf = new Map();
@@ -1896,7 +1880,6 @@ function renderExplorer() {
     const handleGroups = groups.filter((g) => g.type === "handle");
     const otherGroups = groups.filter((g) => g.type === "other");
 
-    // Handles grouped by the body part / bone they are assigned to.
     const handlesByPart = new Map();
     for (const h of handleGroups) {
         const key = h.part || "__none__";
@@ -1926,7 +1909,6 @@ function renderExplorer() {
         }
     }
 
-    // Handles without a matching body part still belong to the player model.
     for (const h of handleGroups) {
         if (usedHandles.has(h.name)) continue;
         html += explorerNode(h.name || "Handle", `${h.vertices} v`, "handle", 0);
@@ -1936,7 +1918,6 @@ function renderExplorer() {
         html += explorerNode(g.name, `${g.vertices} v`, "other", 0);
     }
 
-    // Rig section: only when auto-rig is enabled and a rig was detected.
     const autoRigEl = document.getElementById("autoRig");
     if (autoRigEl && autoRigEl.checked && Array.isArray(currentBones) && currentBones.length) {
         html += `<div class="explorer-section-label">${t("explorerSectionRig")} (${currentBones.length})</div>`;
@@ -1949,9 +1930,8 @@ function renderExplorer() {
     if (countEl) countEl.textContent = `${groups.length}`;
 }
 
-// The backend returns the base rig bones. When "More joints" is enabled, add the
-// extra R6 bones (waist, elbows, knees, feet) and re-link the chain here so the
-// explorer updates even if the backend hasn't been restarted with the newer code.
+// Add the extra R6 bones (waist, elbows, knees, feet) client-side so the Rig
+// tree updates even if the backend hasn't been restarted with the newer code.
 function bonesWithMoreJoints(bones, rigType) {
     if (!Array.isArray(bones) || rigType !== "R6") {
         return bones;
@@ -1986,8 +1966,7 @@ function bonesWithMoreJoints(bones, rigType) {
         reparent[b.name] ? { name: b.name, parent: reparent[b.name] } : b
     );
 
-    // Prepend the extra bones so the tree keeps the natural top-down order
-    // (root → waist → torso → …, then legs).
+    // Prepend the extra bones to keep the natural top-down order.
     return extra.concat(result);
 }
 
@@ -2425,8 +2404,7 @@ document
     .getElementById("moreJoints")
     .addEventListener("change", () => {
         applyForcedMeshQuality();
-        // The Rig tree changes shape with the extra joints (waist/elbows/knees/
-        // feet), so refresh the explorer data when More joints is toggled.
+        // Refresh the explorer: the Rig tree changes shape with the extra joints.
         if (currentUserId) {
             buildExplorer(currentUserId);
         } else if (currentGroups) {

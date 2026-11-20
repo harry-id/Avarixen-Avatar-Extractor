@@ -681,9 +681,8 @@ function assignHandleBone(handleGroup, playerBoxes, positions) {
         finalPart = hipsPart(rigType);
     }
 
-    // Only tie the accessory to a bone when it actually sits within a reasonable
-    // distance of that parent. Far-flung props are left unparented (still
-    // centered on their own pivot) so they don't snap to an unrelated bone.
+    // Leave far-flung props unparented (still centered) instead of snapping
+    // them to an unrelated bone.
     const finalBox = playerBoxes[finalPart];
     if (finalBox && Number.isFinite(finalBox.cx)) {
         const rawDist = distanceToBox(center, finalBox);
@@ -1012,10 +1011,8 @@ function buildDocument(parsed, partMapping, joints, offsetX, offsetY, offsetZ, r
     let globalIndexOffset = 0;
 
     for (const g of groups) {
-        // Accessories (Handle*) are parented to a bone as rigid child nodes
-        // rather than skinned, so they stay separate, movable objects that
-        // follow their parent bone. Handles with no reasonable parent bone are
-        // left unparented (still centered on their own pivot).
+        // Handles are parented to a bone as rigid child nodes (not skinned) so
+        // they stay separate, movable objects; unparented ones stay centered.
         const isHandle = Object.prototype.hasOwnProperty.call(handleBoneMap, g.name);
         const assignedBone = isHandle ? handleBoneMap[g.name] : null;
 
@@ -1025,9 +1022,8 @@ function buildDocument(parsed, partMapping, joints, offsetX, offsetY, offsetZ, r
         const boneIdx = rigged && boneNameToIdx[boneName] !== undefined ? boneNameToIdx[boneName] : 0;
         const limbSkin = (rigged && !isHandle) ? limbSkinFor(boneName) : null;
 
-        // Recenter accessory geometry around its own pivot. The node translation
-        // applied during assembly restores the original world position, so the
-        // pivot change never moves the accessory.
+        // Center accessory geometry on its own pivot; the assembly node
+        // translation restores the original world position.
         let handleCenter = null;
         if (isHandle && splitParts) {
             const box = computeBox(g.vertexIndices, positions);
@@ -1260,10 +1256,8 @@ function buildDocument(parsed, partMapping, joints, offsetX, offsetY, offsetZ, r
             partNode.setMesh(partMesh);
 
             if (build.isHandle && build.handleCenter) {
-                // Parent the accessory to its bone (or the container when it has
-                // no reasonable parent). The node translation compensates for the
-                // bone's rest position, so the centered-pivot geometry keeps its
-                // original world position.
+                // Parent to the bone (or container if unparented); the node
+                // translation compensates the bone's rest position.
                 const parentJoint = build.boneName && jointNodeMap[build.boneName];
                 if (parentJoint) {
                     const jp = joints[build.boneName] || [0, 0, 0];
@@ -1656,9 +1650,7 @@ function getPartInfo(assetDir, { moreJoints = false } = {}) {
             };
         });
 
-    // Bone hierarchy for the model explorer's "Rig" section. Built from the same
-    // joints/parent map the exporter uses, so it matches what a rigged export
-    // will contain. Null when no rig can be detected.
+    // Bone hierarchy for the explorer's "Rig" section (matches a rigged export).
     let bones = null;
     if (rigType) {
         const joints = computeJoints(partMapping, boxes, 0, 0, 0, rigType, !!moreJoints);
