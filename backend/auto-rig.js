@@ -1601,7 +1601,20 @@ function getPartInfo(assetDir) {
             };
         });
 
-    return { rigType, groups };
+    // Bone hierarchy for the model explorer's "Rig" section. Built from the same
+    // joints/parent map the exporter uses, so it matches what a rigged export
+    // will contain. Null when no rig can be detected.
+    let bones = null;
+    if (rigType) {
+        const joints = computeJoints(partMapping, boxes, 0, 0, 0, rigType, false);
+        const { parentOf } = buildParentMap(rigType, joints);
+        bones = Object.keys(joints).map((name) => ({
+            name,
+            parent: parentOf[name] || null
+        }));
+    }
+
+    return { rigType, groups, bones };
 }
 
 module.exports = {

@@ -138,7 +138,8 @@ module.exports = function (app) {
             res.json({
                 success: true,
                 rigType: info.rigType,
-                groups: info.groups
+                groups: info.groups,
+                bones: info.bones
             });
         } catch (err) {
             console.error("Part info error:", err);

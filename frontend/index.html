@@ -301,6 +301,10 @@
             background: #a142f4;
         }
 
+        .explorer-node .node-icon.bone {
+            background: #f0a030;
+        }
+
         .explorer-node .node-icon.other {
             background: #6c7a94;
         }
@@ -992,6 +996,8 @@ const LANG = {
         statusConverting: "Mengonversi model ke {{format}}...",
         explorerTitle: "Penjelajah Model",
         explorerEmpty: "Muat avatar untuk melihat bagian-bagiannya.",
+        explorerSectionPlayer: "Player",
+        explorerSectionRig: "Rig",
         explorerPlayers: "Player (Tubuh)",
         explorerHandles: "Handle (Aksesori)",
         explorerOther: "Lainnya",
@@ -1088,6 +1094,8 @@ const LANG = {
         statusConverting: "Converting model to {{format}}...",
         explorerTitle: "Model Explorer",
         explorerEmpty: "Load an avatar to see its parts.",
+        explorerSectionPlayer: "Player",
+        explorerSectionRig: "Rig",
         explorerPlayers: "Player (Body)",
         explorerHandles: "Handle (Accessories)",
         explorerOther: "Other",
@@ -1159,6 +1167,11 @@ function setLang(lang) {
     // Keep the download button label and format menu in the active language.
     if (typeof setDownloadButtonLabel === "function") {
         setDownloadButtonLabel();
+    }
+
+    // Re-render the model explorer so its labels follow the active language.
+    if (currentGroups && typeof renderExplorer === "function") {
+        renderExplorer();
     }
 }
 
@@ -1795,6 +1808,147 @@ function setExplorerSize(bytes) {
     if (sizeEl) sizeEl.textContent = formatSize(bytes);
 }
 
+let currentGroups = null;
+let currentBones = null;
+
+// Preferred top-to-bottom ordering for body parts in the Player section.
+const PART_ORDER = {
+    R6: ["Head", "Torso", "Left Arm", "Right Arm", "Left Leg", "Right Leg"],
+    R15: [
+        "Head", "UpperTorso", "LowerTorso",
+        "LeftUpperArm", "LeftLowerArm", "LeftHand",
+        "RightUpperArm", "RightLowerArm", "RightHand",
+        "LeftUpperLeg", "LeftLowerLeg", "LeftFoot",
+        "RightUpperLeg", "RightLowerLeg", "RightFoot"
+    ]
+};
+
+function partOrderIndex(rigType, part) {
+    const order = PART_ORDER[rigType] || [];
+    const i = order.indexOf(part);
+    return i === -1 ? order.length + 1 : i;
+}
+
+// Mesh subdivision refines the body only (Head and Handle* accessories are
+// excluded), and each level roughly quadruples the vertex count. Simulate the
+// displayed amount from the selected mesh-quality level.
+function simulatedVertices(group) {
+    if (!group || group.type !== "player") {
+        return group ? group.vertices : 0;
+    }
+    if (group.part === "Head") {
+        return group.vertices;
+    }
+    const level = Number((document.getElementById("meshQuality") || {}).value) || 0;
+    if (level <= 0) {
+        return group.vertices;
+    }
+    return Math.round(group.vertices * Math.pow(4, level));
+}
+
+// Build a parent -> children tree from the backend bone list.
+function buildRigTree(bones) {
+    const names = new Set(bones.map((b) => b.name));
+    const childrenOf = new Map();
+    for (const b of bones) {
+        const key = b.parent && names.has(b.parent) ? b.parent : null;
+        if (!childrenOf.has(key)) childrenOf.set(key, []);
+        childrenOf.get(key).push(b.name);
+    }
+    const lines = [];
+    const walk = (parentName, depth) => {
+        for (const name of childrenOf.get(parentName) || []) {
+            lines.push({ name, depth });
+            walk(name, depth + 1);
+        }
+    };
+    for (const name of childrenOf.get(null) || []) {
+        lines.push({ name, depth: 0 });
+        walk(name, 1);
+    }
+    return lines;
+}
+
+function explorerNode(name, meta, cls, depth) {
+    const pad = 12 + (depth || 0) * 14;
+    const metaHtml = meta !== null && meta !== undefined
+        ? `<span class="node-meta">${meta}</span>`
+        : "";
+    return `<div class="explorer-node" style="padding-left:${pad}px" title="${escapeHTML(name)}">`
+        + `<span class="node-icon ${cls}"></span>`
+        + `<span class="node-name">${escapeHTML(name)}</span>`
+        + metaHtml
+        + `</div>`;
+}
+
+function renderExplorer() {
+    const treeEl = document.getElementById("explorerTree");
+    const countEl = document.getElementById("explorerCount");
+
+    if (!currentGroups || !currentGroups.length) {
+        treeEl.innerHTML = `<div class="explorer-empty">${t("explorerEmpty")}</div>`;
+        if (countEl) countEl.textContent = "";
+        return;
+    }
+
+    const groups = currentGroups;
+    const playerGroups = groups.filter((g) => g.type === "player");
+    const handleGroups = groups.filter((g) => g.type === "handle");
+    const otherGroups = groups.filter((g) => g.type === "other");
+
+    // Handles grouped by the body part / bone they are assigned to.
+    const handlesByPart = new Map();
+    for (const h of handleGroups) {
+        const key = h.part || "__none__";
+        if (!handlesByPart.has(key)) handlesByPart.set(key, []);
+        handlesByPart.get(key).push(h);
+    }
+
+    const sortedPlayers = [...playerGroups].sort(
+        (a, b) => partOrderIndex(currentRigType, a.part || a.name)
+            - partOrderIndex(currentRigType, b.part || b.name)
+    );
+
+    let html = "";
+
+    const totalParts = playerGroups.length + handleGroups.length + otherGroups.length;
+    html += `<div class="explorer-section-label">${t("explorerSectionPlayer")} (${totalParts})</div>`;
+
+    const usedHandles = new Set();
+    for (const g of sortedPlayers) {
+        const label = g.part || g.name;
+        html += explorerNode(label, `${simulatedVertices(g)} v`, "player", 0);
+
+        const handles = handlesByPart.get(g.part) || handlesByPart.get(g.name) || [];
+        for (const h of handles) {
+            usedHandles.add(h.name);
+            html += explorerNode(h.name || "Handle", `${h.vertices} v`, "handle", 1);
+        }
+    }
+
+    // Handles without a matching body part still belong to the player model.
+    for (const h of handleGroups) {
+        if (usedHandles.has(h.name)) continue;
+        html += explorerNode(h.name || "Handle", `${h.vertices} v`, "handle", 0);
+    }
+
+    for (const g of otherGroups) {
+        html += explorerNode(g.name, `${g.vertices} v`, "other", 0);
+    }
+
+    // Rig section: only when auto-rig is enabled and a rig was detected.
+    const autoRigEl = document.getElementById("autoRig");
+    if (autoRigEl && autoRigEl.checked && Array.isArray(currentBones) && currentBones.length) {
+        html += `<div class="explorer-section-label">${t("explorerSectionRig")} (${currentBones.length})</div>`;
+        for (const line of buildRigTree(currentBones)) {
+            html += explorerNode(line.name, null, "bone", line.depth);
+        }
+    }
+
+    treeEl.innerHTML = html || `<div class="explorer-empty">${t("explorerEmpty")}</div>`;
+    if (countEl) countEl.textContent = `${groups.length}`;
+}
+
 async function buildExplorer(userId) {
 
     const treeEl = document.getElementById("explorerTree");
@@ -1802,6 +1956,9 @@ async function buildExplorer(userId) {
     const countEl = document.getElementById("explorerCount");
 
     if (!userId) {
+
+        currentGroups = null;
+        currentBones = null;
 
         treeEl.innerHTML = `<div class="explorer-empty">${t("explorerEmpty")}</div>`;
 
@@ -1814,8 +1971,9 @@ async function buildExplorer(userId) {
     }
 
     let groups = null;
+    let bones = null;
 
-    // Try the backend part-mapping endpoint first (gives body-part names).
+    // Try the backend part-mapping endpoint first (gives body-part names + bones).
     try {
 
         const resp = await fetch(
@@ -1833,6 +1991,7 @@ async function buildExplorer(userId) {
             if (data.success && Array.isArray(data.groups)) {
 
                 groups = data.groups;
+                if (Array.isArray(data.bones)) bones = data.bones;
 
             }
 
@@ -1917,54 +2076,10 @@ async function buildExplorer(userId) {
 
     }
 
-    const playerGroups = groups.filter(g => g.type === "player");
+    currentGroups = groups;
+    currentBones = bones;
 
-    const handleGroups = groups.filter(g => g.type === "handle");
-
-    const otherGroups = groups.filter(g => g.type === "other");
-
-    countEl.textContent = `${groups.length}`;
-
-    let html = "";
-
-    const renderSection = (label, list, cls) => {
-
-        if (!list.length) return;
-
-        html += `<div class="explorer-section-label">${label} (${list.length})</div>`;
-
-        for (const g of list) {
-
-            // Primary label = mapped body part (e.g. "Head"); secondary = group name + vertex count.
-            const primary = g.part ? escapeHTML(g.part) : escapeHTML(g.name);
-
-            const secondary = g.part
-
-                ? `${escapeHTML(g.name)} · ${g.vertices} v`
-
-                : `${g.vertices} v`;
-
-            html += `<div class="explorer-node" title="${escapeHTML(g.name)}">`
-
-                + `<span class="node-icon ${cls}"></span>`
-
-                + `<span class="node-name">${primary}</span>`
-
-                + `<span class="node-meta">${secondary}</span>`
-
-                + `</div>`;
-
-        }
-
-    };
-
-    renderSection(t("explorerPlayers"), playerGroups, "player");
-
-    renderSection(t("explorerHandles"), handleGroups, "handle");
-
-    renderSection(t("explorerOther"), otherGroups, "other");
-
-    treeEl.innerHTML = html || `<div class="explorer-empty">${t("explorerEmpty")}</div>`;
+    renderExplorer();
 
 }
 
@@ -2249,11 +2364,20 @@ document.addEventListener("click", closeDropdown);
 
 document
     .getElementById("autoRig")
-    .addEventListener("change", updateOptionVisibility);
+    .addEventListener("change", () => {
+        updateOptionVisibility();
+        if (currentGroups) renderExplorer();
+    });
 
 document
     .getElementById("moreJoints")
     .addEventListener("change", applyForcedMeshQuality);
+
+document
+    .getElementById("meshQuality")
+    .addEventListener("change", () => {
+        if (currentGroups) renderExplorer();
+    });
 
 window.addEventListener("resize", () => {
     if (downloadDropdown.classList.contains("show")) {
