@@ -243,6 +243,37 @@ function makeBox(xmin, xmax, ymin, ymax, zmin, zmax) {
     };
 }
 
+// Build an OBJ where each part is a small box, so convertAvatar can classify
+// it without needing real mesh data.
+function objFromBoxes(boxes) {
+    const lines = [];
+    let offset = 1;
+
+    for (const [name, b] of Object.entries(boxes)) {
+        lines.push(`g ${name}`);
+
+        const corners = [
+            [b.xmin, b.ymin, b.zmin], [b.xmax, b.ymin, b.zmin],
+            [b.xmax, b.ymax, b.zmin], [b.xmin, b.ymax, b.zmin],
+            [b.xmin, b.ymin, b.zmax], [b.xmax, b.ymin, b.zmax],
+            [b.xmax, b.ymax, b.zmax], [b.xmin, b.ymax, b.zmax]
+        ];
+        for (const c of corners) lines.push(`v ${c[0]} ${c[1]} ${c[2]}`);
+
+        const faces = [
+            [1, 2, 3], [1, 3, 4], [5, 6, 7], [5, 7, 8],
+            [1, 2, 6], [1, 6, 5], [2, 3, 7], [2, 7, 6],
+            [3, 4, 8], [3, 8, 7], [4, 1, 5], [4, 5, 8]
+        ];
+        for (const f of faces) {
+            lines.push(`f ${offset + f[0] - 1} ${offset + f[1] - 1} ${offset + f[2] - 1}`);
+        }
+        offset += 8;
+    }
+
+    return lines.join("\n");
+}
+
 function handleFrom(points) {
     const positions = [];
     const vertexIndices = [];
@@ -300,6 +331,62 @@ test("partial R15 avatars (14 parts) still map to body parts", () => {
     assert.equal(mapping.LeftUpperLeg, "Player12");
     assert.equal(mapping.LeftLowerLeg, "Player13");
     assert.equal(mapping.LeftFoot, "Player14");
+});
+
+test("GLB rig orients bones along the limbs", async () => {
+    const boxes = {
+        Head: makeBox(-0.53, 0.53, 4.85, 5.97, -0.55, 0.55),
+        UpperTorso: makeBox(-0.91, 0.91, 3.04, 4.97, -0.51, 0.51),
+        LowerTorso: makeBox(-0.99, 0.99, 2.64, 3.04, -0.51, 0.51),
+        LeftUpperArm: makeBox(-1.91, -0.91, 3.50, 4.91, -0.50, 0.50),
+        LeftLowerArm: makeBox(-1.91, -0.91, 2.86, 4.13, -0.50, 0.50),
+        LeftHand: makeBox(-1.88, -0.93, 2.56, 2.92, -0.55, 0.55),
+        RightUpperArm: makeBox(0.91, 1.91, 3.50, 4.91, -0.50, 0.50),
+        RightLowerArm: makeBox(0.91, 1.91, 2.86, 4.13, -0.50, 0.50),
+        RightHand: makeBox(0.93, 1.88, 2.56, 2.92, -0.55, 0.55),
+        LeftUpperLeg: makeBox(-0.98, 0.00, 1.20, 2.90, -0.45, 0.46),
+        LeftLowerLeg: makeBox(-0.98, 0.00, 0.22, 1.77, -0.45, 0.46),
+        LeftFoot: makeBox(-1.01, 0.02, 0.00, 0.34, -0.50, 0.50),
+        RightUpperLeg: makeBox(0.00, 0.98, 1.20, 2.90, -0.45, 0.46),
+        RightLowerLeg: makeBox(0.00, 0.98, 0.22, 1.77, -0.45, 0.46),
+        RightFoot: makeBox(-0.02, 1.01, 0.00, 0.34, -0.50, 0.50)
+    };
+
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "aae-test-"));
+    try {
+        fs.writeFileSync(path.join(dir, "avatar.obj"), objFromBoxes(boxes));
+
+        const conversion = await convertAvatar(dir, { rig: true, splitParts: true });
+        const root = conversion.doc.getRoot();
+        const find = (name) => root.listNodes().find((n) => n.getName() === name);
+
+        const upper = find("LeftUpperArm");
+        const lower = find("LeftLowerArm");
+
+        assert.ok(upper && lower);
+        assert.equal(conversion.rigType, "R15");
+
+        // The upper-arm node must have a non-identity rotation.
+        const q = upper.getRotation();
+        assert.ok(
+            Math.abs(q[0]) + Math.abs(q[1]) + Math.abs(q[2]) + Math.abs(q[3] - 1) > 0.1,
+            "upper arm should be rotated toward its child"
+        );
+
+        // Its local +Y (the bone direction) should point at the lower arm.
+        const m = upper.getWorldMatrix();
+        const dirY = [m[4], m[5], m[6]];
+        const up = upper.getWorldTranslation();
+        const lo = lower.getWorldTranslation();
+        const expected = [lo[0] - up[0], lo[1] - up[1], lo[2] - up[2]];
+        const dot =
+            (dirY[0] * expected[0] + dirY[1] * expected[1] + dirY[2] * expected[2]) /
+            (Math.hypot(...dirY) * Math.hypot(...expected));
+
+        assert.ok(dot > 0.99, `bone +Y should align with its child (dot=${dot})`);
+    } finally {
+        fs.rmSync(dir, { recursive: true, force: true });
+    }
 });
 
 test("tail-like accessory attaches to the hips (R15)", () => {

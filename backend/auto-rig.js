@@ -984,6 +984,59 @@ function addTerminalTips(joints, parentOf) {
     }
 }
 
+// --- Minimal quaternion helpers for orienting GLB joints ---
+const Q_IDENTITY = [0, 0, 0, 1];
+
+function qNormalize(q) {
+    const len = Math.hypot(q[0], q[1], q[2], q[3]) || 1;
+    return [q[0] / len, q[1] / len, q[2] / len, q[3] / len];
+}
+
+function qMultiply(a, b) {
+    return [
+        a[3] * b[0] + a[0] * b[3] + a[1] * b[2] - a[2] * b[1],
+        a[3] * b[1] - a[0] * b[2] + a[1] * b[3] + a[2] * b[0],
+        a[3] * b[2] + a[0] * b[1] - a[1] * b[0] + a[2] * b[3],
+        a[3] * b[3] - a[0] * b[0] - a[1] * b[1] - a[2] * b[2]
+    ];
+}
+
+function qConjugate(q) {
+    return [-q[0], -q[1], -q[2], q[3]];
+}
+
+function qRotate(q, v) {
+    const [x, y, z, w] = q;
+    const ix = w * v[0] + y * v[2] - z * v[1];
+    const iy = w * v[1] + z * v[0] - x * v[2];
+    const iz = w * v[2] + x * v[1] - y * v[0];
+    const iw = -x * v[0] - y * v[1] - z * v[2];
+    return [
+        ix * w + iw * -x + iy * -z - iz * -y,
+        iy * w + iw * -y + iz * -x - ix * -z,
+        iz * w + iw * -z + ix * -y - iy * -x
+    ];
+}
+
+function qFromUnitVectors(from, to) {
+    let r = from[0] * to[0] + from[1] * to[1] + from[2] * to[2] + 1;
+
+    if (r < 1e-8) {
+        r = 0;
+        if (Math.abs(from[0]) > Math.abs(from[2])) {
+            return qNormalize([-from[1], from[0], 0, 0]);
+        }
+        return qNormalize([0, -from[2], from[1], 0]);
+    }
+
+    return qNormalize([
+        from[1] * to[2] - from[2] * to[1],
+        from[2] * to[0] - from[0] * to[2],
+        from[0] * to[1] - from[1] * to[0],
+        r
+    ]);
+}
+
 function buildDocument(parsed, partMapping, joints, offsetX, offsetY, offsetZ, rigType, handleBoneMap, options = {}) {
     const splitParts = !!options.splitParts;
     const groupName = options.groupName || "Avatar";
@@ -1042,6 +1095,77 @@ function buildDocument(parsed, partMapping, joints, offsetX, offsetY, offsetZ, r
         const node = doc.createNode(jname);
         node.setTranslation(translation);
         jointNodeMap[jname] = node;
+    }
+
+    // glTF has no bone tail, so importers draw each bone along the node's
+    // local +Y. Orient every joint toward its first child (leaves continue the
+    // parent's direction) so arm/leg bones follow the limbs instead of staying
+    // axis-aligned.
+    const jointWorldQuat = {};
+    if (rigged) {
+        const childrenOf = {};
+        for (const name of jointNames) {
+            const p = parentOf[name];
+            if (p && jointNodeMap[p]) {
+                (childrenOf[p] = childrenOf[p] || []).push(name);
+            }
+        }
+
+        const head = {};
+        for (const name of jointNames) head[name] = joints[name];
+
+        const yAxis = [0, 1, 0];
+
+        const parentWorldQuat = (name) =>
+            jointWorldQuat[parentOf[name]] || Q_IDENTITY;
+
+        const orient = (name) => {
+            const kids = childrenOf[name] || [];
+            let dir;
+
+            if (kids.length) {
+                const h = head[name];
+                const k = head[kids[0]];
+                dir = [k[0] - h[0], k[1] - h[1], k[2] - h[2]];
+                const len = Math.hypot(dir[0], dir[1], dir[2]);
+
+                if (len < 1e-8) {
+                    dir = qRotate(parentWorldQuat(name), yAxis);
+                } else {
+                    dir = [dir[0] / len, dir[1] / len, dir[2] / len];
+                }
+            } else {
+                dir = qRotate(parentWorldQuat(name), yAxis);
+            }
+
+            const desired = qFromUnitVectors(yAxis, dir);
+            jointWorldQuat[name] = desired;
+
+            const node = jointNodeMap[name];
+            const parentName = parentOf[name];
+
+            if (parentName && jointNodeMap[parentName]) {
+                const pq = parentWorldQuat(name);
+                node.setRotation(qMultiply(qConjugate(pq), desired));
+
+                const inv = qConjugate(pq);
+                const d = [
+                    head[name][0] - head[parentName][0],
+                    head[name][1] - head[parentName][1],
+                    head[name][2] - head[parentName][2]
+                ];
+                node.setTranslation(qRotate(inv, d));
+            } else {
+                node.setRotation(desired);
+                node.setTranslation([...head[name]]);
+            }
+
+            for (const kid of kids) orient(kid);
+        };
+
+        if (rootName && jointNodeMap[rootName]) {
+            orient(rootName);
+        }
     }
 
     let rootNode = null;
@@ -1333,11 +1457,32 @@ function buildDocument(parsed, partMapping, joints, offsetX, offsetY, offsetZ, r
 
         const ibmData = new Float32Array(jointNames.length * 16);
         for (let i = 0; i < jointNames.length; i++) {
-            const jpos = joints[jointNames[i]];
-            ibmData[i * 16 + 0] = 1; ibmData[i * 16 + 1] = 0; ibmData[i * 16 + 2] = 0; ibmData[i * 16 + 3] = 0;
-            ibmData[i * 16 + 4] = 0; ibmData[i * 16 + 5] = 1; ibmData[i * 16 + 6] = 0; ibmData[i * 16 + 7] = 0;
-            ibmData[i * 16 + 8] = 0; ibmData[i * 16 + 9] = 0; ibmData[i * 16 + 10] = 1; ibmData[i * 16 + 11] = 0;
-            ibmData[i * 16 + 12] = -jpos[0]; ibmData[i * 16 + 13] = -jpos[1]; ibmData[i * 16 + 14] = -jpos[2]; ibmData[i * 16 + 15] = 1;
+            const name = jointNames[i];
+            const jpos = joints[name];
+            const inv = qConjugate(jointWorldQuat[name] || Q_IDENTITY);
+            const t = qRotate(inv, [-jpos[0], -jpos[1], -jpos[2]]);
+            const [x, y, z, w] = inv;
+
+            // glTF matrices are column-major; rotation = R(q^-1).
+            ibmData[i * 16 + 0] = 1 - 2 * (y * y + z * z);
+            ibmData[i * 16 + 1] = 2 * (x * y + z * w);
+            ibmData[i * 16 + 2] = 2 * (x * z - y * w);
+            ibmData[i * 16 + 3] = 0;
+
+            ibmData[i * 16 + 4] = 2 * (x * y - z * w);
+            ibmData[i * 16 + 5] = 1 - 2 * (x * x + z * z);
+            ibmData[i * 16 + 6] = 2 * (y * z + x * w);
+            ibmData[i * 16 + 7] = 0;
+
+            ibmData[i * 16 + 8] = 2 * (x * z + y * w);
+            ibmData[i * 16 + 9] = 2 * (y * z - x * w);
+            ibmData[i * 16 + 10] = 1 - 2 * (x * x + y * y);
+            ibmData[i * 16 + 11] = 0;
+
+            ibmData[i * 16 + 12] = t[0];
+            ibmData[i * 16 + 13] = t[1];
+            ibmData[i * 16 + 14] = t[2];
+            ibmData[i * 16 + 15] = 1;
         }
         skin.setInverseBindMatrices(createAccessor(doc, buffer, ibmData, "MAT4", Accessor.ComponentType.FLOAT));
 
@@ -1413,11 +1558,17 @@ function buildDocument(parsed, partMapping, joints, offsetX, offsetY, offsetZ, r
                 const parentJoint = build.boneName && jointNodeMap[build.boneName];
                 if (parentJoint) {
                     const jp = joints[build.boneName] || [0, 0, 0];
-                    partNode.setTranslation([
+                    const inv = qConjugate(
+                        jointWorldQuat[build.boneName] || Q_IDENTITY
+                    );
+                    // Cancel the bone's rest rotation so the rigid accessory
+                    // keeps its original world orientation and position.
+                    partNode.setTranslation(qRotate(inv, [
                         build.handleCenter[0] - jp[0],
                         build.handleCenter[1] - jp[1],
                         build.handleCenter[2] - jp[2]
-                    ]);
+                    ]));
+                    partNode.setRotation(inv);
                     parentJoint.addChild(partNode);
                 } else {
                     partNode.setTranslation(build.handleCenter);
