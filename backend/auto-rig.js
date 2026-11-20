@@ -639,9 +639,15 @@ function computeJoints(partMapping, boxes, offsetX, offsetY, offsetZ, rigType, m
 
                 if (attachBox) {
                     const side = upperBox.cx < 0 ? 'left' : 'right';
-                    const attachX = side === 'left' ? attachBox.xmin : attachBox.xmax;
-                    const attachY = isArm ? attachBox.ymax : attachBox.ymin;
-                    J[upperName] = sub([attachX, attachY, attachBox.cz]);
+                    // Arms attach at the shoulder (torso side); legs hang from
+                    // the center of the upper leg so the leg bone points
+                    // straight down instead of angling in from the hip edge.
+                    const attachX = isArm
+                        ? (side === 'left' ? attachBox.xmin : attachBox.xmax)
+                        : upperBox.cx;
+                    const attachY = isArm ? attachBox.ymax : upperBox.ymax;
+                    const attachZ = isArm ? attachBox.cz : upperBox.cz;
+                    J[upperName] = sub([attachX, attachY, attachZ]);
                 }
             }
             if (upperBox && lowerBox) {

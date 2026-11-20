@@ -333,6 +333,39 @@ test("partial R15 avatars (14 parts) still map to body parts", () => {
     assert.equal(mapping.LeftFoot, "Player14");
 });
 
+test("R15 leg bones start at the top center of the upper leg", () => {
+    const boxes = {
+        Head: makeBox(-0.53, 0.53, 4.85, 5.97, -0.55, 0.55),
+        UpperTorso: makeBox(-0.91, 0.91, 3.04, 4.97, -0.51, 0.51),
+        LowerTorso: makeBox(-0.99, 0.99, 2.64, 3.04, -0.51, 0.51),
+        LeftUpperLeg: makeBox(-0.98, 0.00, 1.20, 2.90, -0.45, 0.46),
+        LeftLowerLeg: makeBox(-0.98, 0.00, 0.22, 1.77, -0.45, 0.46),
+        LeftFoot: makeBox(-1.01, 0.02, 0.00, 0.34, -0.50, 0.50),
+        RightUpperLeg: makeBox(0.00, 0.98, 1.20, 2.90, -0.45, 0.46),
+        RightLowerLeg: makeBox(0.00, 0.98, 0.22, 1.77, -0.45, 0.46),
+        RightFoot: makeBox(-0.02, 1.01, 0.00, 0.34, -0.50, 0.50)
+    };
+    const mapping = {
+        Head: "Head",
+        UpperTorso: "UpperTorso",
+        LowerTorso: "LowerTorso",
+        LeftUpperLeg: "LeftUpperLeg",
+        LeftLowerLeg: "LeftLowerLeg",
+        LeftFoot: "LeftFoot",
+        RightUpperLeg: "RightUpperLeg",
+        RightLowerLeg: "RightLowerLeg",
+        RightFoot: "RightFoot"
+    };
+
+    const joints = computeJoints(mapping, boxes, 0, 0, 0, "R15");
+
+    // Top center of each upper-leg box (x centered, y at the top).
+    assert.equal(joints.LeftUpperLeg[0], -0.49);
+    assert.equal(joints.LeftUpperLeg[1], 2.90);
+    assert.equal(joints.RightUpperLeg[0], 0.49);
+    assert.equal(joints.RightUpperLeg[1], 2.90);
+});
+
 test("GLB rig orients bones along the limbs", async () => {
     const boxes = {
         Head: makeBox(-0.53, 0.53, 4.85, 5.97, -0.55, 0.55),
