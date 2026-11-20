@@ -1301,12 +1301,14 @@ const BACKEND_URL =
 const apiStatusEl = document.getElementById("apiStatus");
 const apiStatusText = document.getElementById("apiStatusText");
 let apiStatusState = null;
+let apiVersion = null;
 
 function renderApiStatus(state) {
     apiStatusState = state;
     apiStatusEl.classList.toggle("offline", state === "offline");
     apiStatusText.textContent =
-        state === "online" ? t("apiOnline")
+        state === "online"
+            ? (apiVersion ? `${t("apiOnline")} (v${apiVersion})` : t("apiOnline"))
             : state === "offline" ? t("apiOffline")
                 : t("apiChecking");
 }
@@ -1329,6 +1331,8 @@ async function checkApiStatus() {
     try {
         const resp = await fetch(`${BACKEND_URL}/api/health`, { cache: "no-store" });
         if (!resp.ok) throw new Error("bad status");
+        const health = await resp.json().catch(() => null);
+        apiVersion = health && typeof health.version === "string" ? health.version : null;
         renderApiStatus("online");
         // Clear a stale "API Offline" message once the API is back.
         if (currentStatusKey === "apiOffline") {

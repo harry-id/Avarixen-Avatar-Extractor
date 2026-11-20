@@ -223,7 +223,7 @@ app.get("/", (req, res) => {
 
 // Lightweight health probe used by the frontend status badge.
 app.get("/api/health", (req, res) => {
-    res.json({ status: "online" });
+    res.json({ status: "online", version: APP_VERSION });
 });
 
 // Pencarian username Roblox
