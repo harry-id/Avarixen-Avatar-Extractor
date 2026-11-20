@@ -8,6 +8,7 @@
     <meta name="description" content="Avarixen is a Roblox avatar downloader and 3D exporter. Retrieve Roblox avatars, preview 3D models, inspect mesh hierarchy, configure rigging, and export assets into FBX, GLB, glTF, and OBJ formats.">
     <meta name="robots" content="index, follow">
     <meta name="theme-color" content="#10131c">
+    <meta name="google-site-verification" content="yDlGyefQcydxolaD7j1mh_GBOxcLR0sZmhALx4b1fp4">
     <link rel="canonical" href="https://harry-id.github.io/Avarixen-Avatar-Extractor/">
 
     <meta property="og:type" content="website">
@@ -199,7 +200,7 @@
         /* Viewer + model explorer sidebar layout */
         .viewer-layout {
             display: flex;
-            gap: 12px;
+            gap: 0;
             align-items: stretch;
         }
 
@@ -211,6 +212,7 @@
         #explorer {
             width: 240px;
             height: 500px;
+            margin-left: 12px;
             flex-shrink: 0;
             background: #191e2b;
             border: 1px solid #30394d;
@@ -298,6 +300,10 @@
 
         .explorer-node .node-icon.handle {
             background: #a142f4;
+        }
+
+        .explorer-node .node-icon.bone {
+            background: #f0a030;
         }
 
         .explorer-node .node-icon.other {
@@ -468,7 +474,6 @@
             color: #4285f4;
         }
 
-        /* Header tagline */
         .brand-desc {
             color: #8b96ab;
             margin: 2px 0 0;
@@ -564,15 +569,32 @@
         }
 
         .status {
-            margin-top: 15px;
+            position: absolute;
+            bottom: 12px;
+            left: 12px;
+            z-index: 5;
+            max-width: calc(100% - 24px);
+            padding: 0;
+            background: none;
+            border: none;
             color: #aab4c8;
+            font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+            font-size: 12px;
             line-height: 1.5;
+            pointer-events: none;
+            white-space: pre-wrap;
+            word-break: break-word;
+        }
+
+        .status.is-error {
+            color: #f44336;
         }
 
         .controls {
             display: flex;
             flex-wrap: wrap;
             gap: 10px;
+            margin-top: 16px;
         }
 
         .dropdown {
@@ -716,6 +738,7 @@
     <div class="viewer-layout">
         <div id="viewer">
             <div id="accountInfo"></div>
+            <div class="status is-waiting" id="status" data-i18n="statusWaiting">Enter a Roblox username to load 3D preview.</div>
         </div>
         <aside id="explorer">
             <div class="explorer-header">
@@ -730,8 +753,6 @@
             </div>
         </aside>
     </div>
-
-    <div class="status" id="status" data-i18n="statusWaiting">Enter a Roblox username to load 3D preview.</div>
 
     <div class="controls">
         <button id="reloadButton" data-i18n="reloadButton">Reload Model</button>
@@ -975,6 +996,8 @@ const LANG = {
         statusConverting: "Mengonversi model ke {{format}}...",
         explorerTitle: "Penjelajah Model",
         explorerEmpty: "Muat avatar untuk melihat bagian-bagiannya.",
+        explorerSectionPlayer: "Player",
+        explorerSectionRig: "Rig",
         explorerPlayers: "Player (Tubuh)",
         explorerHandles: "Handle (Aksesori)",
         explorerOther: "Lainnya",
@@ -985,6 +1008,7 @@ const LANG = {
         verticesLabel: "vertices",
         apiOnline: "API Online",
         apiOffline: "API Offline",
+        errorApiOffline: "API sedang offline. Coba lagi sesaat lagi.",
         apiChecking: "Checking..."
     },
     en: {
@@ -1070,6 +1094,8 @@ const LANG = {
         statusConverting: "Converting model to {{format}}...",
         explorerTitle: "Model Explorer",
         explorerEmpty: "Load an avatar to see its parts.",
+        explorerSectionPlayer: "Player",
+        explorerSectionRig: "Rig",
         explorerPlayers: "Player (Body)",
         explorerHandles: "Handle (Accessories)",
         explorerOther: "Other",
@@ -1080,6 +1106,7 @@ const LANG = {
         verticesLabel: "vertices",
         apiOnline: "API Online",
         apiOffline: "API Offline",
+        errorApiOffline: "API is offline. Please try again shortly.",
         apiChecking: "Checking..."
     }
 };
@@ -1130,7 +1157,7 @@ function setLang(lang) {
 
     // Re-apply the last tracked dynamic status so it translates too.
     if (currentStatusKey) {
-        status.textContent = t(currentStatusKey, currentStatusParams || {});
+        renderStatus();
     }
 
     if (apiStatusState) {
@@ -1141,15 +1168,100 @@ function setLang(lang) {
     if (typeof setDownloadButtonLabel === "function") {
         setDownloadButtonLabel();
     }
+
+    // Re-render the model explorer so its labels follow the active language.
+    if (currentGroups && typeof renderExplorer === "function") {
+        renderExplorer();
+    }
 }
 
 let currentStatusKey = null;
 let currentStatusParams = {};
 
+// Spinner frames for the processing animation (requestAnimationFrame pauses when the tab is hidden).
+const STATUS_SPINNER_FRAMES = ["|", "/", "-", "\\"];
+let statusSpinnerIndex = 0;
+let statusRafId = null;
+
+function isStatusBusyKey(key) {
+    // Keys that represent an in-progress operation (not a final/error state).
+    return key === "statusLoadingMaterial" ||
+        key === "statusLoadingModel" ||
+        key === "statusSearching" ||
+        key === "statusFetchMetadata" ||
+        key === "statusDownloadAssets" ||
+        key === "statusConverting" ||
+        key === "statusRigging";
+}
+
+function isStatusErrorKey(key) {
+    return key === "statusLoadObjFailed" ||
+        key === "statusLoadMtlFailed" ||
+        key === "statusNoLocalModel" ||
+        key === "errorEmptyUsername" ||
+        key === "errorNotFound" ||
+        key === "errorFetchMetadata" ||
+        key === "errorDownloadAssets" ||
+        key === "errorOccurred" ||
+        key === "errorConvertFailed" ||
+        key === "errorZipFetch" ||
+        key === "apiOffline";
+}
+
+function stopStatusSpinner() {
+    if (statusRafId !== null) {
+        cancelAnimationFrame(statusRafId);
+        statusRafId = null;
+    }
+}
+
+function startStatusSpinner() {
+    stopStatusSpinner();
+
+    let last = 0;
+    const tick = (now) => {
+        // ~5 fps is a calm, readable spinner cadence.
+        if (now - last > 200) {
+            statusSpinnerIndex = (statusSpinnerIndex + 1) % STATUS_SPINNER_FRAMES.length;
+            last = now;
+            renderStatus();
+        }
+        statusRafId = requestAnimationFrame(tick);
+    };
+    statusRafId = requestAnimationFrame(tick);
+}
+
+function renderStatus() {
+    const key = currentStatusKey;
+    if (!key) {
+        status.textContent = "";
+        status.classList.remove("is-error", "is-busy", "is-waiting");
+        stopStatusSpinner();
+        return;
+    }
+
+    const base = t(key, currentStatusParams || {});
+    const busy = isStatusBusyKey(key);
+
+    status.classList.toggle("is-error", isStatusErrorKey(key));
+    status.classList.toggle("is-busy", busy);
+    status.classList.toggle("is-waiting", !busy && !isStatusErrorKey(key));
+
+    if (busy) {
+        const frame = STATUS_SPINNER_FRAMES[statusSpinnerIndex];
+        status.textContent = `[${frame}] ${base}`;
+        startStatusSpinner();
+    } else {
+        status.textContent = base;
+        stopStatusSpinner();
+    }
+}
+
 function setStatus(key, params = {}) {
     currentStatusKey = key;
     currentStatusParams = params;
-    status.textContent = t(key, params);
+    statusSpinnerIndex = 0;
+    renderStatus();
 }
 
 function apiHeaders() {
@@ -1157,6 +1269,15 @@ function apiHeaders() {
         "Content-Type": "application/json",
         "Accept-Language": currentLang
     };
+}
+
+// fetch() wrapper: convert network failures into a friendly "API offline" error.
+async function apiFetch(url, options = {}) {
+    try {
+        return await fetch(url, options);
+    } catch (error) {
+        throw apiFetchError();
+    }
 }
 
 const langSelector = document.getElementById("langSelector");
@@ -1191,13 +1312,35 @@ function renderApiStatus(state) {
                 : t("apiChecking");
 }
 
+function apiFetchError() {
+    const err = new Error(t("errorApiOffline"));
+    err.isApiOffline = true;
+    return err;
+}
+
+function setStatusError(error) {
+    if (error && error.isApiOffline) {
+        setStatus("apiOffline");
+    } else {
+        setStatus("errorOccurred", { message: (error && error.message) || "Unknown error" });
+    }
+}
+
 async function checkApiStatus() {
     try {
         const resp = await fetch(`${BACKEND_URL}/api/health`, { cache: "no-store" });
         if (!resp.ok) throw new Error("bad status");
         renderApiStatus("online");
+        // Clear a stale "API Offline" message once the API is back.
+        if (currentStatusKey === "apiOffline") {
+            setStatus(currentUserId ? "statusLoaded" : "statusWaiting");
+        }
     } catch {
         renderApiStatus("offline");
+        // Surface "API Offline" unless an operation is in progress.
+        if (!currentStatusKey || isStatusErrorKey(currentStatusKey) || currentStatusKey === "statusWaiting" || currentStatusKey === "statusLoaded") {
+            setStatus("apiOffline");
+        }
     }
 }
 
@@ -1430,7 +1573,8 @@ let currentAssetFiles = null;
 
 function loadModel(userId = null, bustCache = false) {
 
-    const cacheBust = bustCache ? `?v=${Date.now()}` : "";
+    const cacheBustVersion = bustCache ? String(Date.now()) : "";
+    const cacheBust = bustCache ? `?v=${cacheBustVersion}` : "";
 
     const assetPath = userId
         ? `${BACKEND_URL}/assets/${encodeURIComponent(userId)}/`
@@ -1441,6 +1585,20 @@ function loadModel(userId = null, bustCache = false) {
     const mtlLoader = new MTLLoader();
 
     mtlLoader.setPath(assetPath);
+
+    // On reload, rewrite MTL texture references with a version query so the
+    // freshly downloaded textures are used instead of a stale cached copy.
+    if (bustCache) {
+        const manager = new THREE.LoadingManager();
+        manager.setURLModifier((url) => {
+            const clean = url.split("#")[0];
+            if (/\.(png|jpe?g|webp|gif|bmp|tga)$/i.test(clean)) {
+                return clean + (clean.includes("?") ? "&" : "?") + "v=" + cacheBustVersion;
+            }
+            return url;
+        });
+        mtlLoader.manager = manager;
+    }
 
     mtlLoader.load(
         "avatar.mtl" + cacheBust,
@@ -1637,6 +1795,182 @@ function setExplorerSize(bytes) {
     if (sizeEl) sizeEl.textContent = formatSize(bytes);
 }
 
+let currentGroups = null;
+let currentBones = null;
+
+// Preferred top-to-bottom ordering for body parts in the Player section.
+const PART_ORDER = {
+    R6: ["Head", "Torso", "Left Arm", "Right Arm", "Left Leg", "Right Leg"],
+    R15: [
+        "Head", "UpperTorso", "LowerTorso",
+        "LeftUpperArm", "LeftLowerArm", "LeftHand",
+        "RightUpperArm", "RightLowerArm", "RightHand",
+        "LeftUpperLeg", "LeftLowerLeg", "LeftFoot",
+        "RightUpperLeg", "RightLowerLeg", "RightFoot"
+    ]
+};
+
+function partOrderIndex(rigType, part) {
+    const order = PART_ORDER[rigType] || [];
+    const i = order.indexOf(part);
+    return i === -1 ? order.length + 1 : i;
+}
+
+// Mesh subdivision refines the body (Head and Handle* excluded); each level
+// roughly quadruples the vertex count. Simulates the displayed amount.
+function simulatedVertices(group) {
+    if (!group || group.type !== "player") {
+        return group ? group.vertices : 0;
+    }
+    if (group.part === "Head") {
+        return group.vertices;
+    }
+    const level = Number((document.getElementById("meshQuality") || {}).value) || 0;
+    if (level <= 0) {
+        return group.vertices;
+    }
+    return Math.round(group.vertices * Math.pow(4, level));
+}
+
+function buildRigTree(bones) {
+    const names = new Set(bones.map((b) => b.name));
+    const childrenOf = new Map();
+    for (const b of bones) {
+        const key = b.parent && names.has(b.parent) ? b.parent : null;
+        if (!childrenOf.has(key)) childrenOf.set(key, []);
+        childrenOf.get(key).push(b.name);
+    }
+    const lines = [];
+    const walk = (parentName, depth) => {
+        for (const name of childrenOf.get(parentName) || []) {
+            lines.push({ name, depth });
+            walk(name, depth + 1);
+        }
+    };
+    for (const name of childrenOf.get(null) || []) {
+        lines.push({ name, depth: 0 });
+        walk(name, 1);
+    }
+    return lines;
+}
+
+function explorerNode(name, meta, cls, depth) {
+    const pad = 12 + (depth || 0) * 14;
+    const metaHtml = meta !== null && meta !== undefined
+        ? `<span class="node-meta">${meta}</span>`
+        : "";
+    return `<div class="explorer-node" style="padding-left:${pad}px" title="${escapeHTML(name)}">`
+        + `<span class="node-icon ${cls}"></span>`
+        + `<span class="node-name">${escapeHTML(name)}</span>`
+        + metaHtml
+        + `</div>`;
+}
+
+function renderExplorer() {
+    const treeEl = document.getElementById("explorerTree");
+    const countEl = document.getElementById("explorerCount");
+
+    if (!currentGroups || !currentGroups.length) {
+        treeEl.innerHTML = `<div class="explorer-empty">${t("explorerEmpty")}</div>`;
+        if (countEl) countEl.textContent = "";
+        return;
+    }
+
+    const groups = currentGroups;
+    const playerGroups = groups.filter((g) => g.type === "player");
+    const handleGroups = groups.filter((g) => g.type === "handle");
+    const otherGroups = groups.filter((g) => g.type === "other");
+
+    const handlesByPart = new Map();
+    for (const h of handleGroups) {
+        const key = h.part || "__none__";
+        if (!handlesByPart.has(key)) handlesByPart.set(key, []);
+        handlesByPart.get(key).push(h);
+    }
+
+    const sortedPlayers = [...playerGroups].sort(
+        (a, b) => partOrderIndex(currentRigType, a.part || a.name)
+            - partOrderIndex(currentRigType, b.part || b.name)
+    );
+
+    let html = "";
+
+    const totalParts = playerGroups.length + handleGroups.length + otherGroups.length;
+    html += `<div class="explorer-section-label">${t("explorerSectionPlayer")} (${totalParts})</div>`;
+
+    const usedHandles = new Set();
+    for (const g of sortedPlayers) {
+        const label = g.part || g.name;
+        html += explorerNode(label, `${simulatedVertices(g)} v`, "player", 0);
+
+        const handles = handlesByPart.get(g.part) || handlesByPart.get(g.name) || [];
+        for (const h of handles) {
+            usedHandles.add(h.name);
+            html += explorerNode(h.name || "Handle", `${h.vertices} v`, "handle", 1);
+        }
+    }
+
+    for (const h of handleGroups) {
+        if (usedHandles.has(h.name)) continue;
+        html += explorerNode(h.name || "Handle", `${h.vertices} v`, "handle", 0);
+    }
+
+    for (const g of otherGroups) {
+        html += explorerNode(g.name, `${g.vertices} v`, "other", 0);
+    }
+
+    const autoRigEl = document.getElementById("autoRig");
+    if (autoRigEl && autoRigEl.checked && Array.isArray(currentBones) && currentBones.length) {
+        html += `<div class="explorer-section-label">${t("explorerSectionRig")} (${currentBones.length})</div>`;
+        for (const line of buildRigTree(currentBones)) {
+            html += explorerNode(line.name, null, "bone", line.depth);
+        }
+    }
+
+    treeEl.innerHTML = html || `<div class="explorer-empty">${t("explorerEmpty")}</div>`;
+    if (countEl) countEl.textContent = `${groups.length}`;
+}
+
+// Add the extra R6 bones (waist, elbows, knees, feet) client-side so the Rig
+// tree updates even if the backend hasn't been restarted with the newer code.
+function bonesWithMoreJoints(bones, rigType) {
+    if (!Array.isArray(bones) || rigType !== "R6") {
+        return bones;
+    }
+
+    const names = new Set(bones.map((b) => b.name));
+    const reparent = {};
+    const extra = [];
+
+    const add = (name, parent) => {
+        if (names.has(name)) return;
+        names.add(name);
+        extra.push({ name, parent });
+    };
+
+    add("Waist", "HumanoidRootPart");
+    reparent.Torso = "Waist";
+
+    add("Left LowerArm", "Left Arm");
+    reparent["Left Hand"] = "Left LowerArm";
+
+    add("Right LowerArm", "Right Arm");
+    reparent["Right Hand"] = "Right LowerArm";
+
+    add("Left LowerLeg", "Left Leg");
+    add("Left Foot", "Left LowerLeg");
+
+    add("Right LowerLeg", "Right Leg");
+    add("Right Foot", "Right LowerLeg");
+
+    const result = bones.map((b) =>
+        reparent[b.name] ? { name: b.name, parent: reparent[b.name] } : b
+    );
+
+    // Prepend the extra bones to keep the natural top-down order.
+    return extra.concat(result);
+}
+
 async function buildExplorer(userId) {
 
     const treeEl = document.getElementById("explorerTree");
@@ -1644,6 +1978,9 @@ async function buildExplorer(userId) {
     const countEl = document.getElementById("explorerCount");
 
     if (!userId) {
+
+        currentGroups = null;
+        currentBones = null;
 
         treeEl.innerHTML = `<div class="explorer-empty">${t("explorerEmpty")}</div>`;
 
@@ -1656,13 +1993,20 @@ async function buildExplorer(userId) {
     }
 
     let groups = null;
+    let bones = null;
 
-    // Try the backend part-mapping endpoint first (gives body-part names).
+    // Try the backend part-mapping endpoint first (gives body-part names + bones).
     try {
+
+        const moreJointsEl = document.getElementById("moreJoints");
+        const moreJoints = !!(moreJointsEl && moreJointsEl.checked);
+        const partsUrl =
+            `${BACKEND_URL}/api/roblox/parts/${encodeURIComponent(userId)}` +
+            (moreJoints ? "?moreJoints=1" : "");
 
         const resp = await fetch(
 
-            `${BACKEND_URL}/api/roblox/parts/${encodeURIComponent(userId)}`,
+            partsUrl,
 
             { headers: apiHeaders() }
 
@@ -1675,6 +2019,11 @@ async function buildExplorer(userId) {
             if (data.success && Array.isArray(data.groups)) {
 
                 groups = data.groups;
+                if (Array.isArray(data.bones)) {
+                    bones = moreJoints
+                        ? bonesWithMoreJoints(data.bones, data.rigType)
+                        : data.bones;
+                }
 
             }
 
@@ -1759,54 +2108,10 @@ async function buildExplorer(userId) {
 
     }
 
-    const playerGroups = groups.filter(g => g.type === "player");
+    currentGroups = groups;
+    currentBones = bones;
 
-    const handleGroups = groups.filter(g => g.type === "handle");
-
-    const otherGroups = groups.filter(g => g.type === "other");
-
-    countEl.textContent = `${groups.length}`;
-
-    let html = "";
-
-    const renderSection = (label, list, cls) => {
-
-        if (!list.length) return;
-
-        html += `<div class="explorer-section-label">${label} (${list.length})</div>`;
-
-        for (const g of list) {
-
-            // Primary label = mapped body part (e.g. "Head"); secondary = group name + vertex count.
-            const primary = g.part ? escapeHTML(g.part) : escapeHTML(g.name);
-
-            const secondary = g.part
-
-                ? `${escapeHTML(g.name)} · ${g.vertices} v`
-
-                : `${g.vertices} v`;
-
-            html += `<div class="explorer-node" title="${escapeHTML(g.name)}">`
-
-                + `<span class="node-icon ${cls}"></span>`
-
-                + `<span class="node-name">${primary}</span>`
-
-                + `<span class="node-meta">${secondary}</span>`
-
-                + `</div>`;
-
-        }
-
-    };
-
-    renderSection(t("explorerPlayers"), playerGroups, "player");
-
-    renderSection(t("explorerHandles"), handleGroups, "handle");
-
-    renderSection(t("explorerOther"), otherGroups, "other");
-
-    treeEl.innerHTML = html || `<div class="explorer-empty">${t("explorerEmpty")}</div>`;
+    renderExplorer();
 
 }
 
@@ -1838,7 +2143,7 @@ searchButton.addEventListener(
 
             setStatus("statusSearching");
 
-            const userResponse = await fetch(
+            const userResponse = await apiFetch(
                 BACKEND_URL + "/api/roblox/user",
                 {
                     method: "POST",
@@ -1875,7 +2180,7 @@ searchButton.addEventListener(
             setStatus("statusFetchMetadata");
 
 
-            const avatarResponse = await fetch(
+            const avatarResponse = await apiFetch(
                 BACKEND_URL +
                 "/api/roblox/avatar/" +
                 encodeURIComponent(user.id),
@@ -1893,7 +2198,7 @@ searchButton.addEventListener(
 
             setStatus("statusDownloadAssets");
 
-            const downloadResponse = await fetch(
+            const downloadResponse = await apiFetch(
                 BACKEND_URL +
                 "/api/roblox/download/" +
                 encodeURIComponent(user.id),
@@ -1929,7 +2234,7 @@ searchButton.addEventListener(
 
             console.error(error);
 
-            setStatus("errorOccurred", { message: error.message });
+            setStatusError(error);
 
         } finally {
 
@@ -1988,7 +2293,7 @@ reloadButton.addEventListener(
 
             // Always re-download from the endpoint so the preview is fresh,
             // instead of reusing files already cached in downloads/.
-            const response = await fetch(
+            const response = await apiFetch(
                 BACKEND_URL +
                 "/api/roblox/download/" +
                 encodeURIComponent(currentUserId),
@@ -2022,7 +2327,7 @@ reloadButton.addEventListener(
 
             console.error(error);
 
-            setStatus("errorOccurred", { message: error.message });
+            setStatusError(error);
 
         } finally {
 
@@ -2091,11 +2396,28 @@ document.addEventListener("click", closeDropdown);
 
 document
     .getElementById("autoRig")
-    .addEventListener("change", updateOptionVisibility);
+    .addEventListener("change", () => {
+        updateOptionVisibility();
+        if (currentGroups) renderExplorer();
+    });
 
 document
     .getElementById("moreJoints")
-    .addEventListener("change", applyForcedMeshQuality);
+    .addEventListener("change", () => {
+        applyForcedMeshQuality();
+        // Refresh the explorer: the Rig tree changes shape with the extra joints.
+        if (currentUserId) {
+            buildExplorer(currentUserId);
+        } else if (currentGroups) {
+            renderExplorer();
+        }
+    });
+
+document
+    .getElementById("meshQuality")
+    .addEventListener("change", () => {
+        if (currentGroups) renderExplorer();
+    });
 
 window.addEventListener("resize", () => {
     if (downloadDropdown.classList.contains("show")) {
