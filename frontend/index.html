@@ -1829,13 +1829,15 @@ function partOrderIndex(rigType, part) {
     return i === -1 ? order.length + 1 : i;
 }
 
-// Mesh subdivision refines the whole body (including the head) and each level
-// roughly quadruples the vertex count. Only accessories (Handle*, type "handle")
-// keep their original density. Simulate the displayed amount from the selected
-// mesh-quality level.
+// Mesh subdivision refines the body only (Head and Handle* accessories are
+// excluded), and each level roughly quadruples the vertex count. Simulate the
+// displayed amount from the selected mesh-quality level.
 function simulatedVertices(group) {
     if (!group || group.type !== "player") {
         return group ? group.vertices : 0;
+    }
+    if (group.part === "Head") {
+        return group.vertices;
     }
     const level = Number((document.getElementById("meshQuality") || {}).value) || 0;
     if (level <= 0) {

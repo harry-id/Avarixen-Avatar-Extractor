@@ -1499,10 +1499,12 @@ async function convertAvatar(assetDir, {
     const parsed = parseObj(objPath);
 
     if (subdivision > 0) {
-        // Mesh quality refines the whole body, including the head. Only
-        // accessories (Handle* groups) keep their original density.
+        // Mesh quality refines the body only: accessories (Handle* groups) and
+        // the head keep their original density.
+        const headGroup = findHeadGroupName(parsed);
         const isExcluded = (name) =>
-            typeof name === "string" && /^handle/i.test(name);
+            typeof name === "string" &&
+            (/^handle/i.test(name) || name === headGroup);
 
         subdivideParsed(parsed, subdivision, (face) => !isExcluded(face.group));
     }
