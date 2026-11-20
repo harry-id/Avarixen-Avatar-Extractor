@@ -139,6 +139,33 @@
             margin-bottom: 15px;
         }
 
+        .beta-notice {
+            display: flex;
+            align-items: flex-start;
+            gap: 10px;
+            margin-bottom: 15px;
+            padding: 12px 16px;
+            background: #191e2b;
+            border: 1px solid #39445c;
+            border-left: 3px solid #4285f4;
+            border-radius: 8px;
+            color: #aab4c8;
+            font-size: 13px;
+            line-height: 1.6;
+        }
+
+        .beta-notice .beta-badge {
+            flex-shrink: 0;
+            padding: 2px 8px;
+            border-radius: 999px;
+            background: #4285f4;
+            color: #fff;
+            font-size: 11px;
+            font-weight: 700;
+            letter-spacing: 0.03em;
+            text-transform: uppercase;
+        }
+
         input[type="text"] {
             flex: 1;
             min-width: 0;
@@ -726,6 +753,11 @@
 
 <main>
 
+    <div class="beta-notice" role="note">
+        <span class="beta-badge" data-i18n="betaBadge">Beta</span>
+        <span data-i18n="betaNotice">This service is still in beta. Some models may be processed incorrectly or fail to be identified. I'm glad you found this website — if you like it, I'd really appreciate your feedback. You can reach me on Discord at @furehe or open an issue in the fork. (That's all — hope you're enjoying it!)</span>
+    </div>
+
     <form class="search-box" id="searchForm">
         <input
             type="text"
@@ -919,6 +951,8 @@ const LANG = {
         appTitle: "Avarixen",
         appSubtitle: "Pengunduh & Eksportir Avatar 3D Roblox",
         appTagline: "Ambil, pratinjau, periksa, rig, dan ekspor avatar Roblox untuk alur kerja pemodelan dan animasi 3D.",
+        betaBadge: "Beta",
+        betaNotice: "Layanan ini masih dalam tahap beta. Beberapa model mungkin diproses secara tidak tepat atau gagal dikenali. Saya senang Anda menemukan situs web ini — jika Anda menyukainya, saya akan sangat menghargai masukan Anda. Anda dapat menghubungi saya di Discord @furehe atau membuat issue di fork. (Itu saja — semoga Anda menikmatinya!)",
         aboutWebsite: "Tentang Website",
         aboutTitle: "Tentang Avarixen",
         aboutBody: "Avarixen adalah pengunduh dan eksportir avatar Roblox 3D gratis yang berbasis browser. Masukkan username Roblox untuk mengambil avatar, pratinjau dalam 3D interaktif, periksa hierarki mesh, lalu ekspor ke OBJ, FBX, GLB, atau glTF untuk alur kerja pemodelan dan animasi 3D.",
@@ -1017,6 +1051,8 @@ const LANG = {
         appTitle: "Avarixen",
         appSubtitle: "Roblox Avatar Downloader & 3D Exporter",
         appTagline: "Retrieve, preview, inspect, rig, and export Roblox avatars for 3D modeling and animation workflows.",
+        betaBadge: "Beta",
+        betaNotice: "This service is still in beta. Some models may be processed incorrectly or fail to be identified. I'm glad you found this website — if you like it, I'd really appreciate your feedback. You can reach me on Discord at @furehe or open an issue in the fork. (That's all — hope you're enjoying it!)",
         aboutWebsite: "About Website",
         aboutTitle: "About Avarixen",
         aboutBody: "Avarixen is a free, browser-based Roblox avatar downloader and 3D exporter. Enter a Roblox username to retrieve the avatar, preview it in interactive 3D, inspect its mesh hierarchy, and export it to OBJ, FBX, GLB, or glTF for 3D modeling and animation workflows.",
