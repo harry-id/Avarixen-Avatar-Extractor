@@ -1947,6 +1947,48 @@ function renderExplorer() {
     if (countEl) countEl.textContent = `${groups.length}`;
 }
 
+// The backend returns the base rig bones. When "More joints" is enabled, add the
+// extra R6 bones (waist, elbows, knees, feet) and re-link the chain here so the
+// explorer updates even if the backend hasn't been restarted with the newer code.
+function bonesWithMoreJoints(bones, rigType) {
+    if (!Array.isArray(bones) || rigType !== "R6") {
+        return bones;
+    }
+
+    const names = new Set(bones.map((b) => b.name));
+    const reparent = {};
+    const extra = [];
+
+    const add = (name, parent) => {
+        if (names.has(name)) return;
+        names.add(name);
+        extra.push({ name, parent });
+    };
+
+    add("Waist", "HumanoidRootPart");
+    reparent.Torso = "Waist";
+
+    add("Left LowerArm", "Left Arm");
+    reparent["Left Hand"] = "Left LowerArm";
+
+    add("Right LowerArm", "Right Arm");
+    reparent["Right Hand"] = "Right LowerArm";
+
+    add("Left LowerLeg", "Left Leg");
+    add("Left Foot", "Left LowerLeg");
+
+    add("Right LowerLeg", "Right Leg");
+    add("Right Foot", "Right LowerLeg");
+
+    const result = bones.map((b) =>
+        reparent[b.name] ? { name: b.name, parent: reparent[b.name] } : b
+    );
+
+    // Prepend the extra bones so the tree keeps the natural top-down order
+    // (root → waist → torso → …, then legs).
+    return extra.concat(result);
+}
+
 async function buildExplorer(userId) {
 
     const treeEl = document.getElementById("explorerTree");
@@ -1995,7 +2037,11 @@ async function buildExplorer(userId) {
             if (data.success && Array.isArray(data.groups)) {
 
                 groups = data.groups;
-                if (Array.isArray(data.bones)) bones = data.bones;
+                if (Array.isArray(data.bones)) {
+                    bones = moreJoints
+                        ? bonesWithMoreJoints(data.bones, data.rigType)
+                        : data.bones;
+                }
 
             }
 
