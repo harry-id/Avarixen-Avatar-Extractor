@@ -139,7 +139,7 @@
             margin-bottom: 15px;
         }
 
-        input {
+        input[type="text"] {
             flex: 1;
             min-width: 0;
             padding: 13px;
@@ -151,7 +151,7 @@
             outline: none;
         }
 
-        input:focus {
+        input[type="text"]:focus {
             border-color: #4285f4;
         }
 
@@ -484,8 +484,8 @@
 
         /* About / SEO content section */
         .info {
-            margin-top: 28px;
-            padding-top: 16px;
+            margin-top: 14px;
+            padding-top: 12px;
             border-top: 1px solid #30394d;
             color: #aab4c8;
         }
@@ -564,7 +564,9 @@
 
             #explorer {
                 width: 100%;
-                max-height: 200px;
+                height: 220px;
+                max-height: none;
+                margin: 12px 0 0;
             }
         }
 
