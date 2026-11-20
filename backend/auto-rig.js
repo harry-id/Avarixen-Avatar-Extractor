@@ -839,7 +839,86 @@ function buildParentMap(rigType, joints) {
         parentOf["RightFoot"] = "RightLowerLeg";
     }
 
+    // Tip bones (added by addTerminalTips) are plain children of the bone they
+    // extend, so their parent is encoded in the name.
+    for (const name of Object.keys(joints)) {
+        if (name.endsWith("_tip")) {
+            parentOf[name] = name.slice(0, -4);
+        }
+    }
+
     return { parentOf, rootName };
+}
+
+// Terminal bones have no child, so importers (Blender, Unity, ...) guess their
+// length/direction by copying the parent's. That makes leaves like the R6 hand
+// stretch to the floor and the leg point up into the torso. Give each one a
+// short child "tip" so the bone gets a real direction and length.
+function addTerminalTips(joints, parentOf, rigType, boxes, partMapping) {
+    const parented = new Set();
+
+    // Only count parents of joints that actually exist; buildParentMap also
+    // names parents for optional bones (e.g. Left LowerLeg) that may be absent.
+    for (const [child, parent] of Object.entries(parentOf)) {
+        if (joints[child] && joints[parent]) {
+            parented.add(parent);
+        }
+    }
+
+    const terminals = Object.keys(joints).filter((name) => !parented.has(name));
+
+    for (const name of terminals) {
+        // The head stub already points up at a sensible length.
+        if (/head/i.test(name)) {
+            continue;
+        }
+
+        let tip;
+
+        // R6 leg: put the tip at mid-thigh. The leg then spans hip→knee and the
+        // tip (which inherits the leg length) covers knee→foot.
+        if (rigType === "R6" && / leg$/i.test(name)) {
+            const box = partMapping[name] ? boxes[partMapping[name]] : null;
+
+            if (box && Number.isFinite(box.ymin)) {
+                const j = joints[name];
+                tip = [j[0], (j[1] + box.ymin) / 2, j[2]];
+            }
+        }
+
+        // Default: extend a little way along the bone's own direction.
+        if (!tip) {
+            const j = joints[name];
+            const parentName = parentOf[name];
+            const p = parentName ? joints[parentName] : null;
+            let dx = 0;
+            let dy = -1;
+            let dz = 0;
+
+            if (p) {
+                dx = j[0] - p[0];
+                dy = j[1] - p[1];
+                dz = j[2] - p[2];
+
+                const len = Math.hypot(dx, dy, dz);
+
+                if (len > 1e-6) {
+                    dx /= len;
+                    dy /= len;
+                    dz /= len;
+                } else {
+                    dx = 0;
+                    dy = -1;
+                    dz = 0;
+                }
+            }
+
+            tip = [j[0] + dx * 0.15, j[1] + dy * 0.15, j[2] + dz * 0.15];
+        }
+
+        joints[`${name}_tip`] = tip;
+        parentOf[`${name}_tip`] = name;
+    }
 }
 
 function buildDocument(parsed, partMapping, joints, offsetX, offsetY, offsetZ, rigType, handleBoneMap, options = {}) {
@@ -994,6 +1073,21 @@ function buildDocument(parsed, partMapping, joints, offsetX, offsetY, offsetZ, r
             if (ll && f) ll.addChild(f);
         }
     }
+
+    // Attach any remaining bones (e.g. terminal tips) to their parents.
+    for (const name of jointNames) {
+        const node = jointNodeMap[name];
+        const parentName = parentOf[name];
+
+        if (
+            parentName &&
+            jointNodeMap[parentName] &&
+            !node.getParentNode()
+        ) {
+            jointNodeMap[parentName].addChild(node);
+        }
+    }
+
     const boneNameToIdx = {};
     jointNames.forEach((name, i) => { boneNameToIdx[name] = i; });
 
@@ -1434,10 +1528,12 @@ function computeRig(parsed, { moreJoints = false } = {}) {
         groupToPart[gname] = part;
     }
 
+    const { parentOf, rootName } = buildParentMap(rigType, joints);
+    addTerminalTips(joints, parentOf, rigType, boxes, partMapping);
+
     const boneNameToIdx = {};
     Object.keys(joints).forEach((name, i) => { boneNameToIdx[name] = i; });
 
-    const { parentOf, rootName } = buildParentMap(rigType, joints);
     const { limbSkinFor, limbWeightsFor } = createSkinner(joints, boneNameToIdx);
 
     // Weights depend only on relative geometry, so raw-space joints + raw
