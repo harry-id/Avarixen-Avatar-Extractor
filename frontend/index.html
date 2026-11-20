@@ -199,7 +199,7 @@
         /* Viewer + model explorer sidebar layout */
         .viewer-layout {
             display: flex;
-            gap: 12px;
+            gap: 0;
             align-items: stretch;
         }
 
@@ -211,6 +211,7 @@
         #explorer {
             width: 240px;
             height: 500px;
+            margin-left: 12px;
             flex-shrink: 0;
             background: #191e2b;
             border: 1px solid #30394d;
@@ -569,14 +570,20 @@
             left: 12px;
             z-index: 5;
             max-width: calc(100% - 24px);
-            padding: 10px 14px;
-            background: rgba(25, 30, 43, 0.75);
-            border: 1px solid #39445c;
-            border-radius: 8px;
+            padding: 0;
+            background: none;
+            border: none;
             color: #aab4c8;
-            font-size: 13px;
+            font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+            font-size: 12px;
             line-height: 1.5;
             pointer-events: none;
+            white-space: pre-wrap;
+            word-break: break-word;
+        }
+
+        .status.is-error {
+            color: #f44336;
         }
 
         .controls {
@@ -726,7 +733,7 @@
     <div class="viewer-layout">
         <div id="viewer">
             <div id="accountInfo"></div>
-            <div class="status" id="status" data-i18n="statusWaiting">Enter a Roblox username to load 3D preview.</div>
+            <div class="status is-waiting" id="status" data-i18n="statusWaiting">Enter a Roblox username to load 3D preview.</div>
         </div>
         <aside id="explorer">
             <div class="explorer-header">
@@ -994,6 +1001,7 @@ const LANG = {
         verticesLabel: "vertices",
         apiOnline: "API Online",
         apiOffline: "API Offline",
+        errorApiOffline: "API sedang offline. Coba lagi sesaat lagi.",
         apiChecking: "Checking..."
     },
     en: {
@@ -1089,6 +1097,7 @@ const LANG = {
         verticesLabel: "vertices",
         apiOnline: "API Online",
         apiOffline: "API Offline",
+        errorApiOffline: "API is offline. Please try again shortly.",
         apiChecking: "Checking..."
     }
 };
@@ -1139,7 +1148,7 @@ function setLang(lang) {
 
     // Re-apply the last tracked dynamic status so it translates too.
     if (currentStatusKey) {
-        status.textContent = t(currentStatusKey, currentStatusParams || {});
+        renderStatus();
     }
 
     if (apiStatusState) {
@@ -1155,10 +1164,92 @@ function setLang(lang) {
 let currentStatusKey = null;
 let currentStatusParams = {};
 
+// Spinner frames for the "processing" animation. We deliberately avoid
+// setInterval-driven rendering so the animation stays smooth and pauses when
+// the tab is hidden (requestAnimationFrame throttles automatically).
+const STATUS_SPINNER_FRAMES = ["|", "/", "-", "\\"];
+let statusSpinnerIndex = 0;
+let statusRafId = null;
+
+function isStatusBusyKey(key) {
+    // Keys that represent an in-progress operation (not a final/error state).
+    return key === "statusLoadingMaterial" ||
+        key === "statusLoadingModel" ||
+        key === "statusSearching" ||
+        key === "statusFetchMetadata" ||
+        key === "statusDownloadAssets" ||
+        key === "statusConverting" ||
+        key === "statusRigging";
+}
+
+function isStatusErrorKey(key) {
+    return key === "statusLoadObjFailed" ||
+        key === "statusLoadMtlFailed" ||
+        key === "statusNoLocalModel" ||
+        key === "errorEmptyUsername" ||
+        key === "errorNotFound" ||
+        key === "errorFetchMetadata" ||
+        key === "errorDownloadAssets" ||
+        key === "errorOccurred" ||
+        key === "errorConvertFailed" ||
+        key === "errorZipFetch" ||
+        key === "apiOffline";
+}
+
+function stopStatusSpinner() {
+    if (statusRafId !== null) {
+        cancelAnimationFrame(statusRafId);
+        statusRafId = null;
+    }
+}
+
+function startStatusSpinner() {
+    stopStatusSpinner();
+
+    let last = 0;
+    const tick = (now) => {
+        // ~10 fps is plenty for a spinner and keeps it lightweight.
+        if (now - last > 100) {
+            statusSpinnerIndex = (statusSpinnerIndex + 1) % STATUS_SPINNER_FRAMES.length;
+            last = now;
+            renderStatus();
+        }
+        statusRafId = requestAnimationFrame(tick);
+    };
+    statusRafId = requestAnimationFrame(tick);
+}
+
+function renderStatus() {
+    const key = currentStatusKey;
+    if (!key) {
+        status.textContent = "";
+        status.classList.remove("is-error", "is-busy", "is-waiting");
+        stopStatusSpinner();
+        return;
+    }
+
+    const base = t(key, currentStatusParams || {});
+    const busy = isStatusBusyKey(key);
+
+    status.classList.toggle("is-error", isStatusErrorKey(key));
+    status.classList.toggle("is-busy", busy);
+    status.classList.toggle("is-waiting", !busy && !isStatusErrorKey(key));
+
+    if (busy) {
+        const frame = STATUS_SPINNER_FRAMES[statusSpinnerIndex];
+        status.textContent = `[${frame}] ${base}`;
+        startStatusSpinner();
+    } else {
+        status.textContent = base;
+        stopStatusSpinner();
+    }
+}
+
 function setStatus(key, params = {}) {
     currentStatusKey = key;
     currentStatusParams = params;
-    status.textContent = t(key, params);
+    statusSpinnerIndex = 0;
+    renderStatus();
 }
 
 function apiHeaders() {
@@ -1166,6 +1257,17 @@ function apiHeaders() {
         "Content-Type": "application/json",
         "Accept-Language": currentLang
     };
+}
+
+// Wrapper around fetch() for backend calls. Network failures (no response at
+// all) are converted into a friendly "API offline" error so the UI doesn't show
+// a raw "NetworkError"/"Failed to fetch" message.
+async function apiFetch(url, options = {}) {
+    try {
+        return await fetch(url, options);
+    } catch (error) {
+        throw apiFetchError();
+    }
 }
 
 const langSelector = document.getElementById("langSelector");
@@ -1200,13 +1302,40 @@ function renderApiStatus(state) {
                 : t("apiChecking");
 }
 
+// Network-level failures (no response at all) usually mean the API is
+// unreachable rather than the request itself being invalid. Surface that as a
+// friendly "API offline" message instead of leaking the raw TypeError text.
+function apiFetchError() {
+    const err = new Error(t("errorApiOffline"));
+    err.isApiOffline = true;
+    return err;
+}
+
+function setStatusError(error) {
+    if (error && error.isApiOffline) {
+        setStatus("apiOffline");
+    } else {
+        setStatus("errorOccurred", { message: (error && error.message) || "Unknown error" });
+    }
+}
+
 async function checkApiStatus() {
     try {
         const resp = await fetch(`${BACKEND_URL}/api/health`, { cache: "no-store" });
         if (!resp.ok) throw new Error("bad status");
         renderApiStatus("online");
+        // Clear a stale "API Offline" error message if one was showing and the
+        // API has come back.
+        if (currentStatusKey === "apiOffline") {
+            setStatus(currentUserId ? "statusLoaded" : "statusWaiting");
+        }
     } catch {
         renderApiStatus("offline");
+        // Surface the offline state in the status area too, unless a real
+        // operation is in progress.
+        if (!currentStatusKey || isStatusErrorKey(currentStatusKey) || currentStatusKey === "statusWaiting" || currentStatusKey === "statusLoaded") {
+            setStatus("apiOffline");
+        }
     }
 }
 
@@ -1866,7 +1995,7 @@ searchButton.addEventListener(
 
             setStatus("statusSearching");
 
-            const userResponse = await fetch(
+            const userResponse = await apiFetch(
                 BACKEND_URL + "/api/roblox/user",
                 {
                     method: "POST",
@@ -1903,7 +2032,7 @@ searchButton.addEventListener(
             setStatus("statusFetchMetadata");
 
 
-            const avatarResponse = await fetch(
+            const avatarResponse = await apiFetch(
                 BACKEND_URL +
                 "/api/roblox/avatar/" +
                 encodeURIComponent(user.id),
@@ -1921,7 +2050,7 @@ searchButton.addEventListener(
 
             setStatus("statusDownloadAssets");
 
-            const downloadResponse = await fetch(
+            const downloadResponse = await apiFetch(
                 BACKEND_URL +
                 "/api/roblox/download/" +
                 encodeURIComponent(user.id),
@@ -1957,7 +2086,7 @@ searchButton.addEventListener(
 
             console.error(error);
 
-            setStatus("errorOccurred", { message: error.message });
+            setStatusError(error);
 
         } finally {
 
@@ -2016,7 +2145,7 @@ reloadButton.addEventListener(
 
             // Always re-download from the endpoint so the preview is fresh,
             // instead of reusing files already cached in downloads/.
-            const response = await fetch(
+            const response = await apiFetch(
                 BACKEND_URL +
                 "/api/roblox/download/" +
                 encodeURIComponent(currentUserId),
@@ -2050,7 +2179,7 @@ reloadButton.addEventListener(
 
             console.error(error);
 
-            setStatus("errorOccurred", { message: error.message });
+            setStatusError(error);
 
         } finally {
 
