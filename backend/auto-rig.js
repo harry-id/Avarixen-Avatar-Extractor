@@ -674,15 +674,26 @@ function assignHandleBone(handleGroup, playerBoxes, positions) {
     // Anatomical cleanup: legs are not valid attachment points for accessories;
     // a tail or waist item belongs to the hips, and a central low item is never
     // a head/arm accessory.
+    let finalPart = bestPart;
     if (/Leg|Foot/.test(bestPart)) {
-        return hipsPart(rigType);
+        finalPart = hipsPart(rigType);
+    } else if (central && belowWaist && /Head|Arm|Hand/.test(bestPart)) {
+        finalPart = hipsPart(rigType);
     }
 
-    if (central && belowWaist && /Head|Arm|Hand/.test(bestPart)) {
-        return hipsPart(rigType);
+    // Only tie the accessory to a bone when it actually sits within a reasonable
+    // distance of that parent. Far-flung props are left unparented (still
+    // centered on their own pivot) so they don't snap to an unrelated bone.
+    const finalBox = playerBoxes[finalPart];
+    if (finalBox && Number.isFinite(finalBox.cx)) {
+        const rawDist = distanceToBox(center, finalBox);
+        const limit = Math.max(finalBox.sx, finalBox.sy, finalBox.sz) * 1.5;
+        if (rawDist > limit) {
+            return null;
+        }
     }
 
-    return bestPart;
+    return finalPart;
 }
 
 function createAccessor(doc, buffer, array, typeStr, componentType, normalized = false) {
@@ -1001,11 +1012,32 @@ function buildDocument(parsed, partMapping, joints, offsetX, offsetY, offsetZ, r
     let globalIndexOffset = 0;
 
     for (const g of groups) {
+        // Accessories (Handle*) are parented to a bone as rigid child nodes
+        // rather than skinned, so they stay separate, movable objects that
+        // follow their parent bone. Handles with no reasonable parent bone are
+        // left unparented (still centered on their own pivot).
+        const isHandle = Object.prototype.hasOwnProperty.call(handleBoneMap, g.name);
+        const assignedBone = isHandle ? handleBoneMap[g.name] : null;
+
         const boneName = rigged
-            ? (groupToPart[g.name] || handleBoneMap[g.name] || rootName)
+            ? (groupToPart[g.name] || assignedBone || rootName)
             : null;
         const boneIdx = rigged && boneNameToIdx[boneName] !== undefined ? boneNameToIdx[boneName] : 0;
-        const limbSkin = rigged ? limbSkinFor(boneName) : null;
+        const limbSkin = (rigged && !isHandle) ? limbSkinFor(boneName) : null;
+
+        // Recenter accessory geometry around its own pivot. The node translation
+        // applied during assembly restores the original world position, so the
+        // pivot change never moves the accessory.
+        let handleCenter = null;
+        if (isHandle && splitParts) {
+            const box = computeBox(g.vertexIndices, positions);
+            if (Number.isFinite(box.cx)) {
+                handleCenter = [box.cx - offsetX, box.cy - offsetY, box.cz - offsetZ];
+            }
+        }
+        const hx = handleCenter ? handleCenter[0] : 0;
+        const hy = handleCenter ? handleCenter[1] : 0;
+        const hz = handleCenter ? handleCenter[2] : 0;
 
         const faceIndices = g.faceIndices;
 
@@ -1040,9 +1072,9 @@ function buildDocument(parsed, partMapping, joints, offsetX, offsetY, offsetZ, r
                     cornerMap[key] = localIdx;
 
                     groupLocalPos.push(
-                        positions[vIdx * 3] - offsetX,
-                        positions[vIdx * 3 + 1] - offsetY,
-                        positions[vIdx * 3 + 2] - offsetZ
+                        positions[vIdx * 3] - offsetX - hx,
+                        positions[vIdx * 3 + 1] - offsetY - hy,
+                        positions[vIdx * 3 + 2] - offsetZ - hz
                     );
 
                     if (nIdx >= 0 && normals.length > nIdx * 3) {
@@ -1128,7 +1160,10 @@ function buildDocument(parsed, partMapping, joints, offsetX, offsetY, offsetZ, r
             joints: groupLocalJoints,
             weights: groupLocalWeights,
             indices: groupIndices,
-            baseIndex: globalIndexOffset
+            baseIndex: globalIndexOffset,
+            isHandle,
+            handleCenter,
+            boneName: isHandle ? assignedBone : null
         });
 
         primInfos.push({
@@ -1200,7 +1235,7 @@ function buildDocument(parsed, partMapping, joints, offsetX, offsetY, offsetZ, r
                 .setAttribute("TEXCOORD_0", createAccessor(doc, buffer, new Float32Array(build.uvs), "VEC2", Accessor.ComponentType.FLOAT))
                 .setAttribute("COLOR_0", createAccessor(doc, buffer, partColors, "VEC4", Accessor.ComponentType.UNSIGNED_BYTE, true));
 
-            if (rigged) {
+            if (rigged && !build.isHandle) {
                 prim.setAttribute("JOINTS_0", createAccessor(doc, buffer, new Uint16Array(build.joints), "VEC4", Accessor.ComponentType.UNSIGNED_SHORT));
                 prim.setAttribute("WEIGHTS_0", createAccessor(doc, buffer, new Float32Array(build.weights), "VEC4", Accessor.ComponentType.FLOAT));
             }
@@ -1223,10 +1258,30 @@ function buildDocument(parsed, partMapping, joints, offsetX, offsetY, offsetZ, r
 
             const partNode = doc.createNode(nodeName);
             partNode.setMesh(partMesh);
-            container.addChild(partNode);
 
-            if (skin) {
-                partNode.setSkin(skin);
+            if (build.isHandle && build.handleCenter) {
+                // Parent the accessory to its bone (or the container when it has
+                // no reasonable parent). The node translation compensates for the
+                // bone's rest position, so the centered-pivot geometry keeps its
+                // original world position.
+                const parentJoint = build.boneName && jointNodeMap[build.boneName];
+                if (parentJoint) {
+                    const jp = joints[build.boneName] || [0, 0, 0];
+                    partNode.setTranslation([
+                        build.handleCenter[0] - jp[0],
+                        build.handleCenter[1] - jp[1],
+                        build.handleCenter[2] - jp[2]
+                    ]);
+                    parentJoint.addChild(partNode);
+                } else {
+                    partNode.setTranslation(build.handleCenter);
+                    container.addChild(partNode);
+                }
+            } else {
+                container.addChild(partNode);
+                if (skin) {
+                    partNode.setSkin(skin);
+                }
             }
         }
 

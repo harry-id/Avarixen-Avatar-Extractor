@@ -263,7 +263,7 @@ async function buildFbx({
         return materialCache.get(name);
     };
 
-    const buildPart = (polys, fixedGroupName = null) => {
+    const buildPart = (polys, fixedGroupName = null, recenter = null) => {
         const usedNames = [...new Set(polys.map((poly) => poly.material || "default"))];
         const nameToIndex = new Map(usedNames.map((name, i) => [name, i]));
 
@@ -338,11 +338,15 @@ async function buildFbx({
                 groupCounts[mi] = (groupCounts[mi] || 0) + 3;
 
                 for (const c of [c1, c2, c3]) {
-                    positions.push(c.p[0], c.p[1], c.p[2]);
+                    positions.push(
+                        c.p[0] - (recenter ? recenter.x : 0),
+                        c.p[1] - (recenter ? recenter.y : 0),
+                        c.p[2] - (recenter ? recenter.z : 0)
+                    );
                     normals.push(c.n[0], c.n[1], c.n[2]);
                     uvs.push(c.t[0], c.t[1]);
 
-                    if (rigData) {
+                    if (rigData && !recenter) {
                         const skin = rigData.skinFor(groupName, c.raw[0], c.raw[1], c.raw[2]);
                         skinIndices.push(
                             skin.indices[0], skin.indices[1],
@@ -402,7 +406,7 @@ async function buildFbx({
         geometry.setAttribute("normal", new T.Float32BufferAttribute(normals, 3));
         geometry.setAttribute("uv", new T.Float32BufferAttribute(uvs, 2));
 
-        if (rigData) {
+        if (rigData && !recenter) {
             geometry.setAttribute("skinIndex", new T.Uint16BufferAttribute(skinIndices, 4));
             geometry.setAttribute("skinWeight", new T.Float32BufferAttribute(skinWeights, 4));
         }
@@ -419,6 +423,29 @@ async function buildFbx({
         }
 
         return { geometry, materials: usedNames.map(materialFor) };
+    };
+
+    // Bounding-box centre (FBX space) of a part's polygons. Used to recenter
+    // accessory geometry around its own pivot.
+    const partCenter = (polys) => {
+        const box = new T.Box3();
+        const v = new T.Vector3();
+
+        for (const poly of polys) {
+            for (const idx of poly.corners) {
+                const pos = obj.positions[idx.p];
+                v.set(
+                    -(pos[0] - offsetX),
+                    pos[1] - offsetY,
+                    -(pos[2] - offsetZ)
+                );
+                box.expandByPoint(v);
+            }
+        }
+
+        const center = new T.Vector3();
+        box.getCenter(center);
+        return center;
     };
 
     const scene = new T.Scene();
@@ -453,10 +480,10 @@ async function buildFbx({
     scene.add(container);
 
     let skeleton = null;
+    const boneByName = {};
 
     if (rigData) {
         const boneNames = Object.keys(rigData.joints);
-        const boneByName = {};
         const bones = [];
 
         for (const name of boneNames) {
@@ -560,23 +587,47 @@ async function buildFbx({
     }
 
     for (const part of partList) {
-        const built = buildPart(part.polys, splitParts ? part.name : null);
+        const isHandle = splitParts && rigData && /^handle/i.test(part.name);
+        const handleBone = isHandle ? rigData.handleBoneMap[part.name] : null;
+        const recenter = isHandle ? partCenter(part.polys) : null;
+
+        const built = buildPart(part.polys, splitParts ? part.name : null, recenter);
 
         let mesh;
 
-        if (rigData) {
+        if (rigData && !isHandle) {
             mesh = new T.SkinnedMesh(built.geometry, built.materials);
             mesh.name = part.name;
             // Identity bind matrix: geometry and bones already share the same
             // (FBX) space.
             mesh.bind(skeleton, new T.Matrix4());
             mesh.frustumCulled = false;
+            container.add(mesh);
+        } else if (isHandle) {
+            // Accessories are rigid children of their parent bone (not skinned),
+            // with geometry centered on its own pivot. The node transform keeps
+            // the accessory at its original world position.
+            mesh = new T.Mesh(built.geometry, built.materials);
+            mesh.name = part.name;
+            mesh.frustumCulled = false;
+
+            const bone = handleBone ? boneByName[handleBone] : null;
+
+            if (bone) {
+                mesh.position.copy(bone.worldToLocal(recenter.clone()));
+                mesh.quaternion.copy(
+                    bone.getWorldQuaternion(new T.Quaternion()).invert()
+                );
+                bone.add(mesh);
+            } else {
+                mesh.position.copy(recenter);
+                container.add(mesh);
+            }
         } else {
             mesh = new T.Mesh(built.geometry, built.materials);
             mesh.name = part.name;
+            container.add(mesh);
         }
-
-        container.add(mesh);
     }
 
     const exporter = new FBXExporter();
