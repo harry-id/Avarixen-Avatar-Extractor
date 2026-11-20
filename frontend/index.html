@@ -564,9 +564,19 @@
         }
 
         .status {
-            margin-top: 15px;
+            position: absolute;
+            bottom: 12px;
+            left: 12px;
+            z-index: 5;
+            max-width: calc(100% - 24px);
+            padding: 10px 14px;
+            background: rgba(25, 30, 43, 0.75);
+            border: 1px solid #39445c;
+            border-radius: 8px;
             color: #aab4c8;
+            font-size: 13px;
             line-height: 1.5;
+            pointer-events: none;
         }
 
         .controls {
@@ -716,6 +726,7 @@
     <div class="viewer-layout">
         <div id="viewer">
             <div id="accountInfo"></div>
+            <div class="status" id="status" data-i18n="statusWaiting">Enter a Roblox username to load 3D preview.</div>
         </div>
         <aside id="explorer">
             <div class="explorer-header">
@@ -730,8 +741,6 @@
             </div>
         </aside>
     </div>
-
-    <div class="status" id="status" data-i18n="statusWaiting">Enter a Roblox username to load 3D preview.</div>
 
     <div class="controls">
         <button id="reloadButton" data-i18n="reloadButton">Reload Model</button>
