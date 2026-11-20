@@ -590,6 +590,7 @@
             display: flex;
             flex-wrap: wrap;
             gap: 10px;
+            margin-top: 16px;
         }
 
         .dropdown {
@@ -1208,8 +1209,8 @@ function startStatusSpinner() {
 
     let last = 0;
     const tick = (now) => {
-        // ~10 fps is plenty for a spinner and keeps it lightweight.
-        if (now - last > 100) {
+        // ~5 fps is a calm, readable spinner cadence.
+        if (now - last > 200) {
             statusSpinnerIndex = (statusSpinnerIndex + 1) % STATUS_SPINNER_FRAMES.length;
             last = now;
             renderStatus();
