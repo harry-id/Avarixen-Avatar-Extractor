@@ -1499,12 +1499,10 @@ async function convertAvatar(assetDir, {
     const parsed = parseObj(objPath);
 
     if (subdivision > 0) {
-        // Mesh quality refines the body only: accessories (Handle* groups) and
-        // the head keep their original density.
-        const headGroup = findHeadGroupName(parsed);
+        // Mesh quality refines the whole body, including the head. Only
+        // accessories (Handle* groups) keep their original density.
         const isExcluded = (name) =>
-            typeof name === "string" &&
-            (/^handle/i.test(name) || name === headGroup);
+            typeof name === "string" && /^handle/i.test(name);
 
         subdivideParsed(parsed, subdivision, (face) => !isExcluded(face.group));
     }
@@ -1593,7 +1591,7 @@ async function convertAvatar(assetDir, {
  * @param {string} assetDir
  * @returns {{ rigType: string|null, groups: Array<{name, vertices, faces, type, part}> }}
  */
-function getPartInfo(assetDir) {
+function getPartInfo(assetDir, { moreJoints = false } = {}) {
     const objPath = path.join(assetDir, "avatar.obj");
     if (!fs.existsSync(objPath)) {
         throw new Error("avatar.obj not found in " + assetDir);
@@ -1661,7 +1659,7 @@ function getPartInfo(assetDir) {
     // will contain. Null when no rig can be detected.
     let bones = null;
     if (rigType) {
-        const joints = computeJoints(partMapping, boxes, 0, 0, 0, rigType, false);
+        const joints = computeJoints(partMapping, boxes, 0, 0, 0, rigType, !!moreJoints);
         const { parentOf } = buildParentMap(rigType, joints);
         bones = Object.keys(joints).map((name) => ({
             name,

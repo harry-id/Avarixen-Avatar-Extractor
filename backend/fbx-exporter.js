@@ -379,8 +379,8 @@ async function buildFbx({
             const c0 = cornerData(poly, 0);
             const groupName = fixedGroupName || poly.group || "Avatar";
 
-            // Mesh quality refines anatomy only; accessories (Handle* groups)
-            // and any explicitly excluded groups (e.g. the head) keep their
+            // Mesh quality refines anatomy (including the head); only accessories
+            // (Handle* groups) and any explicitly excluded groups keep their
             // original density.
             const level =
                 isBodyGroup(poly.group || "") &&
