@@ -18,6 +18,7 @@ const {
     convertAvatar,
     assignHandleBone,
     computeJoints,
+    buildParentMap,
     subdivideParsed
 } = require("../auto-rig");
 
@@ -298,7 +299,7 @@ test("tail-like accessory attaches to the Torso (R6)", () => {
     assert.equal(assignHandleBone(handleGroup, r6, positions), "Torso");
 });
 
-test("R6 rig adds hand bones at the bottom of each arm", () => {
+test("R6 rig adds hand bones at the arm bottom and foot bones at the leg bottom", () => {
     const mapping = {
         Head: "Player6",
         Torso: "Player5",
@@ -320,7 +321,16 @@ test("R6 rig adds hand bones at the bottom of each arm", () => {
     assert.ok(joints["Left Hand"]);
     assert.ok(joints["Right Hand"]);
     assert.equal(joints["Left LowerArm"], undefined);
-    assert.equal(joints["Left Foot"], undefined);
+    assert.ok(joints["Left Foot"]);
+    assert.ok(joints["Right Foot"]);
+    assert.equal(joints["Left LowerLeg"], undefined);
+    // Feet sit at the bottom of the legs (OBJ Y is up).
+    assert.equal(joints["Left Foot"][1], 2);
+    assert.equal(joints["Right Foot"][1], 2);
+
+    const { parentOf } = buildParentMap("R6", joints);
+    assert.equal(parentOf["Left Foot"], "Left Leg");
+    assert.equal(parentOf["Right Foot"], "Right Leg");
 });
 
 test("R6 more-joints adds lower arm/leg and foot joints", () => {

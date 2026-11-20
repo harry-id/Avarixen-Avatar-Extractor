@@ -552,13 +552,18 @@ function computeJoints(partMapping, boxes, offsetX, offsetY, offsetZ, rigType, m
                         r6Box.cz
                     ]);
                 }
-            } else if (moreJoints) {
-                // Knee at the limb midpoint for a natural bend.
-                J[`${side} LowerLeg`] = sub([
-                    r6Box.cx,
-                    r6Box.cy,
-                    r6Box.cz
-                ]);
+            } else {
+                if (moreJoints) {
+                    // Knee at the limb midpoint for a natural bend.
+                    J[`${side} LowerLeg`] = sub([
+                        r6Box.cx,
+                        r6Box.cy,
+                        r6Box.cz
+                    ]);
+                }
+                // Foot at the bottom of each leg. Besides the ankle joint, this
+                // gives the leg bone a child so its tail points down instead of
+                // up into the torso.
                 J[`${side} Foot`] = sub(bottomCenter(r6Box));
             }
         } else if (upperBox || lowerBox || endBox) {
@@ -818,8 +823,8 @@ function buildParentMap(rigType, joints) {
         parentOf["Right Leg"] = rootName;
         parentOf["Left LowerLeg"] = "Left Leg";
         parentOf["Right LowerLeg"] = "Right Leg";
-        parentOf["Left Foot"] = "Left LowerLeg";
-        parentOf["Right Foot"] = "Right LowerLeg";
+        parentOf["Left Foot"] = joints["Left LowerLeg"] ? "Left LowerLeg" : "Left Leg";
+        parentOf["Right Foot"] = joints["Right LowerLeg"] ? "Right LowerLeg" : "Right Leg";
     } else if (rigType === "R15") {
         parentOf.LowerTorso = rootName;
         parentOf.UpperTorso = "LowerTorso";
@@ -839,8 +844,7 @@ function buildParentMap(rigType, joints) {
         parentOf["RightFoot"] = "RightLowerLeg";
     }
 
-    // Tip bones (added by addTerminalTips) are plain children of the bone they
-    // extend, so their parent is encoded in the name.
+    // Export-only tip bones are plain children of the bone named before "_tip".
     for (const name of Object.keys(joints)) {
         if (name.endsWith("_tip")) {
             parentOf[name] = name.slice(0, -4);
@@ -850,74 +854,51 @@ function buildParentMap(rigType, joints) {
     return { parentOf, rootName };
 }
 
-// Terminal bones have no child, so importers (Blender, Unity, ...) guess their
-// length/direction by copying the parent's. That makes leaves like the R6 hand
-// stretch to the floor and the leg point up into the torso. Give each one a
-// short child "tip" so the bone gets a real direction and length.
-function addTerminalTips(joints, parentOf, rigType, boxes, partMapping) {
+// Importers such as Blender and Unity guess a leaf bone's length and direction
+// from its parent, which stretched R6 hands down to the floor. Terminal
+// hand/foot bones get a short child tip so they get a real, small length.
+// Export-only: the explorer and /parts endpoint build bones from
+// computeJoints, so their rig trees stay free of tips.
+function addTerminalTips(joints, parentOf) {
+    const TIP = 0.15;
     const parented = new Set();
 
-    // Only count parents of joints that actually exist; buildParentMap also
-    // names parents for optional bones (e.g. Left LowerLeg) that may be absent.
     for (const [child, parent] of Object.entries(parentOf)) {
-        if (joints[child] && joints[parent]) {
-            parented.add(parent);
-        }
+        if (joints[child] && joints[parent]) parented.add(parent);
     }
 
-    const terminals = Object.keys(joints).filter((name) => !parented.has(name));
-
-    for (const name of terminals) {
-        // The head stub already points up at a sensible length.
-        if (/head/i.test(name)) {
+    for (const name of Object.keys(joints)) {
+        if (parented.has(name) || /head/i.test(name) || !/(hand|foot)/i.test(name)) {
             continue;
         }
 
-        let tip;
+        const j = joints[name];
+        const p = joints[parentOf[name]];
+        let dx = 0;
+        let dy = -1;
+        let dz = 0;
 
-        // R6 leg: put the tip at mid-thigh. The leg then spans hip→knee and the
-        // tip (which inherits the leg length) covers knee→foot.
-        if (rigType === "R6" && / leg$/i.test(name)) {
-            const box = partMapping[name] ? boxes[partMapping[name]] : null;
+        if (p) {
+            dx = j[0] - p[0];
+            dy = j[1] - p[1];
+            dz = j[2] - p[2];
 
-            if (box && Number.isFinite(box.ymin)) {
-                const j = joints[name];
-                tip = [j[0], (j[1] + box.ymin) / 2, j[2]];
+            const len = Math.hypot(dx, dy, dz);
+
+            if (len > 1e-6) {
+                dx /= len;
+                dy /= len;
+                dz /= len;
+            } else {
+                dx = 0;
+                dy = -1;
+                dz = 0;
             }
         }
 
-        // Default: extend a little way along the bone's own direction.
-        if (!tip) {
-            const j = joints[name];
-            const parentName = parentOf[name];
-            const p = parentName ? joints[parentName] : null;
-            let dx = 0;
-            let dy = -1;
-            let dz = 0;
-
-            if (p) {
-                dx = j[0] - p[0];
-                dy = j[1] - p[1];
-                dz = j[2] - p[2];
-
-                const len = Math.hypot(dx, dy, dz);
-
-                if (len > 1e-6) {
-                    dx /= len;
-                    dy /= len;
-                    dz /= len;
-                } else {
-                    dx = 0;
-                    dy = -1;
-                    dz = 0;
-                }
-            }
-
-            tip = [j[0] + dx * 0.15, j[1] + dy * 0.15, j[2] + dz * 0.15];
-        }
-
-        joints[`${name}_tip`] = tip;
-        parentOf[`${name}_tip`] = name;
+        const tipName = `${name}_tip`;
+        joints[tipName] = [j[0] + dx * TIP, j[1] + dy * TIP, j[2] + dz * TIP];
+        parentOf[tipName] = name;
     }
 }
 
@@ -1074,20 +1055,15 @@ function buildDocument(parsed, partMapping, joints, offsetX, offsetY, offsetZ, r
         }
     }
 
-    // Attach any remaining bones (e.g. terminal tips) to their parents.
+    // Attach export-only terminal tips to the bone they extend.
     for (const name of jointNames) {
         const node = jointNodeMap[name];
         const parentName = parentOf[name];
 
-        if (
-            parentName &&
-            jointNodeMap[parentName] &&
-            !node.getParentNode()
-        ) {
+        if (parentName && jointNodeMap[parentName] && !node.getParentNode()) {
             jointNodeMap[parentName].addChild(node);
         }
     }
-
     const boneNameToIdx = {};
     jointNames.forEach((name, i) => { boneNameToIdx[name] = i; });
 
@@ -1529,7 +1505,7 @@ function computeRig(parsed, { moreJoints = false } = {}) {
     }
 
     const { parentOf, rootName } = buildParentMap(rigType, joints);
-    addTerminalTips(joints, parentOf, rigType, boxes, partMapping);
+    addTerminalTips(joints, parentOf);
 
     const boneNameToIdx = {};
     Object.keys(joints).forEach((name, i) => { boneNameToIdx[name] = i; });
