@@ -123,7 +123,22 @@ if (logRequests) {
 // client-side OBJ download. In production this lets the GitHub Pages frontend
 // load assets from the API origin (api.harrycore.web.id).
 const downloadsDir = path.join(__dirname, "../downloads");
-app.use("/assets", express.static(downloadsDir));
+
+// Serve cached avatar files with explicit, short cache headers. Avatar files can
+// change when a user changes their avatar and the client re-downloads them, so
+// they must revalidate (no-cache) instead of being served stale from the browser
+// cache. A short max-age keeps repeat loads fast within a session.
+app.use(
+    "/assets",
+    express.static(downloadsDir, {
+        etag: true,
+        lastModified: true,
+        maxAge: "5m",
+        setHeaders(res) {
+            res.setHeader("Cache-Control", "public, max-age=300, must-revalidate");
+        }
+    })
+);
 
 // Delete cached avatars older than DOWNLOADS_TTL_HOURS (default 24h) so the
 // cache does not grow without bound. The timer is unref'd, so it never keeps

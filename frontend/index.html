@@ -1439,7 +1439,8 @@ let currentAssetFiles = null;
 
 function loadModel(userId = null, bustCache = false) {
 
-    const cacheBust = bustCache ? `?v=${Date.now()}` : "";
+    const cacheBustVersion = bustCache ? String(Date.now()) : "";
+    const cacheBust = bustCache ? `?v=${cacheBustVersion}` : "";
 
     const assetPath = userId
         ? `${BACKEND_URL}/assets/${encodeURIComponent(userId)}/`
@@ -1450,6 +1451,24 @@ function loadModel(userId = null, bustCache = false) {
     const mtlLoader = new MTLLoader();
 
     mtlLoader.setPath(assetPath);
+
+    // When busting the cache, also rewrite texture references inside the MTL so
+    // the freshly downloaded textures are used instead of a stale cached copy.
+    // MTLLoader resolves map_* values relative to the MTL path; appending a
+    // version query forces the browser to fetch the new file.
+    if (bustCache) {
+        const manager = new THREE.LoadingManager();
+        // setURLModifier receives the already-resolved URL; appending a version
+        // query forces the browser to fetch the freshly downloaded texture.
+        manager.setURLModifier((url) => {
+            const clean = url.split("#")[0];
+            if (/\.(png|jpe?g|webp|gif|bmp|tga)$/i.test(clean)) {
+                return clean + (clean.includes("?") ? "&" : "?") + "v=" + cacheBustVersion;
+            }
+            return url;
+        });
+        mtlLoader.manager = manager;
+    }
 
     mtlLoader.load(
         "avatar.mtl" + cacheBust,
