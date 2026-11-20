@@ -78,9 +78,11 @@ test("parseMtl reads Kd and map_Kd", () => {
     }
 });
 
-test("detectRigType only accepts 6 or 15 player groups", () => {
+test("detectRigType accepts R6 and full/partial R15 player groups", () => {
     assert.equal(detectRigType(6), "R6");
     assert.equal(detectRigType(15), "R15");
+    assert.equal(detectRigType(14), "R15");
+    assert.equal(detectRigType(7), "R15");
     assert.equal(detectRigType(5), null);
     assert.equal(detectRigType(16), null);
 });
@@ -260,6 +262,45 @@ const R15_BOXES = {
     LeftUpperLeg: makeBox(-0.8, -0.1, 2, 5, -0.5, 0.5),
     RightUpperLeg: makeBox(0.1, 0.8, 2, 5, -0.5, 0.5)
 };
+
+test("partial R15 avatars (14 parts) still map to body parts", () => {
+    const boxes = {
+        Player8: makeBox(-0.58, 0.58, 3.97, 5.15, -0.58, 0.58),
+        Player7: makeBox(-0.45, 0.45, 2.31, 4.09, -0.42, 0.29),
+        Player6: makeBox(-0.46, 0.46, 2.16, 2.57, -0.33, 0.29),
+        Player3: makeBox(0.33, 0.80, 2.85, 3.67, -0.25, 0.23),
+        Player2: makeBox(0.76, 1.03, 2.15, 2.58, -0.24, 0.08),
+        Player1: makeBox(0.84, 1.22, 1.69, 2.27, -0.49, -0.03),
+        Player5: makeBox(-0.80, -0.33, 2.84, 3.67, -0.25, 0.23),
+        Player4: makeBox(-1.22, -0.84, 1.69, 2.28, -0.49, -0.03),
+        Player9: makeBox(-0.10, 0.59, 1.03, 2.37, -0.42, 0.42),
+        Player10: makeBox(-0.10, 0.59, 0.21, 1.49, -0.42, 0.42),
+        Player11: makeBox(-0.11, 0.60, 0.0, 0.31, -0.43, 0.43),
+        Player12: makeBox(-0.59, 0.10, 1.03, 2.37, -0.42, 0.42),
+        Player13: makeBox(-0.59, 0.10, 0.21, 1.49, -0.42, 0.42),
+        Player14: makeBox(-0.60, 0.11, 0.0, 0.31, -0.43, 0.43)
+    };
+
+    const playerGroups = Object.keys(boxes).map((name) => ({ name }));
+    const mapping = matchBodyParts(playerGroups, boxes);
+
+    assert.equal(detectRigType(playerGroups.length), "R15");
+    assert.equal(mapping.Head, "Player8");
+    assert.equal(mapping.UpperTorso, "Player7");
+    assert.equal(mapping.LowerTorso, "Player6");
+    assert.equal(mapping.RightUpperArm, "Player3");
+    assert.equal(mapping.RightLowerArm, "Player2");
+    assert.equal(mapping.RightHand, "Player1");
+    assert.equal(mapping.LeftUpperArm, "Player5");
+    assert.equal(mapping.LeftHand, "Player4");
+    assert.equal(mapping.LeftLowerArm, undefined);
+    assert.equal(mapping.RightUpperLeg, "Player9");
+    assert.equal(mapping.RightLowerLeg, "Player10");
+    assert.equal(mapping.RightFoot, "Player11");
+    assert.equal(mapping.LeftUpperLeg, "Player12");
+    assert.equal(mapping.LeftLowerLeg, "Player13");
+    assert.equal(mapping.LeftFoot, "Player14");
+});
 
 test("tail-like accessory attaches to the hips (R15)", () => {
     const { handleGroup, positions } = handleFrom([

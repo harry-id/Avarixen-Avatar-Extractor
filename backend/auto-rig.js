@@ -308,7 +308,8 @@ function computeBox(vertexIndices, positions) {
 
 function detectRigType(playerCount) {
     if (playerCount === 6) return "R6";
-    if (playerCount === 15) return "R15";
+    // Partial/custom R15 avatars (7–15 parts) still use the R15 skeleton.
+    if (playerCount > 6 && playerCount <= 15) return "R15";
     return null;
 }
 
@@ -370,73 +371,135 @@ function mappingFromPartNames(rigType, groups) {
 
 function matchBodyParts(playerGroups, boxes) {
     // Match Player groups to body parts by POSITION, never by group number.
+    // Works for full R6/R15 rigs and for partial/custom avatars (e.g. an R15
+    // with a missing limb segment).
     const parts = {};
     const remaining = [...playerGroups];
-    const isR15 = playerGroups.length === 15;
 
-    // Head = highest box
-    remaining.sort((a, b) => boxes[b.name].cy - boxes[a.name].cy);
-    const headGroup = remaining.shift();
+    if (!remaining.length) {
+        return parts;
+    }
+
+    const byYDesc = (a, b) => boxes[b.name].cy - boxes[a.name].cy;
+
+    // Head = highest group.
+    const headGroup = remaining.sort(byYDesc).shift();
     parts.Head = headGroup.name;
+    const headBox = boxes[headGroup.name];
 
-    // Torso = groups near center, highest first
-    const torsoCandidates = remaining.filter(g => Math.abs(boxes[g.name].cx) < 0.7);
-    torsoCandidates.sort((a, b) => boxes[b.name].cy - boxes[a.name].cy);
+    // R6 has exactly 6 groups; anything larger is treated as an R15-style rig
+    // even when a part is missing.
+    const isR15 = playerGroups.length > 6;
+
+    // Torso: centered groups in the upper half. Torso parts are the widest
+    // centered groups, which keeps A-pose arms (hanging close to the body)
+    // from being mistaken for the torso.
+    const upper = remaining.filter(g => boxes[g.name].cy > headBox.cy * 0.45);
+    const centered = upper.filter(g => Math.abs(boxes[g.name].cx) < 0.7);
+    const hasWidths = centered.length > 0 &&
+        centered.every(g => Number.isFinite(boxes[g.name].sx));
+
+    const torsoCount = isR15 ? 2 : 1;
+    let torsoCandidates;
+    if (hasWidths) {
+        torsoCandidates = [...centered]
+            .sort((a, b) => boxes[b.name].sx - boxes[a.name].sx)
+            .slice(0, torsoCount)
+            .sort(byYDesc);
+    } else {
+        torsoCandidates = [...centered].sort(byYDesc).slice(0, torsoCount);
+    }
 
     const torsoNames = [];
-    if (torsoCandidates.length >= 1) {
-        if (isR15) {
-            parts.UpperTorso = torsoCandidates[0].name;
-            torsoNames.push(torsoCandidates[0].name);
-        } else {
-            parts.Torso = torsoCandidates[0].name;
-            torsoNames.push(torsoCandidates[0].name);
-        }
-    }
-    if (isR15 && torsoCandidates.length >= 2) {
-        parts.LowerTorso = torsoCandidates[1].name;
-        torsoNames.push(torsoCandidates[1].name);
+    for (const g of torsoCandidates) {
+        const key = isR15
+            ? (torsoNames.length === 0 ? "UpperTorso" : "LowerTorso")
+            : "Torso";
+        parts[key] = g.name;
+        torsoNames.push(g.name);
     }
 
     const torsoSet = new Set(torsoNames);
     const limbs = remaining.filter(g => !torsoSet.has(g.name));
-    const armCandidates = limbs.filter(g => Math.abs(boxes[g.name].cx) > 1.0);
-    const legCandidates = limbs.filter(g => Math.abs(boxes[g.name].cx) <= 1.0);
 
-    const result = { ...parts };
+    // Arms sit outside the torso width; legs stay near the center line. When
+    // the torso size is known, derive the threshold from it so A-pose arms
+    // hanging close to the body are still recognized.
+    const torsoBoxes = torsoNames.map(n => boxes[n]).filter(Boolean);
+    const hasTorsoSizes = torsoBoxes.length > 0 &&
+        torsoBoxes.every(b => Number.isFinite(b.sx));
+    const torsoHalf = hasTorsoSizes
+        ? Math.max(...torsoBoxes.map(b => b.sx / 2))
+        : 0.7;
+    const armThreshold = hasTorsoSizes
+        ? Math.max(torsoHalf * 1.05, 0.3)
+        : 1.0;
 
-    const assignSide = (candidateList, sidePrefix, sign, isArm) => {
-        const sideLimbs = candidateList.filter(g => {
-            const cx = boxes[g.name].cx;
-            return sign === -1 ? cx < 0 : cx > 0;
-        });
-        sideLimbs.sort((a, b) => boxes[b.name].cy - boxes[a.name].cy);
+    const armCandidates = limbs.filter(g => Math.abs(boxes[g.name].cx) > armThreshold);
+    const legCandidates = limbs.filter(g => Math.abs(boxes[g.name].cx) <= armThreshold);
 
-        if (isR15) {
-            if (isArm) {
-                if (sideLimbs.length >= 1) result[sidePrefix + "UpperArm"] = sideLimbs[0].name;
-                if (sideLimbs.length >= 2) result[sidePrefix + "LowerArm"] = sideLimbs[1].name;
-                if (sideLimbs.length >= 3) result[sidePrefix + "Hand"] = sideLimbs[2].name;
-            } else {
-                if (sideLimbs.length >= 1) result[sidePrefix + "UpperLeg"] = sideLimbs[0].name;
-                if (sideLimbs.length >= 2) result[sidePrefix + "LowerLeg"] = sideLimbs[1].name;
-                if (sideLimbs.length >= 3) result[sidePrefix + "Foot"] = sideLimbs[2].name;
+    const assignChain = (candidates, segs, nameFor) => {
+        const left = candidates
+            .filter(g => boxes[g.name].cx < 0)
+            .sort(byYDesc);
+        const right = candidates
+            .filter(g => boxes[g.name].cx > 0)
+            .sort(byYDesc);
+
+        const assignSide = (sideParts, otherParts, prefix) => {
+            if (!isR15) {
+                if (sideParts[0]) parts[nameFor(prefix, segs[0])] = sideParts[0].name;
+                return;
             }
-        } else {
-            if (isArm) {
-                if (sideLimbs.length >= 1) result[sidePrefix + " Arm"] = sideLimbs[0].name;
-            } else {
-                if (sideLimbs.length >= 1) result[sidePrefix + " Leg"] = sideLimbs[0].name;
+
+            const assignPositional = () => {
+                segs.forEach((seg, i) => {
+                    if (sideParts[i]) parts[nameFor(prefix, seg)] = sideParts[i].name;
+                });
+            };
+
+            if (!otherParts.length || sideParts.length >= segs.length) {
+                assignPositional();
+                return;
             }
-        }
+
+            // The opposite side has more segments (e.g. a missing forearm);
+            // match each part to the nearest unused reference segment by height.
+            const used = new Set();
+            for (const g of sideParts) {
+                let best = -1;
+                let bestD = Infinity;
+                otherParts.forEach((ref, i) => {
+                    if (used.has(i)) return;
+                    const d = Math.abs(boxes[ref.name].cy - boxes[g.name].cy);
+                    if (d < bestD) {
+                        bestD = d;
+                        best = i;
+                    }
+                });
+                if (best >= 0) {
+                    used.add(best);
+                    parts[nameFor(prefix, segs[best])] = g.name;
+                }
+            }
+        };
+
+        assignSide(left, right, "Left");
+        assignSide(right, left, "Right");
     };
 
-    assignSide(armCandidates, "Left", -1, true);
-    assignSide(armCandidates, "Right", 1, true);
-    assignSide(legCandidates, "Left", -1, false);
-    assignSide(legCandidates, "Right", 1, false);
+    assignChain(
+        armCandidates,
+        isR15 ? ["UpperArm", "LowerArm", "Hand"] : ["Arm"],
+        (prefix, seg) => (isR15 ? prefix + seg : `${prefix} ${seg}`)
+    );
+    assignChain(
+        legCandidates,
+        isR15 ? ["UpperLeg", "LowerLeg", "Foot"] : ["Leg"],
+        (prefix, seg) => (isR15 ? prefix + seg : `${prefix} ${seg}`)
+    );
 
-    return result;
+    return parts;
 }
 
 function computeRecenter(boxes, partMapping) {
@@ -568,12 +631,18 @@ function computeJoints(partMapping, boxes, offsetX, offsetY, offsetZ, rigType, m
             }
         } else if (upperBox || lowerBox || endBox) {
             if (upperBox) {
-                const isArm = upperBox.cy > upperTorsoBox.cy - 0.5;
-                const attachBox = isArm ? upperTorsoBox : lowerTorsoBox;
-                const side = upperBox.cx < 0 ? 'left' : 'right';
-                const attachX = side === 'left' ? attachBox.xmin : attachBox.xmax;
-                const attachY = isArm ? attachBox.ymax : attachBox.ymin;
-                J[upperName] = sub([attachX, attachY, attachBox.cz]);
+                const torsoRef = upperTorsoBox || lowerTorsoBox;
+                const isArm = torsoRef ? upperBox.cy > torsoRef.cy - 0.5 : true;
+                const attachBox = isArm
+                    ? (upperTorsoBox || torsoRef)
+                    : (lowerTorsoBox || torsoRef);
+
+                if (attachBox) {
+                    const side = upperBox.cx < 0 ? 'left' : 'right';
+                    const attachX = side === 'left' ? attachBox.xmin : attachBox.xmax;
+                    const attachY = isArm ? attachBox.ymax : attachBox.ymin;
+                    J[upperName] = sub([attachX, attachY, attachBox.cz]);
+                }
             }
             if (upperBox && lowerBox) {
                 const f = facingFace(upperBox, lowerBox);
@@ -582,6 +651,19 @@ function computeJoints(partMapping, boxes, offsetX, offsetY, offsetZ, rigType, m
             if (lowerBox && endBox) {
                 const f = facingFace(lowerBox, endBox);
                 J[endName] = sub(facePoint(lowerBox, f));
+            }
+            if (upperBox && !lowerBox && endBox) {
+                // A missing middle segment (e.g. a merged/missing forearm):
+                // bridge it so the chain still has three joints.
+                const f = facingFace(upperBox, endBox);
+                const opposite = {
+                    top: "bottom",
+                    bottom: "top",
+                    left: "right",
+                    right: "left"
+                }[f];
+                J[lowerName] = sub(facePoint(upperBox, f));
+                J[endName] = sub(facePoint(endBox, opposite));
             }
         }
     }
