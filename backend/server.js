@@ -15,36 +15,58 @@ const { getLang, t } = require("./i18n");
 const { fetchAvatar3D } = require("./avatar-metadata");
 const { version: APP_VERSION } = require("./package.json");
 const { startDownloadsCleanup } = require("./downloads-cleanup");
+const { fetchWithTimeout } = require("./fetch-utils");
+const { isUserLocked } = require("./user-lock");
+const {
+    parseNonNegativeNumber,
+    parsePositiveNumber,
+    parseTrustProxy
+} = require("./config");
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+
+// Keep Express's default error handler from exposing stack traces when the
+// deployment does not set NODE_ENV explicitly.
+if (!process.env.NODE_ENV) {
+    app.set("env", "production");
+}
+
+app.disable("x-powered-by");
 
 const corsOrigins = (process.env.CORS_ORIGINS || "")
     .split(",")
     .map((origin) => origin.trim())
     .filter(Boolean);
 
+if (!corsOrigins.length) {
+    console.warn(
+        "[cors] CORS_ORIGINS is not set; allowing any origin. " +
+        "Set explicit origins in production to limit API consumption."
+    );
+}
+
 app.use(
     cors(
         corsOrigins.length
-            ? { origin: corsOrigins, methods: ["GET", "POST", "OPTIONS"] }
+            ? { origin: corsOrigins, methods: ["GET", "POST", "OPTIONS"], maxAge: 86400 }
             : undefined
     )
 );
+app.use((req, res, next) => {
+    res.setHeader("X-Content-Type-Options", "nosniff");
+    res.setHeader("Referrer-Policy", "no-referrer");
+    next();
+});
+
 app.use(express.json({ limit: "16kb" }));
 
 // Set TRUST_PROXY (e.g. "1", "true", or a proxy CIDR list) when the API runs
 // behind a reverse proxy so per-client rate limiting sees the real client IP.
-const trustProxy = process.env.TRUST_PROXY;
-if (trustProxy) {
-    app.set(
-        "trust proxy",
-        /^\d+$/.test(trustProxy)
-            ? Number(trustProxy)
-            : trustProxy === "true"
-                ? true
-                : trustProxy
-    );
+// Explicit "false"/"0" disables proxy trust instead of crashing Express.
+const trustProxy = parseTrustProxy(process.env.TRUST_PROXY);
+if (trustProxy !== undefined) {
+    app.set("trust proxy", trustProxy);
 }
 
 // Request logging: colored, fixed-width lines. Set LOG_REQUESTS=false to
@@ -149,10 +171,25 @@ app.use(
 // Delete cached avatars older than DOWNLOADS_TTL_HOURS (default 24h) so the
 // cache does not grow without bound. The timer is unref'd, so it never keeps
 // the process alive on its own.
-const downloadsTtlHours = Number(process.env.DOWNLOADS_TTL_HOURS) || 24;
+const downloadsTtlHours = parsePositiveNumber(process.env.DOWNLOADS_TTL_HOURS, 24);
+const downloadsMaxBytes = parseNonNegativeNumber(
+    process.env.DOWNLOADS_MAX_BYTES,
+    0
+);
 const downloadsCleanup = startDownloadsCleanup({
     dir: downloadsDir,
-    maxAgeMs: downloadsTtlHours * 60 * 60 * 1000
+    maxAgeMs: downloadsTtlHours * 60 * 60 * 1000,
+    maxBytes: downloadsMaxBytes,
+    // Never delete a user's cache (or its staging/backup directory) while a
+    // download/conversion for that user is in progress.
+    shouldSkip: (fullPath, name) => {
+        if (isUserLocked(name)) {
+            return true;
+        }
+
+        const match = /^\.(?:stage|old)-(\d+)-/.exec(name);
+        return match ? isUserLocked(match[1]) : false;
+    }
 });
 
 const rateWindowMs = 60_000;
@@ -198,17 +235,6 @@ app.use("/api", (req, res, next) => {
 
     next();
 });
-
-async function fetchWithTimeout(url, options = {}, timeoutMs = 15000) {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), timeoutMs);
-
-    try {
-        return await fetch(url, { ...options, signal: controller.signal });
-    } finally {
-        clearTimeout(timeout);
-    }
-}
 
 function getApiKey() {
     const apiKey = process.env.ROBLOX_API_KEY;
@@ -400,6 +426,34 @@ app.get("/api/roblox/avatar/:userId", async (req, res) => {
                 : t(lang, "avatar.failed")
         });
     }
+});
+
+// JSON 404 for unknown API routes (the frontend expects the API error shape).
+app.use("/api", (req, res) => {
+    res.status(404).json({
+        success: false,
+        message: t(getLang(req), "error.not_found")
+    });
+});
+
+// Final error handler: never expose stack traces or internals to clients.
+app.use((error, req, res, next) => {
+    console.error("Unhandled request error:", error);
+
+    if (res.headersSent) {
+        return next(error);
+    }
+
+    const status =
+        error && Number.isInteger(error.status) && error.status >= 400 && error.status < 600
+            ? error.status
+            : 500;
+    const key = status >= 500 ? "error.internal" : "error.bad_request";
+
+    res.status(status).json({
+        success: false,
+        message: t(getLang(req), key)
+    });
 });
 
 const server = app.listen(PORT);

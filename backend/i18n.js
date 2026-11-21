@@ -26,7 +26,10 @@ const MESSAGES = {
         "convert.no_obj": "File OBJ tidak ditemukan. Unduh avatar terlebih dahulu.",
         "convert.failed": "Konversi model gagal.",
         "convert.rig_failed": "Auto-rig gagal: {{message}}",
-        "convert.rig_unsupported_fbx": "Auto-rig tidak didukung untuk format FBX.",
+        "convert.busy": "Server sedang sibuk mengonversi model. Coba lagi sebentar.",
+        "error.bad_request": "Permintaan tidak valid.",
+        "error.not_found": "Endpoint tidak ditemukan.",
+        "error.internal": "Terjadi kesalahan pada server.",
         "rate_limited": "Terlalu banyak permintaan. Coba lagi nanti."
     },
     en: {
@@ -56,7 +59,10 @@ const MESSAGES = {
         "convert.no_obj": "OBJ file not found. Download the avatar first.",
         "convert.failed": "Model conversion failed.",
         "convert.rig_failed": "Auto-rig failed: {{message}}",
-        "convert.rig_unsupported_fbx": "Auto-rig is not supported for the FBX format.",
+        "convert.busy": "The server is busy converting models. Try again shortly.",
+        "error.bad_request": "Invalid request.",
+        "error.not_found": "Endpoint not found.",
+        "error.internal": "An internal server error occurred.",
         "rate_limited": "Too many requests. Try again later."
     }
 };
