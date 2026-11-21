@@ -320,9 +320,9 @@ function makeBox(xmin, xmax, ymin, ymax, zmin, zmax) {
 
 // Build an OBJ where each part is a small box, so convertAvatar can classify
 // it without needing real mesh data.
-function objFromBoxes(boxes) {
+function objFromBoxes(boxes, startIndex = 1) {
     const lines = [];
-    let offset = 1;
+    let offset = startIndex;
 
     for (const [name, b] of Object.entries(boxes)) {
         lines.push(`g ${name}`);
@@ -497,7 +497,7 @@ test("GLB rig orients bones along the limbs", async () => {
     }
 });
 
-test("GLB accessories are object-parented to body-part nodes, not bones", async () => {
+test("GLB accessories are bone-parented to their body part's bone", async () => {
     // Full R15 body + a hat-like handle box sitting on top of the head.
     const body = {
         Head: makeBox(-0.53, 0.53, 4.85, 5.5, -0.55, 0.55),
@@ -520,9 +520,12 @@ test("GLB accessories are object-parented to body-part nodes, not bones", async 
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "aae-test-"));
 
     try {
+        // objFromBoxes restarts face indices per call, so offset the handle's
+        // vertices past the body's (15 boxes × 8 verts) to keep them distinct.
+        const bodyVertCount = Object.keys(body).length * 8;
         const obj = [
             objFromBoxes(body),
-            objFromBoxes({ Handle1: hat })
+            objFromBoxes({ Handle1: hat }, bodyVertCount + 1)
         ].join("\n");
         fs.writeFileSync(path.join(dir, "avatar.obj"), obj);
 
@@ -541,14 +544,68 @@ test("GLB accessories are object-parented to body-part nodes, not bones", async 
         assert.ok(handle, "handle node exists");
         assert.ok(handle.getParentNode(), "handle has a parent");
 
-        // Object-parent: the handle's parent is the Head MESH node, not a bone.
-        assert.equal(handle.getParentNode(), headMesh);
-        assert.ok(headMesh && headMesh.getMesh(), "parent is a mesh node");
-        assert.notEqual(handle.getParentNode(), headBone);
+        // Bone-parent: the handle's parent is the Head BONE, not the mesh node.
+        assert.equal(handle.getParentNode(), headBone);
+        assert.ok(headBone && !headBone.getMesh(), "parent is a bone node");
+        assert.notEqual(handle.getParentNode(), headMesh);
 
-        // Sanity: the handle sits at its world position (centered geometry).
+        // The handle keeps its original world position (centered geometry on
+        // top of the head): the node's rest rotation is cancelled.
         const world = handle.getWorldTranslation();
-        assert.ok(Number.isFinite(world[0]) && Number.isFinite(world[1]));
+        assert.ok(Math.abs(world[0] - 0) < 0.01, `x=${world[0]}`);
+        assert.ok(Math.abs(world[1] - 5.7) < 0.01, `y=${world[1]}`);
+        assert.ok(Math.abs(world[2] - 0) < 0.01, `z=${world[2]}`);
+    } finally {
+        fs.rmSync(dir, { recursive: true, force: true });
+    }
+});
+
+test("R15 layered clothing is skinned to the skeleton, not bone-parented", async () => {
+    const body = {
+        Head: makeBox(-0.53, 0.53, 4.85, 5.5, -0.55, 0.55),
+        UpperTorso: makeBox(-0.91, 0.91, 3.04, 4.97, -0.51, 0.51),
+        LowerTorso: makeBox(-0.99, 0.99, 2.64, 3.04, -0.51, 0.51),
+        LeftUpperArm: makeBox(-1.91, -0.91, 3.50, 4.91, -0.50, 0.50),
+        LeftLowerArm: makeBox(-1.91, -0.91, 2.86, 4.13, -0.50, 0.50),
+        LeftHand: makeBox(-1.88, -0.93, 2.56, 2.92, -0.55, 0.55),
+        RightUpperArm: makeBox(0.91, 1.91, 3.50, 4.91, -0.50, 0.50),
+        RightLowerArm: makeBox(0.91, 1.91, 2.86, 4.13, -0.50, 0.50),
+        RightHand: makeBox(0.93, 1.88, 2.56, 2.92, -0.55, 0.55),
+        LeftUpperLeg: makeBox(-0.98, 0.00, 1.20, 2.90, -0.45, 0.46),
+        LeftLowerLeg: makeBox(-0.98, 0.00, 0.22, 1.77, -0.45, 0.46),
+        LeftFoot: makeBox(-1.01, 0.02, 0.00, 0.34, -0.50, 0.50),
+        RightUpperLeg: makeBox(0.00, 0.98, 1.20, 2.90, -0.45, 0.46),
+        RightLowerLeg: makeBox(0.00, 0.98, 0.22, 1.77, -0.45, 0.46),
+        RightFoot: makeBox(-0.02, 1.01, 0.00, 0.34, -0.50, 0.50)
+    };
+    // A jacket-like handle spanning the torso and both arms (3 body regions).
+    const jacket = makeBox(-1.5, 1.5, 3.0, 5.0, -0.6, 0.6);
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "aae-test-"));
+
+    try {
+        const bodyVertCount = Object.keys(body).length * 8;
+        const obj = [
+            objFromBoxes(body),
+            objFromBoxes({ Handle1: jacket }, bodyVertCount + 1)
+        ].join("\n");
+        fs.writeFileSync(path.join(dir, "avatar.obj"), obj);
+
+        const conversion = await convertAvatar(dir, { rig: true, splitParts: true });
+        const root = conversion.doc.getRoot();
+        const handle = root.listNodes().find((n) => n.getName() === "Handle1");
+
+        assert.ok(handle, "handle node exists");
+
+        // Skinned clothing: bound to the skeleton with JOINTS_0/WEIGHTS_0 and
+        // NOT rigidly parented to a single bone.
+        assert.ok(handle.getSkin(), "clothing handle is skinned");
+        const prim = handle.getMesh().listPrimitives()[0];
+        assert.ok(prim.getAttribute("JOINTS_0"), "has JOINTS_0");
+        assert.ok(prim.getAttribute("WEIGHTS_0"), "has WEIGHTS_0");
+
+        const parent = handle.getParentNode();
+        assert.ok(parent, "has a parent");
+        assert.equal(parent.getMesh(), null, "parent is a container, not a bone");
     } finally {
         fs.rmSync(dir, { recursive: true, force: true });
     }

@@ -268,7 +268,7 @@ async function buildFbx({
         return materialCache.get(name);
     };
 
-    const buildPart = (polys, fixedGroupName = null, recenter = null) => {
+    const buildPart = (polys, fixedGroupName = null, recenter = null, skinFn = null) => {
         const usedNames = [...new Set(polys.map((poly) => poly.material || "default"))];
         const nameToIndex = new Map(usedNames.map((name, i) => [name, i]));
 
@@ -352,7 +352,7 @@ async function buildFbx({
                     uvs.push(c.t[0], c.t[1]);
 
                     if (rigData && !recenter) {
-                        const skin = rigData.skinFor(groupName, c.raw[0], c.raw[1], c.raw[2]);
+                        const skin = (skinFn || rigData.skinFor)(groupName, c.raw[0], c.raw[1], c.raw[2]);
                         skinIndices.push(
                             skin.indices[0], skin.indices[1],
                             skin.indices[2], skin.indices[3]
@@ -590,38 +590,33 @@ async function buildFbx({
         skeleton = new T.Skeleton(bones);
     }
 
-    // Map each body part's OBJ group name to its rig part (Head, Torso, ...)
-    // so accessories can be object-parented to the matching body-part mesh.
-    const partByGroupName = {};
-    if (rigData && rigData.partMapping) {
-        for (const [part, groupName] of Object.entries(rigData.partMapping)) {
-            partByGroupName[groupName] = part;
-        }
-    }
-
-    const partMeshByPart = {};
-    const pendingHandles = [];
-
     for (const part of partList) {
         const isHandle = splitParts && rigData && /^handle/i.test(part.name);
+        // Layered clothing (R15) spans several body parts and must deform with
+        // the skeleton; other handles stay rigid children of one bone.
+        const isClothing = !!(isHandle && rigData.isClothingGroup(part.name));
 
-        if (isHandle) {
-            // Deferred: accessories are object-parented to their body part
-            // below so deleting the armature keeps them.
-            const recenter = partCenter(part.polys);
-            const built = buildPart(part.polys, splitParts ? part.name : null, recenter);
-            const mesh = new T.Mesh(built.geometry, built.materials);
+        if (isClothing) {
+            // Skinned clothing: generate skin attributes and bind to the
+            // skeleton instead of rigidly parenting to a single bone.
+            const built = buildPart(
+                part.polys,
+                splitParts ? part.name : null,
+                null,
+                (groupName, x, y, z) => rigData.skinClothingFor(x, y, z)
+            );
+            const mesh = new T.SkinnedMesh(built.geometry, built.materials);
             mesh.name = part.name;
+            mesh.bind(skeleton, new T.Matrix4());
             mesh.frustumCulled = false;
-            pendingHandles.push({
-                mesh,
-                recenter,
-                handleBone: rigData.handleBoneMap[part.name] || null
-            });
+            container.add(mesh);
             continue;
         }
 
-        const built = buildPart(part.polys, splitParts ? part.name : null, null);
+        const handleBone = isHandle ? rigData.handleBoneMap[part.name] : null;
+        const recenter = isHandle ? partCenter(part.polys) : null;
+
+        const built = buildPart(part.polys, splitParts ? part.name : null, recenter);
 
         let mesh;
 
@@ -633,30 +628,28 @@ async function buildFbx({
             mesh.bind(skeleton, new T.Matrix4());
             mesh.frustumCulled = false;
             container.add(mesh);
+        } else if (isHandle) {
+            // Rigid child of the parent bone (not skinned); node transform keeps
+            // the centered geometry at its original world position.
+            mesh = new T.Mesh(built.geometry, built.materials);
+            mesh.name = part.name;
+            mesh.frustumCulled = false;
 
-            const partName = partByGroupName[part.name] || part.name;
-            if (!partMeshByPart[partName]) {
-                partMeshByPart[partName] = mesh;
+            const bone = handleBone ? boneByName[handleBone] : null;
+
+            if (bone) {
+                mesh.position.copy(bone.worldToLocal(recenter.clone()));
+                mesh.quaternion.copy(
+                    bone.getWorldQuaternion(new T.Quaternion()).invert()
+                );
+                bone.add(mesh);
+            } else {
+                mesh.position.copy(recenter);
+                container.add(mesh);
             }
         } else {
             mesh = new T.Mesh(built.geometry, built.materials);
             mesh.name = part.name;
-            container.add(mesh);
-        }
-    }
-
-    // Object-parent each accessory to the body-part mesh it belongs to
-    // (Head, Torso, ...). Body-part meshes sit at identity, so the recentered
-    // handle position is its local transform. If the part has no mesh,
-    // fall back to the container.
-    for (const { mesh, recenter, handleBone } of pendingHandles) {
-        const target = handleBone ? partMeshByPart[handleBone] : null;
-
-        if (target) {
-            mesh.position.copy(recenter);
-            target.add(mesh);
-        } else {
-            mesh.position.copy(recenter);
             container.add(mesh);
         }
     }

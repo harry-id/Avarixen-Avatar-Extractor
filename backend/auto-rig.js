@@ -1147,6 +1147,7 @@ function qFromUnitVectors(from, to) {
 function buildDocument(parsed, partMapping, joints, offsetX, offsetY, offsetZ, rigType, handleBoneMap, options = {}) {
     const splitParts = !!options.splitParts;
     const groupName = options.groupName || "Avatar";
+    const rigData = options.rigData || null;
     const { positions, normals, uvs, vertexColors, groups, faces } = parsed;
     const rigged = !!rigType;
 
@@ -1398,6 +1399,9 @@ function buildDocument(parsed, partMapping, joints, offsetX, offsetY, offsetZ, r
         // they stay separate, movable objects; unparented ones stay centered.
         const isHandle = Object.prototype.hasOwnProperty.call(handleBoneMap, g.name);
         const assignedBone = isHandle ? handleBoneMap[g.name] : null;
+        // Layered clothing is skinned (deforms with the body); other handles
+        // stay rigid children of a single bone.
+        const isClothing = !!(rigData && rigData.isClothingGroup && rigData.isClothingGroup(g.name));
 
         const boneName = rigged
             ? (groupToPart[g.name] || assignedBone || rootName)
@@ -1406,9 +1410,10 @@ function buildDocument(parsed, partMapping, joints, offsetX, offsetY, offsetZ, r
         const limbSkin = (rigged && !isHandle) ? limbSkinFor(boneName) : null;
 
         // Center accessory geometry on its own pivot; the assembly node
-        // translation restores the original world position.
+        // translation restores the original world position. Skinned clothing
+        // keeps avatar-space coordinates so its weights line up with the bones.
         let handleCenter = null;
-        if (isHandle && splitParts) {
+        if (isHandle && !isClothing && splitParts) {
             const box = computeBox(g.vertexIndices, positions);
             if (Number.isFinite(box.cx)) {
                 handleCenter = [box.cx - offsetX, box.cy - offsetY, box.cz - offsetZ];
@@ -1477,7 +1482,22 @@ function buildDocument(parsed, partMapping, joints, offsetX, offsetY, offsetZ, r
                     );
 
                     if (rigged) {
-                        if (limbSkin) {
+                        if (isClothing) {
+                            const skin = rigData.skinClothingFor(
+                                positions[vIdx * 3],
+                                positions[vIdx * 3 + 1],
+                                positions[vIdx * 3 + 2]
+                            );
+
+                            groupLocalJoints.push(
+                                skin.indices[0], skin.indices[1],
+                                skin.indices[2], skin.indices[3]
+                            );
+                            groupLocalWeights.push(
+                                skin.weights[0], skin.weights[1],
+                                skin.weights[2], skin.weights[3]
+                            );
+                        } else if (limbSkin) {
                             const skin = limbWeightsFor(
                                 limbSkin,
                                 positions[vIdx * 3] - offsetX,
@@ -1541,6 +1561,7 @@ function buildDocument(parsed, partMapping, joints, offsetX, offsetY, offsetZ, r
             indices: groupIndices,
             baseIndex: globalIndexOffset,
             isHandle,
+            isClothing,
             handleCenter,
             boneName: isHandle ? assignedBone : null
         });
@@ -1609,10 +1630,6 @@ function buildDocument(parsed, partMapping, joints, offsetX, offsetY, offsetZ, r
 
         const skin = rigged ? makeSkin() : null;
         const usedNames = new Set();
-        // Body-part mesh node by part name, so accessories can be parented to
-        // the matching body-part OBJECT instead of a bone.
-        const partNodeByPart = {};
-        const pendingHandles = [];
 
         for (const build of groupBuilds) {
             if (build.indices.length === 0) {
@@ -1639,7 +1656,7 @@ function buildDocument(parsed, partMapping, joints, offsetX, offsetY, offsetZ, r
                 .setAttribute("TEXCOORD_0", createAccessor(doc, buffer, new Float32Array(build.uvs), "VEC2", Accessor.ComponentType.FLOAT))
                 .setAttribute("COLOR_0", createAccessor(doc, buffer, partColors, "VEC4", Accessor.ComponentType.UNSIGNED_BYTE, true));
 
-            if (rigged && !build.isHandle) {
+            if (rigged && (!build.isHandle || build.isClothing)) {
                 prim.setAttribute("JOINTS_0", createAccessor(doc, buffer, new Uint16Array(build.joints), "VEC4", Accessor.ComponentType.UNSIGNED_SHORT));
                 prim.setAttribute("WEIGHTS_0", createAccessor(doc, buffer, new Float32Array(build.weights), "VEC4", Accessor.ComponentType.FLOAT));
             }
@@ -1663,35 +1680,39 @@ function buildDocument(parsed, partMapping, joints, offsetX, offsetY, offsetZ, r
             const partNode = doc.createNode(nodeName);
             partNode.setMesh(partMesh);
 
-            if (build.isHandle) {
-                // Deferred: accessories are object-parented to their body part
-                // below so deleting the armature keeps them.
-                pendingHandles.push({ build, partNode });
-                continue;
-            }
-
-            container.addChild(partNode);
-            if (skin) {
-                partNode.setSkin(skin);
-            }
-
-            const part = groupToPart[build.name] || build.name;
-            if (!partNodeByPart[part]) {
-                partNodeByPart[part] = partNode;
-            }
-        }
-
-        // Object-parent each accessory to the body-part mesh it belongs to
-        // (Head, Torso, ...). Body-part nodes sit at identity, so the
-        // recentered handle position is its local transform. If the part has
-        // no mesh node, fall back to the container.
-        for (const { build, partNode } of pendingHandles) {
-            const target = build.boneName ? partNodeByPart[build.boneName] : null;
-            partNode.setTranslation(build.handleCenter || [0, 0, 0]);
-            if (target) {
-                target.addChild(partNode);
+            if (build.isClothing) {
+                // Layered clothing: a skinned mesh that deforms with the body.
+                container.addChild(partNode);
+                if (skin) {
+                    partNode.setSkin(skin);
+                }
+            } else if (build.isHandle && build.handleCenter) {
+                // Parent to the bone (or container if unparented); the node
+                // translation compensates the bone's rest position.
+                const parentJoint = build.boneName && jointNodeMap[build.boneName];
+                if (parentJoint) {
+                    const jp = joints[build.boneName] || [0, 0, 0];
+                    const inv = qConjugate(
+                        jointWorldQuat[build.boneName] || Q_IDENTITY
+                    );
+                    // Cancel the bone's rest rotation so the rigid accessory
+                    // keeps its original world orientation and position.
+                    partNode.setTranslation(qRotate(inv, [
+                        build.handleCenter[0] - jp[0],
+                        build.handleCenter[1] - jp[1],
+                        build.handleCenter[2] - jp[2]
+                    ]));
+                    partNode.setRotation(inv);
+                    parentJoint.addChild(partNode);
+                } else {
+                    partNode.setTranslation(build.handleCenter);
+                    container.addChild(partNode);
+                }
             } else {
                 container.addChild(partNode);
+                if (skin) {
+                    partNode.setSkin(skin);
+                }
             }
         }
 
@@ -1873,6 +1894,122 @@ function computeRig(parsed, { moreJoints = false, hint = null } = {}) {
         return { indices: [boneIdx, 0, 0, 0], weights: [1, 0, 0, 0] };
     };
 
+    // --- R15 layered-clothing skinning -----------------------------------
+    // Accessories (Handle*) are rigid by default so hats and props keep their
+    // shape. Layered clothing, however, spans several body parts and must
+    // deform with the skeleton instead of sticking to one bone. A handle is
+    // treated as clothing when its bounds overlap two or more body regions
+    // (e.g. a jacket over the arms + torso, or trousers over both legs); those
+    // vertices are skinned to the nearest bones with smooth inverse-distance
+    // weights. Compact props stay rigid.
+    const groupByName = {};
+    for (const g of parsed.groups) {
+        if (!groupByName[g.name]) {
+            groupByName[g.name] = g;
+        }
+    }
+
+    const partBoxes = [];
+    for (const [part, gname] of Object.entries(partMapping)) {
+        const pg = groupByName[gname];
+        if (pg) {
+            partBoxes.push({ part, box: computeBox(pg.vertexIndices, parsed.positions) });
+        }
+    }
+
+    const regionOfPart = (part) => {
+        if (/Head|Neck/.test(part)) return "head";
+        if (/Torso/.test(part)) return "torso";
+        if (/Arm|Hand/.test(part)) return part.startsWith("Left") ? "leftArm" : "rightArm";
+        if (/Leg|Foot/.test(part)) return part.startsWith("Left") ? "leftLeg" : "rightLeg";
+        return "other";
+    };
+
+    const boxesOverlap = (a, b) =>
+        a.xmin <= b.xmax && a.xmax >= b.xmin &&
+        a.ymin <= b.ymax && a.ymax >= b.ymin &&
+        a.zmin <= b.zmax && a.zmax >= b.zmin;
+
+    const isClothingGroup = (name) => {
+        if (rigType !== "R15" || !/^handle/i.test(name)) {
+            return false;
+        }
+        const g = groupByName[name];
+        if (!g) {
+            return false;
+        }
+        const hb = computeBox(g.vertexIndices, parsed.positions);
+        if (!Number.isFinite(hb.cx)) {
+            return false;
+        }
+        const regions = new Set();
+        for (const { part, box } of partBoxes) {
+            if (boxesOverlap(hb, box)) {
+                regions.add(regionOfPart(part));
+            }
+        }
+        return regions.size >= 2;
+    };
+
+    // Bone segments (head -> first child head) in raw space, used to weight
+    // clothing vertices to the bones they sit closest to.
+    const childrenOfBone = {};
+    for (const [child, parent] of Object.entries(parentOf)) {
+        if (parent && joints[parent] && !child.endsWith("_tip")) {
+            (childrenOfBone[parent] = childrenOfBone[parent] || []).push(child);
+        }
+    }
+
+    const boneSegmentList = [];
+    for (const name of Object.keys(joints)) {
+        if (name.endsWith("_tip")) {
+            continue;
+        }
+        const idx = boneNameToIdx[name];
+        if (idx === undefined) {
+            continue;
+        }
+        const h = joints[name];
+        const kids = childrenOfBone[name] || [];
+        const k = kids.length ? joints[kids[0]] : null;
+        boneSegmentList.push({ idx, a: h, b: k || h });
+    }
+
+    const distToSeg = (px, py, pz, a, b) => {
+        const abx = b[0] - a[0], aby = b[1] - a[1], abz = b[2] - a[2];
+        const apx = px - a[0], apy = py - a[1], apz = pz - a[2];
+        const len2 = abx * abx + aby * aby + abz * abz;
+        let t = len2 > 1e-9 ? (apx * abx + apy * aby + apz * abz) / len2 : 0;
+        t = Math.max(0, Math.min(1, t));
+        const dx = apx - abx * t, dy = apy - aby * t, dz = apz - abz * t;
+        return Math.hypot(dx, dy, dz);
+    };
+
+    const SKIN_POWER = 4;
+    const SKIN_MAX = 4;
+    const skinClothingFor = (px, py, pz) => {
+        const scored = [];
+        for (const b of boneSegmentList) {
+            const d = distToSeg(px, py, pz, b.a, b.b);
+            scored.push({ idx: b.idx, w: 1 / Math.pow(d + 0.03, SKIN_POWER) });
+        }
+        scored.sort((m, n) => n.w - m.w);
+
+        const top = scored.slice(0, SKIN_MAX);
+        let sum = 0;
+        for (const s of top) {
+            sum += s.w;
+        }
+
+        const outIndices = [0, 0, 0, 0];
+        const outWeights = [0, 0, 0, 0];
+        for (let i = 0; i < top.length; i++) {
+            outIndices[i] = top[i].idx;
+            outWeights[i] = sum > 0 ? top[i].w / sum : 0;
+        }
+        return { indices: outIndices, weights: outWeights };
+    };
+
     return {
         rigType,
         partMapping,
@@ -1883,7 +2020,9 @@ function computeRig(parsed, { moreJoints = false, hint = null } = {}) {
         groupToPart,
         handleBoneMap,
         boneNameToIdx,
-        skinFor
+        skinFor,
+        isClothingGroup,
+        skinClothingFor
     };
 }
 
@@ -1928,6 +2067,7 @@ async function convertAvatar(assetDir, {
     let joints = {};
     let handleBoneMap = {};
     let offsetX = 0, offsetY = 0, offsetZ = 0;
+    let rigData = null;
 
     const boxes = {};
     for (const g of parsed.groups) {
@@ -1935,7 +2075,7 @@ async function convertAvatar(assetDir, {
     }
 
     if (rig) {
-        const rigData = computeRig(parsed, {
+        rigData = computeRig(parsed, {
             moreJoints,
             hint: readCachedRobloxType(assetDir)
         });
@@ -1981,7 +2121,7 @@ async function convertAvatar(assetDir, {
         offsetZ,
         rigType,
         handleBoneMap,
-        { splitParts, groupName }
+        { splitParts, groupName, rigData: rig ? rigData : null }
     );
 
     return {
