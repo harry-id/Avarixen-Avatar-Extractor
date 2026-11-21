@@ -66,6 +66,7 @@ Notes:
 - `ROBLOX_API_KEY` is required for avatar metadata and downloads.
 - `CORS_ORIGINS` (comma-separated) — leave unset for permissive CORS; set explicit origins in production.
 - Request logging is on by default. `LOG_REQUESTS=false` disables it; `LOG_REQUESTS=verbose` adds bodies/user agents; `LOG_ASSETS=1` adds per-file CDN logs (noisy).
+- File logging is on by default: a clean (ANSI-stripped) copy of every console line is written to `backend/aae.log`. Set `AAE_LOG_FILE=false` to disable, `AAE_LOG_FILE=<path>` to change the location, or `AAE_LOG_LEVEL=debug|info|warn|error` (default `info`) to filter.
 
 ### 3. Run (single command)
 

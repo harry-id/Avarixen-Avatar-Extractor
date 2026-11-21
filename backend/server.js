@@ -1,5 +1,13 @@
 require("dotenv").config();
 
+// Start file logging before anything else logs. Tees console output to a log
+// file (ANSI stripped); disable with AAE_LOG_FILE=false.
+const { initLogger } = require("./logger");
+const logTarget = initLogger();
+if (logTarget.enabled) {
+    console.log(`[log] file logging enabled: ${logTarget.filePath}`);
+}
+
 const express = require("express");
 const cors = require("cors");
 const path = require("path");
