@@ -5,6 +5,11 @@ const { getLang, t } = require("./i18n");
 const { fetchAvatar3D, fetchPlayerAvatar, fetchAvatarMetadataJson } = require("./avatar-metadata");
 const { normalizeObjForExport, renameObjGroups } = require("./obj-utils");
 const { getPartInfo } = require("./auto-rig");
+const {
+    fetchWithTimeout: defaultFetchWithTimeout,
+    isTimeoutError
+} = require("./fetch-utils");
+const { withUserLock } = require("./user-lock");
 const { version: APP_VERSION } = require("./package.json");
 
 // Per-file asset download chatter is noisy; enable with LOG_ASSETS=1.
@@ -188,16 +193,7 @@ async function downloadAsset(hash, fetchWithTimeout, options = {}) {
 
 module.exports = function (app, options = {}) {
     const fetchWithTimeout =
-        options.fetchWithTimeout ||
-        (async (url, init = {}, timeoutMs = 15000) => {
-            const controller = new AbortController();
-            const timeout = setTimeout(() => controller.abort(), timeoutMs);
-            try {
-                return await fetch(url, { ...init, signal: controller.signal });
-            } finally {
-                clearTimeout(timeout);
-            }
-        });
+        options.fetchWithTimeout || defaultFetchWithTimeout;
 
     const getApiKey =
         options.getApiKey ||
@@ -205,6 +201,12 @@ module.exports = function (app, options = {}) {
             const apiKey = process.env.ROBLOX_API_KEY;
             return apiKey && apiKey !== "your_roblox_api_key_here" ? apiKey : null;
         });
+
+    // Downloads mutate the cache and can be expensive. HEAD requests must not
+    // run the GET handler (Express would otherwise route HEAD to it).
+    app.head("/api/roblox/download/:userId", (req, res) => {
+        res.set("Allow", "GET").status(405).end();
+    });
 
     app.get("/api/roblox/download/:userId", async (req, res) => {
         const lang = getLang(req);
@@ -228,6 +230,11 @@ module.exports = function (app, options = {}) {
                 });
             }
 
+            // Serialize same-user downloads. Two concurrent requests used to
+            // overwrite the same files, and a conversion could read a partially
+            // replaced cache.
+            await withUserLock(userId, async () => {
+
             const avatar = await fetchAvatar3D(
                 fetchWithTimeout,
                 apiKey,
@@ -246,7 +253,6 @@ module.exports = function (app, options = {}) {
                 });
             }
 
-            const avatarResult = avatar.result;
             // Roblox avatar-3d API returns imageUrl inside data[0]
             const imageUrl = avatar.imageUrl;
 
@@ -272,7 +278,8 @@ module.exports = function (app, options = {}) {
                     success: false,
                     message: t(
                         lang,
-                        metadataResult.reason === "invalid"
+                        metadataResult.reason === "invalid" ||
+                        metadataResult.reason === "blocked"
                             ? "download.metadata_invalid"
                             : "download.metadata_failed"
                     )
@@ -346,88 +353,123 @@ module.exports = function (app, options = {}) {
             // group names as objects so Blender imports every body part.
             obj = normalizeObjForExport(obj);
 
-            const outputDir = path.join(
-                __dirname,
-                "../downloads",
-                userId
+            const downloadsRoot = path.join(__dirname, "../downloads");
+            const outputDir = path.join(downloadsRoot, userId);
+
+            await fs.mkdir(downloadsRoot, { recursive: true });
+
+            // Build the complete avatar in a staging directory first, then
+            // swap it into place. This avoids both partial files visible via
+            // /assets and a failed re-download destroying a working cache.
+            const stagingDir = await fs.mkdtemp(
+                path.join(downloadsRoot, `.stage-${userId}-`)
             );
 
-            await fs.mkdir(outputDir, { recursive: true });
+            try {
+                await fs.writeFile(path.join(stagingDir, "avatar.obj"), obj);
+                await fs.writeFile(path.join(stagingDir, "avatar.mtl"), mtl);
 
-            // Hapus tekstur lama yang tidak lagi digunakan.
-            const existingFiles = await fs.readdir(outputDir).catch(() => []);
-            await Promise.all(
-                existingFiles
-                    .filter((filename) => /^texture\d+\.png$/.test(filename))
-                    .map((filename) => fs.unlink(path.join(outputDir, filename)).catch(() => {}))
-            );
+                const robloxType = playerAvatar.playerAvatarType || null;
 
-            await fs.writeFile(path.join(outputDir, "avatar.obj"), obj);
-            await fs.writeFile(path.join(outputDir, "avatar.mtl"), mtl);
+                // Cache the hint (and type) so convert/explorer can read it without
+                // re-fetching, and keep a small record for debugging.
+                const avatarMeta = {
+                    userId,
+                    playerAvatarType: robloxType,
+                    assets: Array.isArray(playerAvatar.assets)
+                        ? playerAvatar.assets.map((a) => ({
+                            id: a.id,
+                            name: a.name,
+                            assetType: a.assetType
+                        }))
+                        : []
+                };
+                await fs
+                    .writeFile(
+                        path.join(stagingDir, "avatar.json"),
+                        JSON.stringify(avatarMeta, null, 2)
+                    )
+                    .catch(() => {});
 
-            const robloxType = playerAvatar.playerAvatarType || null;
+                // Rename PlayerN groups to readable body parts, then persist again.
+                const partInfo = applyBodyPartNames(stagingDir, obj, robloxType);
+                obj = partInfo.objText;
+                await fs.writeFile(path.join(stagingDir, "avatar.obj"), obj);
 
-            // Cache the hint (and type) so convert/explorer can read it without
-            // re-fetching, and keep a small record for debugging.
-            const avatarMeta = {
-                userId,
-                playerAvatarType: robloxType,
-                assets: Array.isArray(playerAvatar.assets)
-                    ? playerAvatar.assets.map((a) => ({
-                        id: a.id,
-                        name: a.name,
-                        assetType: a.assetType
-                    }))
-                    : []
-            };
-            await fs
-                .writeFile(
-                    path.join(outputDir, "avatar.json"),
-                    JSON.stringify(avatarMeta, null, 2)
-                )
-                .catch(() => {});
-
-            // Rename PlayerN groups to readable body parts, then persist again.
-            const partInfo = applyBodyPartNames(outputDir, obj, robloxType);
-            obj = partInfo.objText;
-            await fs.writeFile(path.join(outputDir, "avatar.obj"), obj);
-
-            await Promise.all(
-                textureFiles.map((texture) =>
-                    fs.writeFile(path.join(outputDir, texture.filename), texture.buffer)
-                )
-            );
-
-            const files = [
-                `/assets/${userId}/avatar.obj`,
-                `/assets/${userId}/avatar.mtl`,
-                ...textureFiles.map(
-                    (texture) => `/assets/${userId}/${texture.filename}`
-                )
-            ];
-
-            const totalSize =
-                Buffer.byteLength(obj) +
-                Buffer.byteLength(mtl) +
-                textureFiles.reduce(
-                    (sum, texture) => sum + texture.buffer.length,
-                    0
+                await Promise.all(
+                    textureFiles.map((texture) =>
+                        fs.writeFile(path.join(stagingDir, texture.filename), texture.buffer)
+                    )
                 );
 
-            res.json({
-                success: true,
-                message: t(lang, "download.success"),
-                textureCount: textureFiles.length,
-                files,
-                totalSize,
-                rigType: partInfo.rigType,
-                robloxType,
-                compatibility: partInfo.compatibility
+                const backupDir = path.join(
+                    downloadsRoot,
+                    `.old-${userId}-${Date.now()}`
+                );
+                let movedOld = false;
+
+                try {
+                    await fs.rename(outputDir, backupDir);
+                    movedOld = true;
+                } catch (error) {
+                    if (error.code !== "ENOENT") {
+                        throw error;
+                    }
+                }
+
+                try {
+                    await fs.rename(stagingDir, outputDir);
+                } catch (error) {
+                    // Restore the previous cache rather than leaving the user
+                    // with nothing if the final swap fails.
+                    if (movedOld) {
+                        await fs.rename(backupDir, outputDir).catch(() => {});
+                    }
+                    throw error;
+                }
+
+                if (movedOld) {
+                    await fs.rm(backupDir, { recursive: true, force: true })
+                        .catch(() => {});
+                }
+
+                const files = [
+                    `/assets/${userId}/avatar.obj`,
+                    `/assets/${userId}/avatar.mtl`,
+                    ...textureFiles.map(
+                        (texture) => `/assets/${userId}/${texture.filename}`
+                    )
+                ];
+
+                const totalSize =
+                    Buffer.byteLength(obj) +
+                    Buffer.byteLength(mtl) +
+                    textureFiles.reduce(
+                        (sum, texture) => sum + texture.buffer.length,
+                        0
+                    );
+
+                res.json({
+                    success: true,
+                    message: t(lang, "download.success"),
+                    textureCount: textureFiles.length,
+                    files,
+                    totalSize,
+                    rigType: partInfo.rigType,
+                    robloxType,
+                    compatibility: partInfo.compatibility
+                });
+            } catch (error) {
+                await fs.rm(stagingDir, { recursive: true, force: true })
+                    .catch(() => {});
+                throw error;
+            }
+
             });
 
         } catch (error) {
             console.error("Avatar Downloader:", error);
-            const isTimeout = error && error.name === "AbortError";
+            const isTimeout = isTimeoutError(error);
             const isPermissionError =
                 error && ["EACCES", "EPERM", "EROFS"].includes(error.code);
 
