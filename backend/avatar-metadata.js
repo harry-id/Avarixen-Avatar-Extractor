@@ -198,6 +198,53 @@ function decodeMetadata(buffer) {
     return JSON.parse(text);
 }
 
+const REDIRECT_STATUS = new Set([301, 302, 303, 307, 308]);
+const MAX_METADATA_REDIRECTS = 3;
+
+/**
+ * Fetch the metadata JSON while validating every redirect target against the
+ * same allowlist. `fetch()` follows redirects by default, which would let an
+ * allowed URL redirect to localhost/private addresses and bypass the check.
+ */
+async function fetchMetadataWithRedirects(fetchWithTimeout, imageUrl) {
+    let current = imageUrl;
+
+    for (let hop = 0; hop <= MAX_METADATA_REDIRECTS; hop++) {
+        if (!isAllowedMetadataUrl(current)) {
+            return { blocked: true, response: null };
+        }
+
+        const response = await fetchWithTimeout(
+            current,
+            { redirect: "manual" },
+            20000
+        );
+
+        if (REDIRECT_STATUS.has(response.status)) {
+            const location = response.headers &&
+                typeof response.headers.get === "function"
+                ? response.headers.get("location")
+                : null;
+
+            if (!location) {
+                return { blocked: true, response };
+            }
+
+            try {
+                current = new URL(location, current).toString();
+            } catch {
+                return { blocked: true, response };
+            }
+
+            continue;
+        }
+
+        return { blocked: false, response };
+    }
+
+    return { blocked: true, response: null };
+}
+
 async function fetchAvatarMetadataJson(fetchWithTimeout, imageUrl, options = {}) {
     const attempts = options.attempts || DEFAULT_ATTEMPTS;
     const delayMs = options.delayMs !== undefined ? options.delayMs : DEFAULT_DELAY_MS;
@@ -216,7 +263,22 @@ async function fetchAvatarMetadataJson(fetchWithTimeout, imageUrl, options = {})
 
     for (let attempt = 1; attempt <= attempts; attempt++) {
         try {
-            const response = await fetchWithTimeout(imageUrl, {}, 20000);
+            const fetched = await fetchMetadataWithRedirects(
+                fetchWithTimeout,
+                imageUrl
+            );
+
+            if (fetched.blocked) {
+                return {
+                    ok: false,
+                    status: fetched.response ? fetched.response.status : null,
+                    reason: "blocked",
+                    metadata: null,
+                    attempts: attempt
+                };
+            }
+
+            const response = fetched.response;
 
             if (response.ok) {
                 const buffer = Buffer.from(await response.arrayBuffer());
@@ -277,6 +339,7 @@ module.exports = {
     DEFAULT_ATTEMPTS,
     fetchAvatar3D,
     fetchAvatarMetadataJson,
+    fetchMetadataWithRedirects,
     fetchPlayerAvatar,
     isAllowedMetadataUrl
 };
