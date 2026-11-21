@@ -64,9 +64,12 @@ ROBLOX_API_KEY=your_roblox_api_key_here
 
 Notes:
 - `ROBLOX_API_KEY` is required for avatar metadata and downloads.
-- `CORS_ORIGINS` (comma-separated) — leave unset for permissive CORS; set explicit origins in production.
+- `CORS_ORIGINS` (comma-separated) — unset keeps CORS permissive (the server logs a warning); set explicit origins in production.
+- `DOWNLOADS_TTL_HOURS` (default `24`) expires cached avatars; `DOWNLOADS_MAX_BYTES` adds an optional total cache quota (`0` = unlimited).
+- `MAX_CONCURRENT_CONVERSIONS` (default `2`) and `MAX_CONVERSION_QUEUE` (default `8`) bound CPU-heavy GLB/GLTF/FBX work.
 - Request logging is on by default. `LOG_REQUESTS=false` disables it; `LOG_REQUESTS=verbose` adds bodies/user agents; `LOG_ASSETS=1` adds per-file CDN logs (noisy).
 - File logging is on by default: a clean (ANSI-stripped) copy of every console line is written to `backend/aae.log`. Set `AAE_LOG_FILE=false` to disable, `AAE_LOG_FILE=<path>` to change the location, or `AAE_LOG_LEVEL=debug|info|warn|error` (default `info`) to filter.
+- Logs rotate at `AAE_LOG_MAX_BYTES` (default 10 MiB) and keep `AAE_LOG_MAX_FILES` files (default 3). Logs contain client IPs and user IDs; treat them as operational data and restrict access.
 
 ### 3. Run (single command)
 
@@ -95,7 +98,7 @@ The frontend supports **Indonesian (`id`)** and **English (`en`)**:
 
 - A language selector in the header lets users switch languages.
 - The choice is saved to `localStorage` (`aae_lang`) and persists across reloads.
-- Defaults to the browser language (Indonesian if `id`, otherwise English).
+- Defaults to English until the visitor chooses a language.
 - Backend API error messages also honor the `Accept-Language` header, so they match the selected frontend language.
 
 ## Model Conversion
@@ -130,15 +133,16 @@ Exports are tested with **Blender 3.6** and **Prisma3D 3.3.5** — covering OBJ,
 - The frontend auto-detects `http://localhost:3000` in local dev; elsewhere set `window.__AAE_BACKEND_URL__` or serve the API behind the same origin.
 - Avatars are cached in `downloads/<userId>/`; the Reload button re-downloads and reloads with a cache-busting query.
 - Avatar metadata is retried up to 5× (1.5 s apart) while pending; auth errors fail immediately.
-- Keep real API keys in `backend/.env` (never commit).
-- Rate limiting is in-memory per process. Set `TRUST_PROXY` (e.g. `1`) behind a reverse proxy so the real client IP is used; use a shared store/gateway for multi-instance.
+- Keep real API keys in `backend/.env` (never commit) and restrict its permissions (`chmod 600`).
+- Rate limiting is in-memory per process. Set `TRUST_PROXY` (e.g. `1`) behind a reverse proxy so the real client IP is used; `TRUST_PROXY=false` explicitly disables proxy trust. Use a shared store/gateway for multi-instance.
+- Downloads for the same user are serialized and written through a staging directory, so concurrent requests cannot interleave cache files.
+- `HEAD` requests to the download/conversion endpoints return `405`; those endpoints are GET-only and have side effects.
 
 ## Tests
 
 ```bash
-cd backend
 npm test
 ```
 
-The backend test suite uses the built-in `node:test` runner and covers OBJ/MTL parsing, body-part mapping, texture planning, i18n, and FBX serialization.
+The backend test suite uses the built-in `node:test` runner and covers OBJ/MTL parsing, body-part mapping, texture planning, i18n, FBX serialization, upstream timeouts, configuration parsing, cache locks/quotas, log rotation, and conversion limits.
 
