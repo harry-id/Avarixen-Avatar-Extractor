@@ -815,7 +815,7 @@
     </div>
 
     <div class="controls">
-        <button id="reloadButton" data-i18n="reloadButton">Reload Model</button>
+        <button id="reloadButton" data-i18n="reloadButton" disabled>Reload Model</button>
 
         <div class="dropdown">
             <div class="split-button">
@@ -1008,12 +1008,11 @@ const LANG = {
         faq7q: "Bisakah saya menghosting Avarixen secara lokal?",
         faq7a: "Bisa. Proyek ini berjalan di Node.js 18+. Klon repositori, pasang dependensi, konfigurasikan kunci API Roblox, lalu jalankan backend dan frontend. Lihat README untuk langkah setup.",
         languageLabel: "Bahasa / Language:",
-        usernamePlaceholder: "Masukkan username Roblox...",
+        usernamePlaceholder: "Masukkan username atau ID pengguna Roblox...",
         searchButton: "Cari Avatar",
         searchButtonSearching: "Mencari...",
         accountInfoTitle: "Informasi Akun",
-        usernameLabel: "Username",
-        displayNameLabel: "Nama Tampilan",
+        userLabel: "Pengguna",
         userIdLabel: "ID Pengguna",
         avatarTypeLabel: "Tipe Avatar",
         avatarTypeUnknown: "Tidak diketahui",
@@ -1113,12 +1112,11 @@ const LANG = {
         faq7q: "Can I host Avarixen locally?",
         faq7a: "Yes. The project runs on Node.js 18+. Clone the repository, install dependencies, configure the Roblox API key, then start the backend and frontend. See the README for setup steps.",
         languageLabel: "Language / Bahasa:",
-        usernamePlaceholder: "Enter Roblox username...",
+        usernamePlaceholder: "Enter Roblox username or user ID...",
         searchButton: "Search Avatar",
         searchButtonSearching: "Searching...",
         accountInfoTitle: "Account Information",
-        usernameLabel: "Username",
-        displayNameLabel: "Display Name",
+        userLabel: "User",
         userIdLabel: "User ID",
         avatarTypeLabel: "Avatar Type",
         avatarTypeUnknown: "Unknown",
@@ -1251,6 +1249,9 @@ function setLang(lang) {
 
 let currentStatusKey = null;
 let currentStatusParams = {};
+// When set, renderStatus shows this message verbatim (e.g. a backend error
+// sentence) instead of a translation key, and no spinner runs.
+let currentStatusRaw = null;
 
 // Spinner frames for the processing animation (requestAnimationFrame pauses when the tab is hidden).
 const STATUS_SPINNER_FRAMES = ["|", "/", "-", "\\"];
@@ -1306,11 +1307,19 @@ function startStatusSpinner() {
 }
 
 function renderStatus() {
+    // A raw message (e.g. a backend error sentence) takes precedence so a
+    // stray animation frame can't wipe it out.
+    if (currentStatusRaw) {
+        status.textContent = currentStatusRaw.message;
+        status.classList.remove("is-busy", "is-waiting");
+        status.classList.toggle("is-error", currentStatusRaw.isError);
+        return;
+    }
+
     const key = currentStatusKey;
     if (!key) {
         status.textContent = "";
         status.classList.remove("is-error", "is-busy", "is-waiting");
-        stopStatusSpinner();
         return;
     }
 
@@ -1324,18 +1333,39 @@ function renderStatus() {
     if (busy) {
         const frame = STATUS_SPINNER_FRAMES[statusSpinnerIndex];
         status.textContent = `[${frame}] ${base}`;
-        startStatusSpinner();
     } else {
         status.textContent = base;
-        stopStatusSpinner();
     }
 }
 
 function setStatus(key, params = {}) {
+    currentStatusRaw = null;
     currentStatusKey = key;
     currentStatusParams = params;
     statusSpinnerIndex = 0;
     renderStatus();
+
+    // Start the spinner exactly once per busy status. renderStatus stays pure
+    // so the animation loop can re-render without spawning new loops (which
+    // previously left orphaned frames that wiped out later error messages).
+    if (isStatusBusyKey(key)) {
+        startStatusSpinner();
+    } else {
+        stopStatusSpinner();
+    }
+}
+
+// Show an already-composed message (e.g. a backend error sentence) verbatim in
+// the status area, stopping any in-flight spinner. Used when an operation fails
+// mid-process so the error is surfaced where the progress was shown.
+function setStatusRaw(message, { isError = true } = {}) {
+    stopStatusSpinner();
+    currentStatusKey = null;
+    currentStatusParams = {};
+    currentStatusRaw = { message: message || "", isError };
+    status.classList.remove("is-busy", "is-waiting");
+    status.classList.toggle("is-error", isError);
+    status.textContent = message || "";
 }
 
 function apiHeaders() {
@@ -1398,7 +1428,10 @@ function setStatusError(error) {
     if (error && error.isApiOffline) {
         setStatus("apiOffline");
     } else {
-        setStatus("errorOccurred", { message: (error && error.message) || "Unknown error" });
+        // Show the real error sentence where progress was displayed, so a
+        // mid-process failure doesn't leave a stale spinner running.
+        const message = (error && error.message) || t("errorOccurred", { message: "Unknown error" });
+        setStatusRaw(message);
     }
 }
 
@@ -1465,6 +1498,17 @@ function formatLabel(format) {
 
 function setDownloadButtonLabel() {
     downloadButton.textContent = formatLabel(selectedFormat);
+}
+
+// Enable/disable the Reload control based on whether an avatar has been
+// submitted. The Download control stays enabled so visitors can pick a format
+// up front; the download action itself guards against no avatar being loaded.
+function refreshControls() {
+    const hasAvatar = Boolean(currentUserId);
+
+    if (reloadButton) {
+        reloadButton.disabled = !hasAvatar;
+    }
 }
 
 function setSelectedFormat(format) {
@@ -1644,6 +1688,7 @@ scene.add(frontLight);
 let currentModel = null;
 let currentUserId = null;
 let currentDisplayName = null;
+let currentUsername = null;
 let currentRigType = null;
 let currentAssetFiles = null;
 
@@ -1783,6 +1828,7 @@ function loadModel(userId = null, bustCache = false) {
                     controls.update();
 
                     setStatus("statusLoaded");
+                    refreshControls();
 
                 },
 
@@ -1791,6 +1837,8 @@ function loadModel(userId = null, bustCache = false) {
                 error => {
 
                     console.error(error);
+
+                    refreshControls();
 
                     setStatus(userId ? "statusLoadObjFailed" : "statusNoLocalModel");
 
@@ -1804,6 +1852,8 @@ function loadModel(userId = null, bustCache = false) {
         error => {
 
             console.error(error);
+
+            refreshControls();
 
             setStatus(userId ? "statusLoadMtlFailed" : "statusNoLocalModel");
 
@@ -1841,9 +1891,13 @@ function clearPreview() {
 
     currentAssetFiles = null;
 
+    currentUsername = null;
+
     accountInfo.style.display = "none";
 
     buildExplorer(null);
+
+    refreshControls();
 
 }
 
@@ -2283,11 +2337,11 @@ searchButton.addEventListener(
 
             const user = userResult.user;
             currentDisplayName = user.displayName || user.username;
+            currentUsername = user.username || null;
 
             accountInfo.innerHTML = `
                 <strong>${t("accountInfoTitle")}</strong><br>
-                ${t("usernameLabel")}: ${escapeHTML(user.username)}<br>
-                ${t("displayNameLabel")}: ${escapeHTML(user.displayName)}<br>
+                ${t("userLabel")}: ${escapeHTML(user.displayName || user.username)}${user.username ? ` (@${escapeHTML(user.username)})` : ""}<br>
                 ${t("userIdLabel")}: ${user.id}<br>
                 ${t("avatarTypeLabel")}: <span id="accountAvatarType">${t("avatarTypeUnknown")}</span>
             `;
@@ -2333,6 +2387,7 @@ searchButton.addEventListener(
             }
 
             currentUserId = user.id;
+            currentUsername = user.username || null;
 
             setAccountAvatarType(downloadResult.rigType, downloadResult.compatibility);
 
@@ -2343,6 +2398,9 @@ searchButton.addEventListener(
             setStatus("statusDownloaded");
 
             setExplorerSize(downloadResult.totalSize);
+
+            // Avatar now exists (Reload enabled); Download waits for the model.
+            refreshControls();
 
             loadModel(currentUserId);
 
@@ -2359,6 +2417,8 @@ searchButton.addEventListener(
             searchButton.disabled = false;
 
             searchButton.textContent = t("searchButton");
+
+            refreshControls();
 
         }
 
@@ -2449,7 +2509,7 @@ reloadButton.addEventListener(
 
         } finally {
 
-            reloadButton.disabled = false;
+            refreshControls();
 
         }
 
@@ -2589,20 +2649,24 @@ async function runDownload(format) {
 
         // Backend errors already carry a full, localized sentence; show it
         // verbatim instead of double-wrapping it.
-        alert(
-            error.fromApi
-                ? error.message
-                : t(
-                    format === "obj" ? "alertZipFailed" : "errorConvertFailed",
-                    { message: error.message }
-                )
-        );
+        const message = error.fromApi
+            ? error.message
+            : t(
+                format === "obj" ? "alertZipFailed" : "errorConvertFailed",
+                { message: error.message }
+            );
+
+        // Surface the failure in the status line too (cancel any spinner),
+        // then also alert so it's not missed.
+        setStatusRaw(message);
+        alert(message);
 
     } finally {
 
         downloadButton.disabled = false;
         downloadToggle.disabled = false;
         setDownloadButtonLabel();
+        refreshControls();
 
     }
 
@@ -2627,6 +2691,8 @@ async function downloadZip() {
 
     const safeName = String(currentDisplayName || "Avarixen").replace(/[\\/:*?"<>|]/g, "_").trim().replace(/[. ]+$/g, "") || "Avarixen";
     const baseName = safeName.toLowerCase();
+    // Download filename uses the Roblox username: {username}_{user_id}.zip
+    const safeUsername = String(currentUsername || currentDisplayName || "Avarixen").replace(/[\\/:*?"<>|]/g, "_").trim().replace(/[. ]+$/g, "") || "Avarixen";
 
     // Prefer the exact file list the download endpoint reported. The old HEAD
     // probe stopped at the first gap and silently dropped later textures.
@@ -2709,7 +2775,7 @@ async function downloadZip() {
 
     link.href = url;
 
-    link.download = `${safeName}_${currentUserId}.zip`;
+    link.download = `${safeUsername}_${currentUserId}.zip`;
 
     document.body.appendChild(link);
 
@@ -2776,7 +2842,8 @@ async function downloadConverted(format) {
     const blob = await response.blob();
     const objUrl = URL.createObjectURL(blob);
 
-    const safeName = String(currentDisplayName || "Avarixen").replace(
+    // Download filename uses the Roblox username: {username}_{user_id}.{ext}
+    const safeUsername = String(currentUsername || currentDisplayName || "Avarixen").replace(
         /[\\/:*?"<>|]/g,
         "_"
     ).trim().replace(/[. ]+$/g, "") || "Avarixen";
@@ -2787,7 +2854,7 @@ async function downloadConverted(format) {
 
     const link = document.createElement("a");
     link.href = objUrl;
-    link.download = `${safeName}_${currentUserId}.${ext}`;
+    link.download = `${safeUsername}_${currentUserId}.${ext}`;
 
     document.body.appendChild(link);
     link.click();
@@ -2844,6 +2911,10 @@ animate();
 
 
 setLang(currentLang);
+
+// Reload starts disabled until an avatar is loaded; Download stays enabled so
+// a format can be chosen up front.
+refreshControls();
 
 renderApiStatus("checking");
 checkApiStatus();
