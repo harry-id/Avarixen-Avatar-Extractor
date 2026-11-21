@@ -234,21 +234,57 @@ app.get("/api/health", (req, res) => {
     res.json({ status: "online", version: APP_VERSION });
 });
 
-// Pencarian username Roblox
+// Pencarian username / user ID Roblox
 app.post("/api/roblox/user", async (req, res) => {
     const lang = getLang(req);
 
     try {
-        const username = typeof req.body?.username === "string" ? req.body.username.trim() : "";
+        const query = typeof req.body?.username === "string" ? req.body.username.trim() : "";
 
-        if (!username) {
+        if (!query) {
             return res.status(400).json({
                 success: false,
                 message: t(lang, "user.empty")
             });
         }
 
-        if (username.length > 20) {
+        // A numeric query is a Roblox user ID; look it up directly.
+        if (/^\d+$/.test(query)) {
+            const idResponse = await fetchWithTimeout(
+                `https://users.roblox.com/v1/users/${encodeURIComponent(query)}`,
+                { headers: { "Content-Type": "application/json" } }
+            );
+
+            if (!idResponse.ok) {
+                return res.status(idResponse.status === 404 ? 404 : 502).json({
+                    success: false,
+                    message: t(
+                        lang,
+                        idResponse.status === 404 ? "user.not_found" : "user.upstream_failed"
+                    )
+                });
+            }
+
+            const account = await idResponse.json();
+
+            if (!account || !account.id) {
+                return res.status(404).json({
+                    success: false,
+                    message: t(lang, "user.not_found")
+                });
+            }
+
+            return res.json({
+                success: true,
+                user: {
+                    id: account.id,
+                    username: account.name,
+                    displayName: account.displayName
+                }
+            });
+        }
+
+        if (query.length > 20) {
             return res.status(400).json({
                 success: false,
                 message: t(lang, "user.invalid")
@@ -263,7 +299,7 @@ app.post("/api/roblox/user", async (req, res) => {
                     "Content-Type": "application/json"
                 },
                 body: JSON.stringify({
-                    usernames: [username],
+                    usernames: [query],
                     excludeBannedUsers: true
                 })
             }
