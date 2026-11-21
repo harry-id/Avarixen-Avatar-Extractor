@@ -192,9 +192,19 @@ const downloadsCleanup = startDownloadsCleanup({
     }
 });
 
-const rateWindowMs = 60_000;
-const rateMax = 60;
+const rateWindowMs = parsePositiveNumber(
+    process.env.RATE_LIMIT_WINDOW_MS,
+    60_000
+);
+const rateMax = parsePositiveNumber(process.env.RATE_LIMIT_MAX, 60);
 const rateBuckets = new Map();
+
+// API responses are user/avatar-specific and some are downloads: never let an
+// intermediary cache them.
+app.use("/api", (req, res, next) => {
+    res.setHeader("Cache-Control", "no-store");
+    next();
+});
 
 // Drop expired buckets so the map cannot grow without bound.
 const ratePruneTimer = setInterval(() => {
@@ -457,6 +467,21 @@ app.use((error, req, res, next) => {
 });
 
 const server = app.listen(PORT);
+
+// Bound slow/incomplete clients so a few stalled connections cannot hold
+// resources indefinitely. Outbound Roblox/CDN requests have their own limits.
+server.requestTimeout = parsePositiveNumber(
+    process.env.REQUEST_TIMEOUT_MS,
+    120_000
+);
+server.headersTimeout = parsePositiveNumber(
+    process.env.HEADERS_TIMEOUT_MS,
+    30_000
+);
+server.keepAliveTimeout = parsePositiveNumber(
+    process.env.KEEP_ALIVE_TIMEOUT_MS,
+    65_000
+);
 
 server.on("listening", () => {
     console.log(`AAE Server running on port ${PORT}`);
