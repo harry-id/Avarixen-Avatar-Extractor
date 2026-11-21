@@ -2511,11 +2511,15 @@ async function runDownload(format) {
 
     } catch (error) {
 
+        // Backend errors already carry a full, localized sentence; show it
+        // verbatim instead of double-wrapping it.
         alert(
-            t(
-                format === "obj" ? "alertZipFailed" : "errorConvertFailed",
-                { message: error.message }
-            )
+            error.fromApi
+                ? error.message
+                : t(
+                    format === "obj" ? "alertZipFailed" : "errorConvertFailed",
+                    { message: error.message }
+                )
         );
 
     } finally {
@@ -2682,7 +2686,14 @@ async function downloadConverted(format) {
 
     if (!response.ok) {
         const err = await response.json().catch(() => ({}));
-        throw new Error(err.message || t("errorConvertFailed", { message: "Unknown error" }));
+        // The backend returns a complete, localized sentence (e.g.
+        // "Auto-rig failed: ..."). Mark it so the caller shows it as-is
+        // instead of wrapping it again in "Conversion failed: ...".
+        const wrapped = new Error(
+            err.message || t("errorConvertFailed", { message: "Unknown error" })
+        );
+        wrapped.fromApi = Boolean(err.message);
+        throw wrapped;
     }
 
     const contentType = response.headers.get("content-type") || "";

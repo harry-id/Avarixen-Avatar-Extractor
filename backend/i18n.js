@@ -70,9 +70,15 @@ function getLang(req) {
     return MESSAGES[primary] ? primary : DEFAULT_LANG;
 }
 
-function t(lang, key) {
+function t(lang, key, params = {}) {
     const dict = MESSAGES[lang] || MESSAGES[DEFAULT_LANG];
-    return dict[key] || key;
+    const text = dict[key] || key;
+
+    return text.replace(/\{\{(\w+)\}\}/g, (match, name) =>
+        params[name] !== undefined && params[name] !== null
+            ? String(params[name])
+            : match
+    );
 }
 
 module.exports = { getLang, t, DEFAULT_LANG, MESSAGES };

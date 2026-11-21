@@ -14,8 +14,23 @@ test("getLang honours Accept-Language and falls back to Indonesian", () => {
 
 test("t substitutes {{message}} placeholders", () => {
     assert.equal(
-        t("en", "convert.rig_failed").replace("{{message}}", "boom"),
+        t("en", "convert.rig_failed", { message: "boom" }),
         "Auto-rig failed: boom"
+    );
+    assert.equal(
+        t("id", "convert.rig_failed", { message: "boom" }),
+        "Auto-rig gagal: boom"
+    );
+});
+
+test("t leaves the placeholder when no param is provided", () => {
+    assert.equal(t("en", "convert.rig_failed"), "Auto-rig failed: {{message}}");
+});
+
+test("t ignores null/undefined params", () => {
+    assert.equal(
+        t("en", "convert.rig_failed", { message: null }),
+        "Auto-rig failed: {{message}}"
     );
 });
 
