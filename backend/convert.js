@@ -6,8 +6,18 @@ const JSZip = require("jszip");
 const { getLang, t } = require("./i18n");
 const { buildFbx } = require("./fbx-exporter");
 const { convertAvatar, getPartInfo } = require("./auto-rig");
+const { createConversionLimiter } = require("./conversion-limiter");
+const { parseNonNegativeNumber, parsePositiveNumber } = require("./config");
+const { withUserLock } = require("./user-lock");
 
 const SUPPORTED_FORMATS = ["glb", "gltf", "fbx"];
+
+// Cap simultaneous conversions so a burst cannot exhaust memory/CPU. Requests
+// beyond the queue limit get a retryable 503 instead of piling up.
+const conversionLimiter = createConversionLimiter({
+    maxConcurrent: parsePositiveNumber(process.env.MAX_CONCURRENT_CONVERSIONS, 2),
+    maxQueue: parseNonNegativeNumber(process.env.MAX_CONVERSION_QUEUE, 8)
+});
 
 /**
  * Parse a boolean query param that may be "1", "true", "yes", etc.
@@ -153,6 +163,12 @@ module.exports = function (app) {
         }
     });
 
+    // Conversion has side effects (temporary files) and is expensive; never
+    // run it for a HEAD probe.
+    app.head("/api/roblox/convert/:userId/:format", (req, res) => {
+        res.set("Allow", "GET").status(405).end();
+    });
+
     app.get("/api/roblox/convert/:userId/:format", async (req, res) => {
         const lang = getLang(req);
         const { userId } = req.params;
@@ -188,18 +204,44 @@ module.exports = function (app) {
             Math.min(4, Number.parseInt(req.query.subdivision, 10) || 0)
         );
         const moreJoints = parseBool(req.query.moreJoints);
+        // "Bend accessories" (default off) skins multi-part R15 clothing so it
+        // deforms with the body; off keeps every accessory rigid.
+        const bendAccessories =
+            req.query.bendAccessories === undefined
+                ? false
+                : parseBool(req.query.bendAccessories);
 
         const assetDir = path.join(__dirname, "../downloads", userId);
         const objPath = path.join(assetDir, "avatar.obj");
 
+        let release;
+
         try {
-            await fs.access(objPath);
-        } catch {
-            return res.status(404).json({
-                success: false,
-                message: t(lang, "convert.no_obj")
-            });
+            release = await conversionLimiter.acquire();
+        } catch (error) {
+            if (error && error.code === "ECONVERSIONBUSY") {
+                res.set("Retry-After", "5");
+                return res.status(503).json({
+                    success: false,
+                    message: t(lang, "convert.busy")
+                });
+            }
+
+            throw error;
         }
+
+        try {
+            // Share the per-user lock with downloads so a cache swap cannot
+            // happen while conversion is reading avatar.obj/mtl/textures.
+            await withUserLock(userId, async () => {
+            try {
+                await fs.access(objPath);
+            } catch {
+                return res.status(404).json({
+                    success: false,
+                    message: t(lang, "convert.no_obj")
+                });
+            }
 
         try {
             if (fmt === "fbx") {
@@ -226,18 +268,38 @@ module.exports = function (app) {
                     }
                 }
 
-                const fbx = await buildFbx({
-                    objText,
-                    mtlText,
-                    assetDir,
-                    splitParts,
-                    groupName,
-                    embedTextures: !separate,
-                    subdivision,
-                    excludeSubdivision: headGroups,
-                    rig,
-                    moreJoints
-                });
+                let fbx;
+
+                try {
+                    fbx = await buildFbx({
+                        objText,
+                        mtlText,
+                        assetDir,
+                        splitParts,
+                        groupName,
+                        embedTextures: !separate,
+                        subdivision,
+                        excludeSubdivision: headGroups,
+                        rig,
+                        moreJoints,
+                        bendAccessories
+                    });
+                } catch (fbxError) {
+                    console.error("FBX conversion failed:", fbxError);
+
+                    // A rig failure is a client-visible 422; other failures
+                    // (I/O, parser, memory) remain a 500.
+                    if (!rig) {
+                        throw fbxError;
+                    }
+
+                    return res.status(422).json({
+                        success: false,
+                        message: t(lang, "convert.rig_failed", {
+                            message: fbxError.message
+                        })
+                    });
+                }
 
                 if (separate) {
                     const zip = new JSZip();
@@ -275,14 +337,23 @@ module.exports = function (app) {
                     splitParts,
                     groupName,
                     subdivision,
-                    moreJoints
+                    moreJoints,
+                    bendAccessories
                 });
-            } catch (rigError) {
-                // Auto-rig failed (e.g. not 6/15 Player groups).
-                console.error("Auto-rig conversion failed:", rigError);
+            } catch (conversionError) {
+                console.error("Avatar conversion failed:", conversionError);
+
+                // Only a requested rig can fail with a "rig" error; plain
+                // GLB/GLTF failures must stay a 500.
+                if (!rig) {
+                    throw conversionError;
+                }
+
                 return res.status(422).json({
                     success: false,
-                    message: t(lang, "convert.rig_failed", { message: rigError.message })
+                    message: t(lang, "convert.rig_failed", {
+                        message: conversionError.message
+                    })
                 });
             }
 
@@ -337,10 +408,26 @@ module.exports = function (app) {
             }
         } catch (err) {
             console.error("Convert error:", err);
-            res.status(500).json({
-                success: false,
-                message: t(lang, "convert.failed")
+
+            if (!res.headersSent) {
+                res.status(500).json({
+                    success: false,
+                    message: t(lang, "convert.failed")
+                });
+            }
+        }
             });
+        } catch (err) {
+            console.error("Convert error:", err);
+
+            if (!res.headersSent) {
+                res.status(500).json({
+                    success: false,
+                    message: t(lang, "convert.failed")
+                });
+            }
+        } finally {
+            release();
         }
     });
 };

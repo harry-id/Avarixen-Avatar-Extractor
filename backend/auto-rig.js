@@ -1809,7 +1809,7 @@ function findHeadGroupName(parsed) {
  * bone hierarchy, and a per-vertex skin function. Shared by the glTF and FBX
  * exporters so both produce an identical skeleton.
  */
-function computeRig(parsed, { moreJoints = false, hint = null } = {}) {
+function computeRig(parsed, { moreJoints = false, hint = null, bendAccessories = false } = {}) {
     const boxes = {};
     for (const g of parsed.groups) {
         boxes[g.name] = computeBox(g.vertexIndices, parsed.positions);
@@ -1931,7 +1931,8 @@ function computeRig(parsed, { moreJoints = false, hint = null } = {}) {
         a.zmin <= b.zmax && a.zmax >= b.zmin;
 
     const isClothingGroup = (name) => {
-        if (rigType !== "R15" || !/^handle/i.test(name)) {
+        // "Bend accessories" off => every handle stays rigid.
+        if (!bendAccessories || rigType !== "R15" || !/^handle/i.test(name)) {
             return false;
         }
         const g = groupByName[name];
@@ -2039,7 +2040,8 @@ async function convertAvatar(assetDir, {
     splitParts = false,
     groupName = "Avatar",
     subdivision = 0,
-    moreJoints = false
+    moreJoints = false,
+    bendAccessories = false
 } = {}) {
     const objPath = path.join(assetDir, "avatar.obj");
     if (!fs.existsSync(objPath)) {
@@ -2077,7 +2079,8 @@ async function convertAvatar(assetDir, {
     if (rig) {
         rigData = computeRig(parsed, {
             moreJoints,
-            hint: readCachedRobloxType(assetDir)
+            hint: readCachedRobloxType(assetDir),
+            bendAccessories
         });
 
         rigType = rigData.rigType;

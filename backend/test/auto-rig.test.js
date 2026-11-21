@@ -590,7 +590,11 @@ test("R15 layered clothing is skinned to the skeleton, not bone-parented", async
         ].join("\n");
         fs.writeFileSync(path.join(dir, "avatar.obj"), obj);
 
-        const conversion = await convertAvatar(dir, { rig: true, splitParts: true });
+        const conversion = await convertAvatar(dir, {
+            rig: true,
+            splitParts: true,
+            bendAccessories: true
+        });
         const root = conversion.doc.getRoot();
         const handle = root.listNodes().find((n) => n.getName() === "Handle1");
 
@@ -606,6 +610,53 @@ test("R15 layered clothing is skinned to the skeleton, not bone-parented", async
         const parent = handle.getParentNode();
         assert.ok(parent, "has a parent");
         assert.equal(parent.getMesh(), null, "parent is a container, not a bone");
+    } finally {
+        fs.rmSync(dir, { recursive: true, force: true });
+    }
+});
+
+test("R15 clothing stays rigid when bendAccessories is off", async () => {
+    const body = {
+        Head: makeBox(-0.53, 0.53, 4.85, 5.5, -0.55, 0.55),
+        UpperTorso: makeBox(-0.91, 0.91, 3.04, 4.97, -0.51, 0.51),
+        LowerTorso: makeBox(-0.99, 0.99, 2.64, 3.04, -0.51, 0.51),
+        LeftUpperArm: makeBox(-1.91, -0.91, 3.50, 4.91, -0.50, 0.50),
+        LeftLowerArm: makeBox(-1.91, -0.91, 2.86, 4.13, -0.50, 0.50),
+        LeftHand: makeBox(-1.88, -0.93, 2.56, 2.92, -0.55, 0.55),
+        RightUpperArm: makeBox(0.91, 1.91, 3.50, 4.91, -0.50, 0.50),
+        RightLowerArm: makeBox(0.91, 1.91, 2.86, 4.13, -0.50, 0.50),
+        RightHand: makeBox(0.93, 1.88, 2.56, 2.92, -0.55, 0.55),
+        LeftUpperLeg: makeBox(-0.98, 0.00, 1.20, 2.90, -0.45, 0.46),
+        LeftLowerLeg: makeBox(-0.98, 0.00, 0.22, 1.77, -0.45, 0.46),
+        LeftFoot: makeBox(-1.01, 0.02, 0.00, 0.34, -0.50, 0.50),
+        RightUpperLeg: makeBox(0.00, 0.98, 1.20, 2.90, -0.45, 0.46),
+        RightLowerLeg: makeBox(0.00, 0.98, 0.22, 1.77, -0.45, 0.46),
+        RightFoot: makeBox(-0.02, 1.01, 0.00, 0.34, -0.50, 0.50)
+    };
+    const jacket = makeBox(-1.5, 1.5, 3.0, 5.0, -0.6, 0.6);
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "aae-test-"));
+
+    try {
+        const bodyVertCount = Object.keys(body).length * 8;
+        const obj = [
+            objFromBoxes(body),
+            objFromBoxes({ Handle1: jacket }, bodyVertCount + 1)
+        ].join("\n");
+        fs.writeFileSync(path.join(dir, "avatar.obj"), obj);
+
+        const conversion = await convertAvatar(dir, {
+            rig: true,
+            splitParts: true,
+            bendAccessories: false
+        });
+        const root = conversion.doc.getRoot();
+        const handle = root.listNodes().find((n) => n.getName() === "Handle1");
+
+        assert.ok(handle, "handle node exists");
+        // Rigid: no skin, parented to a bone (no JOINTS_0/WEIGHTS_0).
+        assert.equal(handle.getSkin(), null, "clothing handle is not skinned");
+        const parent = handle.getParentNode();
+        assert.ok(parent && !parent.getMesh(), "parent is a bone node");
     } finally {
         fs.rmSync(dir, { recursive: true, force: true });
     }

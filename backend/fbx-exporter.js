@@ -178,7 +178,8 @@ async function buildFbx({
     subdivision = 0,
     excludeSubdivision = [],
     rig = false,
-    moreJoints = false
+    moreJoints = false,
+    bendAccessories = false
 }) {
     const { THREE: T, FBXExporter } = await ensureModules();
 
@@ -196,7 +197,8 @@ async function buildFbx({
     const rigData = rig
         ? computeRig(parseObjString(objText), {
             moreJoints,
-            hint: readCachedRobloxType(assetDir)
+            hint: readCachedRobloxType(assetDir),
+            bendAccessories
         })
         : null;
 
