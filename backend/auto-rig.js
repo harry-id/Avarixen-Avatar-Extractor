@@ -1508,6 +1508,10 @@ function buildDocument(parsed, partMapping, joints, offsetX, offsetY, offsetZ, r
 
         const skin = rigged ? makeSkin() : null;
         const usedNames = new Set();
+        // Body-part mesh node by part name, so accessories can be parented to
+        // the matching body-part OBJECT instead of a bone.
+        const partNodeByPart = {};
+        const pendingHandles = [];
 
         for (const build of groupBuilds) {
             if (build.indices.length === 0) {
@@ -1558,33 +1562,35 @@ function buildDocument(parsed, partMapping, joints, offsetX, offsetY, offsetZ, r
             const partNode = doc.createNode(nodeName);
             partNode.setMesh(partMesh);
 
-            if (build.isHandle && build.handleCenter) {
-                // Parent to the bone (or container if unparented); the node
-                // translation compensates the bone's rest position.
-                const parentJoint = build.boneName && jointNodeMap[build.boneName];
-                if (parentJoint) {
-                    const jp = joints[build.boneName] || [0, 0, 0];
-                    const inv = qConjugate(
-                        jointWorldQuat[build.boneName] || Q_IDENTITY
-                    );
-                    // Cancel the bone's rest rotation so the rigid accessory
-                    // keeps its original world orientation and position.
-                    partNode.setTranslation(qRotate(inv, [
-                        build.handleCenter[0] - jp[0],
-                        build.handleCenter[1] - jp[1],
-                        build.handleCenter[2] - jp[2]
-                    ]));
-                    partNode.setRotation(inv);
-                    parentJoint.addChild(partNode);
-                } else {
-                    partNode.setTranslation(build.handleCenter);
-                    container.addChild(partNode);
-                }
+            if (build.isHandle) {
+                // Deferred: accessories are object-parented to their body part
+                // below so deleting the armature keeps them.
+                pendingHandles.push({ build, partNode });
+                continue;
+            }
+
+            container.addChild(partNode);
+            if (skin) {
+                partNode.setSkin(skin);
+            }
+
+            const part = groupToPart[build.name] || build.name;
+            if (!partNodeByPart[part]) {
+                partNodeByPart[part] = partNode;
+            }
+        }
+
+        // Object-parent each accessory to the body-part mesh it belongs to
+        // (Head, Torso, ...). Body-part nodes sit at identity, so the
+        // recentered handle position is its local transform. If the part has
+        // no mesh node, fall back to the container.
+        for (const { build, partNode } of pendingHandles) {
+            const target = build.boneName ? partNodeByPart[build.boneName] : null;
+            partNode.setTranslation(build.handleCenter || [0, 0, 0]);
+            if (target) {
+                target.addChild(partNode);
             } else {
                 container.addChild(partNode);
-                if (skin) {
-                    partNode.setSkin(skin);
-                }
             }
         }
 

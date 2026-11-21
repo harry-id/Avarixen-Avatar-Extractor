@@ -114,7 +114,7 @@ Download the avatar first (files live in `downloads/<userId>/`).
 - **Auto-rig** (GLB/GLTF/FBX): adds an R6/R15 skeleton. R6 **More joints** (Advanced settings) adds hands, elbows, knees, feet, and a waist. Rigged FBX uses the same bones/weights as glTF.
 - **Mesh quality** (GLB/GLTF/FBX, body only — Head + `Handle*` excluded): Minimal (Default) / Low / Medium / High / Extreme = subdivision 0–4. Preserves UVs/normals, capped at ~3.5M faces. OBJ is always original geometry. More joints locks to High/Extreme and defaults to High.
 - **Separate assets** → ZIP with external `.bin`/textures for GLTF/FBX; GLB is always one embedded binary; OBJ is always client-side. Unsupported options are **disabled (grayed out)**, not hidden.
-- Body parts export as separate objects under a node named after the display name (no merged `character_mesh`).
+- Body parts export as separate objects under a node named after the display name (no merged `character_mesh`). Accessories (`Handle*`) are **object-parented** to their body part (Head, Torso, …) rather than to a bone, so deleting the armature keeps the accessories.
 - GLB/GLTF/FBX are body-centered with feet at Y=0; FBX uses Blender units (`UnitScaleFactor=100`) and imports upright.
 - No format stores a Blender collection — select the imported parts and press **M → New Collection**.
 - OBJ is normalized on download: centered on X/Z, feet at Y=0, `g` groups mirrored as `o` objects, player groups renamed to body parts (`Head`, `Torso`, `LeftArm`, …); `Handle*` kept.

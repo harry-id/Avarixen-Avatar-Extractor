@@ -422,6 +422,63 @@ test("GLB rig orients bones along the limbs", async () => {
     }
 });
 
+test("GLB accessories are object-parented to body-part nodes, not bones", async () => {
+    // Full R15 body + a hat-like handle box sitting on top of the head.
+    const body = {
+        Head: makeBox(-0.53, 0.53, 4.85, 5.5, -0.55, 0.55),
+        UpperTorso: makeBox(-0.91, 0.91, 3.04, 4.97, -0.51, 0.51),
+        LowerTorso: makeBox(-0.99, 0.99, 2.64, 3.04, -0.51, 0.51),
+        LeftUpperArm: makeBox(-1.91, -0.91, 3.50, 4.91, -0.50, 0.50),
+        LeftLowerArm: makeBox(-1.91, -0.91, 2.86, 4.13, -0.50, 0.50),
+        LeftHand: makeBox(-1.88, -0.93, 2.56, 2.92, -0.55, 0.55),
+        RightUpperArm: makeBox(0.91, 1.91, 3.50, 4.91, -0.50, 0.50),
+        RightLowerArm: makeBox(0.91, 1.91, 2.86, 4.13, -0.50, 0.50),
+        RightHand: makeBox(0.93, 1.88, 2.56, 2.92, -0.55, 0.55),
+        LeftUpperLeg: makeBox(-0.98, 0.00, 1.20, 2.90, -0.45, 0.46),
+        LeftLowerLeg: makeBox(-0.98, 0.00, 0.22, 1.77, -0.45, 0.46),
+        LeftFoot: makeBox(-1.01, 0.02, 0.00, 0.34, -0.50, 0.50),
+        RightUpperLeg: makeBox(0.00, 0.98, 1.20, 2.90, -0.45, 0.46),
+        RightLowerLeg: makeBox(0.00, 0.98, 0.22, 1.77, -0.45, 0.46),
+        RightFoot: makeBox(-0.02, 1.01, 0.00, 0.34, -0.50, 0.50)
+    };
+    const hat = makeBox(-0.4, 0.4, 5.5, 5.9, -0.4, 0.4);
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "aae-test-"));
+
+    try {
+        const obj = [
+            objFromBoxes(body),
+            objFromBoxes({ Handle1: hat })
+        ].join("\n");
+        fs.writeFileSync(path.join(dir, "avatar.obj"), obj);
+
+        const conversion = await convertAvatar(dir, { rig: true, splitParts: true });
+        const root = conversion.doc.getRoot();
+        const find = (name) => root.listNodes().find((n) => n.getName() === name);
+
+        const handle = find("Handle1");
+        const headMesh = root.listNodes().find(
+            (n) => n.getName() === "Head" && n.getMesh()
+        );
+        const headBone = root.listNodes().find(
+            (n) => n.getName() === "Head" && !n.getMesh()
+        );
+
+        assert.ok(handle, "handle node exists");
+        assert.ok(handle.getParentNode(), "handle has a parent");
+
+        // Object-parent: the handle's parent is the Head MESH node, not a bone.
+        assert.equal(handle.getParentNode(), headMesh);
+        assert.ok(headMesh && headMesh.getMesh(), "parent is a mesh node");
+        assert.notEqual(handle.getParentNode(), headBone);
+
+        // Sanity: the handle sits at its world position (centered geometry).
+        const world = handle.getWorldTranslation();
+        assert.ok(Number.isFinite(world[0]) && Number.isFinite(world[1]));
+    } finally {
+        fs.rmSync(dir, { recursive: true, force: true });
+    }
+});
+
 test("tail-like accessory attaches to the hips (R15)", () => {
     const { handleGroup, positions } = handleFrom([
         [0, 4.2, 1.6], [0.2, 4.1, 1.7], [-0.2, 4.3, 1.5]
