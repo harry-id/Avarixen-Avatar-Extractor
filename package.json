@@ -3,9 +3,13 @@
   "version": "1.2.0",
   "description": "Roblox Avatar 3D Extractor by Avarixen",
   "private": true,
+  "engines": {
+    "node": ">=18"
+  },
   "scripts": {
     "postinstall": "npm install --prefix backend && npm install --prefix frontend",
     "start": "node start.js",
-    "setup": "npm install"
+    "setup": "npm install",
+    "test": "npm test --prefix backend"
   }
 }

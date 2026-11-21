@@ -3,6 +3,9 @@
   "version": "1.2.1-beta",
   "description": "Roblox Avatar 3D Extractor by Avarixen",
   "main": "server.js",
+  "engines": {
+    "node": ">=18"
+  },
   "scripts": {
     "start": "node server.js",
     "test": "node --test"
