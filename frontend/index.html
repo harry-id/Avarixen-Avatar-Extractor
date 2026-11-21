@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
     <title>Avarixen - Roblox Avatar Downloader &amp; 3D Exporter</title>
+    <link rel="icon" href="data:,">
     <meta name="description" content="Avarixen is a Roblox avatar downloader and 3D exporter. Retrieve Roblox avatars, preview 3D models, inspect mesh hierarchy, configure rigging, and export assets into FBX, GLB, glTF, and OBJ formats.">
     <meta name="robots" content="index, follow">
     <meta name="theme-color" content="#10131c">
@@ -2283,6 +2284,29 @@ function setExplorerSize(bytes) {
 
 let currentGroups = null;
 let currentBones = null;
+
+// Opt-in, read-only diagnostics for integration tests. Disabled unless the
+// page is opened with ?debug=1; exposes no credentials or remote data.
+if (new URLSearchParams(location.search).has("debug")) {
+    Object.defineProperty(window, "__AAE_DEBUG__", {
+        configurable: true,
+        value: {
+            state: () => ({
+                userId: currentUserId,
+                accountUserId: currentAccountUserId,
+                modelLoaded: Boolean(currentModel),
+                modelChildren: currentModel ? currentModel.children.length : 0,
+                rigType: currentRigType,
+                groupCount: Array.isArray(currentGroups) ? currentGroups.length : 0,
+                sceneChildren: scene.children.length
+            }),
+            memory: () => ({
+                geometries: renderer.info.memory.geometries,
+                textures: renderer.info.memory.textures
+            })
+        }
+    });
+}
 
 // Preferred top-to-bottom ordering for body parts in the Player section.
 const PART_ORDER = {
