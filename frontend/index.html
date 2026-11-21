@@ -1424,6 +1424,14 @@ function apiHeaders() {
     };
 }
 
+// GET/HEAD requests only need localization. Omitting Content-Type keeps them
+// CORS-safelisted, avoiding an OPTIONS preflight for every API read.
+function acceptLanguageHeaders() {
+    return {
+        "Accept-Language": currentLang
+    };
+}
+
 // fetch() wrapper: convert network failures into a friendly "API offline"
 // error and optionally bound the whole request (headers + body).
 async function apiFetch(url, options = {}) {
@@ -1778,6 +1786,11 @@ let currentAssetFiles = null;
 let modelLoadToken = 0;
 let explorerLoadToken = 0;
 
+// Invalidates the *entire* search/reload workflow. Model and explorer tokens
+// alone are not enough: a slow search can call loadModel() after a newer
+// search has already finished, which would make the old request the newest.
+let operationToken = 0;
+
 
 
 // Make a loaded model render correctly regardless of how its faces/normals are
@@ -2130,6 +2143,7 @@ function clearPreview() {
 
     // Invalidate in-flight model/explorer requests and release their GPU
     // resources instead of just detaching the object from the scene.
+    operationToken += 1;
     modelLoadToken += 1;
     explorerLoadToken += 1;
 
@@ -2482,7 +2496,7 @@ async function buildExplorer(userId) {
 
             partsUrl,
 
-            { headers: apiHeaders(), timeoutMs: 30000 }
+            { headers: acceptLanguageHeaders(), timeoutMs: 30000 }
 
         );
 
@@ -2630,6 +2644,7 @@ searchButton.addEventListener(
 
         clearPreview();
 
+        const requestToken = ++operationToken;
         searchButton.disabled = true;
 
         searchButton.textContent = t("searchButtonSearching");
@@ -2653,6 +2668,10 @@ searchButton.addEventListener(
             );
 
             const userResult = await userResponse.json();
+
+            if (requestToken !== operationToken) {
+                return;
+            }
 
             if (!userResponse.ok || !userResult.success) {
                 throw new Error(
@@ -2678,10 +2697,14 @@ searchButton.addEventListener(
                 BACKEND_URL +
                 "/api/roblox/download/" +
                 encodeURIComponent(user.id),
-                { headers: apiHeaders(), timeoutMs: 300000 }
+                { headers: acceptLanguageHeaders(), timeoutMs: 300000 }
             );
 
             const downloadResult = await downloadResponse.json();
+
+            if (requestToken !== operationToken) {
+                return;
+            }
 
             if (!downloadResponse.ok || !downloadResult.success) {
                 throw new Error(
@@ -2712,17 +2735,18 @@ searchButton.addEventListener(
 
         } catch (error) {
 
-            console.error(error);
-
-            setStatusError(error);
+            if (requestToken === operationToken) {
+                console.error(error);
+                setStatusError(error);
+            }
 
         } finally {
 
-            searchButton.disabled = false;
-
-            searchButton.textContent = t("searchButton");
-
-            refreshControls();
+            if (requestToken === operationToken) {
+                searchButton.disabled = false;
+                searchButton.textContent = t("searchButton");
+                refreshControls();
+            }
 
         }
 
@@ -2767,6 +2791,8 @@ reloadButton.addEventListener(
             return;
         }
 
+        const requestToken = ++operationToken;
+        const userId = currentUserId;
         reloadButton.disabled = true;
 
         try {
@@ -2778,11 +2804,15 @@ reloadButton.addEventListener(
             const response = await apiFetch(
                 BACKEND_URL +
                 "/api/roblox/download/" +
-                encodeURIComponent(currentUserId),
-                { headers: apiHeaders(), timeoutMs: 300000 }
+                encodeURIComponent(userId),
+                { headers: acceptLanguageHeaders(), timeoutMs: 300000 }
             );
 
             const result = await response.json();
+
+            if (requestToken !== operationToken) {
+                return;
+            }
 
             if (!response.ok || !result.success) {
                 throw new Error(
@@ -2801,19 +2831,22 @@ reloadButton.addEventListener(
 
             setExplorerSize(result.totalSize);
 
-            loadModel(currentUserId, true);
+            loadModel(userId, true);
 
-            buildExplorer(currentUserId);
+            buildExplorer(userId);
 
         } catch (error) {
 
-            console.error(error);
-
-            setStatusError(error);
+            if (requestToken === operationToken) {
+                console.error(error);
+                setStatusError(error);
+            }
 
         } finally {
 
-            refreshControls();
+            if (requestToken === operationToken) {
+                refreshControls();
+            }
 
         }
 
@@ -3133,7 +3166,7 @@ async function downloadConverted(format) {
     }
 
     const response = await apiFetch(url, {
-        headers: apiHeaders(),
+        headers: acceptLanguageHeaders(),
         timeoutMs: 300000
     });
 
