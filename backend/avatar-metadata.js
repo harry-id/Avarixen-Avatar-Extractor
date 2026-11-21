@@ -81,6 +81,39 @@ function resolveImageUrl(result) {
     return result?.data?.[0]?.imageUrl || result?.imageUrl || null;
 }
 
+/**
+ * Only follow metadata URLs that point at Roblox's own infrastructure.
+ * The URL comes from an upstream JSON payload, so without this check a
+ * compromised/misbehaving response could make the server request arbitrary
+ * internal addresses (SSRF).
+ */
+function isAllowedMetadataUrl(rawUrl) {
+    if (typeof rawUrl !== "string" || !rawUrl) {
+        return false;
+    }
+
+    let url;
+
+    try {
+        url = new URL(rawUrl);
+    } catch {
+        return false;
+    }
+
+    if (url.protocol !== "https:") {
+        return false;
+    }
+
+    const hostname = url.hostname.toLowerCase();
+
+    return (
+        hostname === "roblox.com" ||
+        hostname.endsWith(".roblox.com") ||
+        hostname === "rbxcdn.com" ||
+        hostname.endsWith(".rbxcdn.com")
+    );
+}
+
 async function fetchAvatar3D(fetchWithTimeout, apiKey, userId, options = {}) {
     const attempts = options.attempts || DEFAULT_ATTEMPTS;
     const delayMs = options.delayMs !== undefined ? options.delayMs : DEFAULT_DELAY_MS;
@@ -171,6 +204,16 @@ async function fetchAvatarMetadataJson(fetchWithTimeout, imageUrl, options = {})
 
     let last = { ok: false, status: null, reason: "network", metadata: null, attempts: 0 };
 
+    if (!isAllowedMetadataUrl(imageUrl)) {
+        return {
+            ok: false,
+            status: null,
+            reason: "blocked",
+            metadata: null,
+            attempts: 0
+        };
+    }
+
     for (let attempt = 1; attempt <= attempts; attempt++) {
         try {
             const response = await fetchWithTimeout(imageUrl, {}, 20000);
@@ -233,6 +276,7 @@ async function fetchAvatarMetadataJson(fetchWithTimeout, imageUrl, options = {})
 module.exports = {
     DEFAULT_ATTEMPTS,
     fetchAvatar3D,
+    fetchAvatarMetadataJson,
     fetchPlayerAvatar,
-    fetchAvatarMetadataJson
+    isAllowedMetadataUrl
 };
