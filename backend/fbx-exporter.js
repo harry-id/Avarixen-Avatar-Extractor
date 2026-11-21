@@ -9,7 +9,7 @@ const fs = require("fs");
 const path = require("path");
 const { PNG } = require("pngjs");
 const { isBodyGroup } = require("./obj-utils");
-const { computeRig, parseObjString } = require("./auto-rig");
+const { computeRig, parseObjString, readCachedRobloxType } = require("./auto-rig");
 
 let THREE = null;
 let FBXExporter = null;
@@ -193,7 +193,12 @@ async function buildFbx({
     // Build the same R6/R15 skeleton the GLB exporter uses. `skinFor` returns
     // bone indices/weights from raw OBJ positions, so it is independent of the
     // axis/offset conversion applied below.
-    const rigData = rig ? computeRig(parseObjString(objText), { moreJoints }) : null;
+    const rigData = rig
+        ? computeRig(parseObjString(objText), {
+            moreJoints,
+            hint: readCachedRobloxType(assetDir)
+        })
+        : null;
 
     // Match the GLB export: center the body on X/Z and put the feet at y = 0.
     let safeSubdivision = Math.max(0, Math.min(4, Math.floor(subdivision || 0)));

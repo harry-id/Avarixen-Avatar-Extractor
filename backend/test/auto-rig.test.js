@@ -11,6 +11,8 @@ const {
     parseMtl,
     detectRigType,
     detectNamedRigType,
+    resolveRigType,
+    computeCompatibility,
     computeBox,
     computeRecenter,
     matchBodyParts,
@@ -136,9 +138,82 @@ test("matchBodyParts maps R6 groups by position", () => {
 test("detectNamedRigType recognizes renamed body-part groups", () => {
     const r6 = ["Head", "Torso", "Left Arm", "Right Arm", "Left Leg", "Right Leg"];
     const partial = ["Head", "Torso", "Left Arm"];
+    const r15 = [
+        "Head", "UpperTorso", "LowerTorso",
+        "LeftUpperArm", "RightUpperArm", "LeftLowerArm", "RightLowerArm",
+        "LeftHand", "RightHand",
+        "LeftUpperLeg", "RightUpperLeg", "LeftLowerLeg", "RightLowerLeg",
+        "LeftFoot", "RightFoot"
+    ];
 
     assert.equal(detectNamedRigType(r6.map((name) => ({ name }))), "R6");
     assert.equal(detectNamedRigType(partial.map((name) => ({ name }))), null);
+    assert.equal(detectNamedRigType(r15.map((name) => ({ name }))), "R15");
+
+    // Partial named R15 (missing a forearm + foot): still detected as R15.
+    const partialR15 = r15.filter(
+        (name) => name !== "RightLowerArm" && name !== "RightFoot"
+    );
+    assert.equal(detectNamedRigType(partialR15.map((name) => ({ name }))), "R15");
+
+    // 13 of 15 parts (missing LeftLowerLeg + RightFoot).
+    const partialR15b = r15.filter(
+        (name) => name !== "LeftLowerLeg" && name !== "RightFoot"
+    );
+    assert.equal(detectNamedRigType(partialR15b.map((name) => ({ name }))), "R15");
+});
+
+test("resolveRigType disambiguates with the Roblox hint", () => {
+    const six = ["Player1", "Player2", "Player3", "Player4", "Player5", "Player6"]
+        .map((name) => ({ name }));
+
+    // Six groups, no hint -> R6.
+    assert.deepEqual(resolveRigType(six, 6, null), { rigType: "R6", source: "players" });
+
+    // Six groups but Roblox says R15 (merged R15) -> R15 via hint.
+    assert.deepEqual(resolveRigType(six, 6, "R15"), { rigType: "R15", source: "hint" });
+
+    // Six groups, Roblox says R6 -> R6 via hint.
+    assert.deepEqual(resolveRigType(six, 6, "R6"), { rigType: "R6", source: "hint" });
+
+    // Named partial R15 wins over the hint.
+    const named = ["Head", "UpperTorso", "LowerTorso", "LeftUpperArm",
+        "RightUpperArm", "LeftHand", "RightHand", "LeftUpperLeg", "RightUpperLeg"]
+        .map((name) => ({ name }));
+    assert.deepEqual(resolveRigType(named, 0, null), { rigType: "R15", source: "named" });
+
+    // Nothing to go on -> null.
+    assert.deepEqual(resolveRigType([], 0, null), { rigType: null, source: null });
+
+    // No geometry but a hint still classifies.
+    assert.deepEqual(resolveRigType([], 0, "R15"), { rigType: "R15", source: "hint" });
+});
+
+test("computeCompatibility reports complete vs partial rigs", () => {
+    const fullR6 = {
+        Head: "Head", Torso: "Torso", "Left Arm": "LeftArm",
+        "Right Arm": "RightArm", "Left Leg": "LeftLeg", "Right Leg": "RightLeg"
+    };
+    const r6 = computeCompatibility("R6", fullR6);
+    assert.equal(r6.status, "compatible");
+    assert.equal(r6.complete, true);
+    assert.deepEqual(r6.missing, []);
+
+    const partialR15 = {
+        Head: "Head", UpperTorso: "UpperTorso", LowerTorso: "LowerTorso",
+        LeftUpperArm: "LeftUpperArm", RightUpperArm: "RightUpperArm",
+        LeftHand: "LeftHand", RightHand: "RightHand"
+    };
+    const r15 = computeCompatibility("R15", partialR15);
+    assert.equal(r15.status, "partial");
+    assert.equal(r15.complete, false);
+    assert.equal(r15.expected, 15);
+    assert.equal(r15.matched, 7);
+    assert.ok(r15.missing.includes("LeftFoot"));
+
+    const none = computeCompatibility(null, {});
+    assert.equal(none.status, "incompatible");
+    assert.equal(none.complete, false);
 });
 
 test("getPartInfo maps renamed groups back to body parts", () => {

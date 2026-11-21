@@ -215,6 +215,32 @@
             -webkit-backdrop-filter: blur(4px);
         }
 
+        /* Compatibility badge shown next to the avatar type. */
+        .compat-badge {
+            display: inline-block;
+            margin-left: 6px;
+            padding: 1px 7px;
+            border-radius: 999px;
+            font-size: 11px;
+            font-weight: 600;
+            vertical-align: middle;
+        }
+
+        .compat-compatible {
+            background: rgba(52, 168, 83, 0.18);
+            color: #4ade80;
+        }
+
+        .compat-partial {
+            background: rgba(234, 179, 8, 0.18);
+            color: #facc15;
+        }
+
+        .compat-incompatible {
+            background: rgba(239, 68, 68, 0.18);
+            color: #f87171;
+        }
+
         #viewer {
             width: 100%;
             height: 500px;
@@ -991,6 +1017,11 @@ const LANG = {
         userIdLabel: "ID Pengguna",
         avatarTypeLabel: "Tipe Avatar",
         avatarTypeUnknown: "Tidak diketahui",
+        compatCompatible: "Kompatibel",
+        compatPartial: "Sebagian",
+        compatIncompatible: "Tidak kompatibel",
+        compatUnknown: "Tidak diketahui",
+        compatMissing: "Bagian yang hilang",
         advancedSettings: "Pengaturan Lanjutan",
         meshQualityLabel: "Kualitas Mesh",
         meshQualityDefault: "Minimal (Default)",
@@ -1091,6 +1122,11 @@ const LANG = {
         userIdLabel: "User ID",
         avatarTypeLabel: "Avatar Type",
         avatarTypeUnknown: "Unknown",
+        compatCompatible: "Compatible",
+        compatPartial: "Partial",
+        compatIncompatible: "Incompatible",
+        compatUnknown: "Unknown",
+        compatMissing: "Missing parts",
         advancedSettings: "Advanced settings",
         meshQualityLabel: "Mesh quality",
         meshQualityDefault: "Minimal (Default)",
@@ -1811,15 +1847,48 @@ function clearPreview() {
 
 }
 
-function setAccountAvatarType(rigType) {
+function setAccountAvatarType(rigType, compatibility) {
     currentRigType = rigType || null;
 
     const el = document.getElementById("accountAvatarType");
     if (el) {
         el.textContent = currentRigType || t("avatarTypeUnknown");
+        el.appendChild(compatibilityBadge(compatibility));
     }
 
     updateOptionVisibility();
+}
+
+// Small inline badge summarising how completely the avatar's body was matched
+// (compatible / partial / incompatible). Returns null when there's nothing to
+// show.
+function compatibilityBadge(compatibility) {
+    if (!compatibility || !compatibility.status) {
+        return null;
+    }
+
+    const badge = document.createElement("span");
+    badge.className = `compat-badge compat-${compatibility.status}`;
+
+    const statusKey = {
+        compatible: "compatCompatible",
+        partial: "compatPartial",
+        incompatible: "compatIncompatible"
+    }[compatibility.status] || "compatUnknown";
+
+    let label = t(statusKey);
+    if (compatibility.status === "partial" &&
+        typeof compatibility.matched === "number" &&
+        typeof compatibility.expected === "number") {
+        label += ` (${compatibility.matched}/${compatibility.expected})`;
+    }
+
+    badge.textContent = label;
+    badge.title = compatibility.status === "partial" && Array.isArray(compatibility.missing)
+        ? `${t("compatMissing")}: ${compatibility.missing.join(", ")}`
+        : "";
+
+    return badge;
 }
 
 
@@ -2036,6 +2105,7 @@ async function buildExplorer(userId) {
 
     let groups = null;
     let bones = null;
+    let compatibility = null;
 
     // Try the backend part-mapping endpoint first (gives body-part names + bones).
     try {
@@ -2065,6 +2135,12 @@ async function buildExplorer(userId) {
                     bones = moreJoints
                         ? bonesWithMoreJoints(data.bones, data.rigType)
                         : data.bones;
+                }
+                compatibility = data.compatibility || null;
+                // Keep the account badge in sync with the authoritative
+                // detected rig type and compatibility from the backend.
+                if (data.rigType || compatibility) {
+                    setAccountAvatarType(data.rigType, compatibility);
                 }
 
             }
@@ -2258,7 +2334,7 @@ searchButton.addEventListener(
 
             currentUserId = user.id;
 
-            setAccountAvatarType(downloadResult.rigType);
+            setAccountAvatarType(downloadResult.rigType, downloadResult.compatibility);
 
             currentAssetFiles = Array.isArray(downloadResult.files)
                 ? downloadResult.files
@@ -2351,7 +2427,7 @@ reloadButton.addEventListener(
                 );
             }
 
-            setAccountAvatarType(result.rigType);
+            setAccountAvatarType(result.rigType, result.compatibility);
 
             currentAssetFiles = Array.isArray(result.files)
                 ? result.files

@@ -18,6 +18,65 @@ function avatar3dUrl(userId) {
     return `https://thumbnails.roblox.com/v1/users/avatar-3d?userId=${encodeURIComponent(userId)}`;
 }
 
+function avatarInfoUrl(userId) {
+    return `https://avatar.roblox.com/v1/users/${encodeURIComponent(userId)}/avatar`;
+}
+
+/**
+ * Fetch the player's avatar configuration, which includes `playerAvatarType`
+ * ("R6" or "R15"). Used as a disambiguation hint for rig detection; the
+ * authoritative compatibility signal is still the exported geometry.
+ *
+ * Best-effort: never throws. Returns { ok, playerAvatarType, assets } so the
+ * caller can cache the hint and keep going even if the endpoint is unavailable.
+ */
+async function fetchPlayerAvatar(fetchWithTimeout, apiKey, userId, options = {}) {
+    const attempts = options.attempts || 1;
+    const delayMs = options.delayMs !== undefined ? options.delayMs : 0;
+
+    let last = { ok: false, playerAvatarType: null, assets: [] };
+
+    for (let attempt = 1; attempt <= attempts; attempt++) {
+        try {
+            const response = await fetchWithTimeout(
+                avatarInfoUrl(userId),
+                { headers: { "x-api-key": apiKey } },
+                15000
+            );
+
+            if (!response.ok) {
+                last = { ok: false, playerAvatarType: null, assets: [] };
+                return last;
+            }
+
+            const data = await response.json();
+            const type =
+                data && (data.playerAvatarType === "R6" || data.playerAvatarType === "R15")
+                    ? data.playerAvatarType
+                    : null;
+
+            last = {
+                ok: true,
+                playerAvatarType: type,
+                assets: Array.isArray(data?.assets) ? data.assets : []
+            };
+            return last;
+        } catch (error) {
+            last = { ok: false, playerAvatarType: null, assets: [] };
+            if (attempt < attempts) {
+                console.warn(
+                    `Avatar info request failed (attempt ${attempt}/${attempts}): ${error.message}. Retrying...`
+                );
+                if (delayMs) {
+                    await sleep(delayMs);
+                }
+            }
+        }
+    }
+
+    return last;
+}
+
 function resolveImageUrl(result) {
     return result?.data?.[0]?.imageUrl || result?.imageUrl || null;
 }
@@ -174,5 +233,6 @@ async function fetchAvatarMetadataJson(fetchWithTimeout, imageUrl, options = {})
 module.exports = {
     DEFAULT_ATTEMPTS,
     fetchAvatar3D,
+    fetchPlayerAvatar,
     fetchAvatarMetadataJson
 };

@@ -2,7 +2,7 @@ const fs = require("fs/promises");
 const path = require("path");
 const zlib = require("zlib");
 const { getLang, t } = require("./i18n");
-const { fetchAvatar3D, fetchAvatarMetadataJson } = require("./avatar-metadata");
+const { fetchAvatar3D, fetchPlayerAvatar, fetchAvatarMetadataJson } = require("./avatar-metadata");
 const { normalizeObjForExport, renameObjGroups } = require("./obj-utils");
 const { getPartInfo } = require("./auto-rig");
 const { version: APP_VERSION } = require("./package.json");
@@ -108,10 +108,12 @@ function planTextures(hashes, buffers, mtlText) {
 /**
  * Rename PlayerN groups to body parts (Head, Torso, Left Arm, ...) using the
  * same mapping as the model explorer. Handles/accessories keep their names.
+ * `hint` is the Roblox playerAvatarType ("R6"/"R15"), used to disambiguate
+ * borderline rigs.
  */
-function applyBodyPartNames(assetDir, objText) {
+function applyBodyPartNames(assetDir, objText, hint = null) {
     try {
-        const info = getPartInfo(assetDir);
+        const info = getPartInfo(assetDir, { hint });
         const renames = {};
 
         for (const group of info.groups) {
@@ -123,11 +125,12 @@ function applyBodyPartNames(assetDir, objText) {
 
         return {
             objText: info.rigType ? renameObjGroups(objText, renames) : objText,
-            rigType: info.rigType || null
+            rigType: info.rigType || null,
+            compatibility: info.compatibility || null
         };
     } catch (error) {
         console.warn("Body-part renaming skipped:", error.message);
-        return { objText, rigType: null };
+        return { objText, rigType: null, compatibility: null };
     }
 }
 
@@ -247,10 +250,16 @@ module.exports = function (app, options = {}) {
             // Roblox avatar-3d API returns imageUrl inside data[0]
             const imageUrl = avatar.imageUrl;
 
-            const metadataResult = await fetchAvatarMetadataJson(
-                fetchWithTimeout,
-                imageUrl
-            );
+            // Fetch the avatar type hint in parallel with the (slower) metadata
+            // JSON so it adds no serial latency. Best-effort: it never fails the
+            // download.
+            const [metadataResult, playerAvatar] = await Promise.all([
+                fetchAvatarMetadataJson(fetchWithTimeout, imageUrl),
+                fetchPlayerAvatar(fetchWithTimeout, apiKey, userId, {
+                    attempts: 2,
+                    delayMs: 500
+                })
+            ]);
 
             if (!metadataResult.ok) {
                 console.error(
@@ -356,8 +365,30 @@ module.exports = function (app, options = {}) {
             await fs.writeFile(path.join(outputDir, "avatar.obj"), obj);
             await fs.writeFile(path.join(outputDir, "avatar.mtl"), mtl);
 
+            const robloxType = playerAvatar.playerAvatarType || null;
+
+            // Cache the hint (and type) so convert/explorer can read it without
+            // re-fetching, and keep a small record for debugging.
+            const avatarMeta = {
+                userId,
+                playerAvatarType: robloxType,
+                assets: Array.isArray(playerAvatar.assets)
+                    ? playerAvatar.assets.map((a) => ({
+                        id: a.id,
+                        name: a.name,
+                        assetType: a.assetType
+                    }))
+                    : []
+            };
+            await fs
+                .writeFile(
+                    path.join(outputDir, "avatar.json"),
+                    JSON.stringify(avatarMeta, null, 2)
+                )
+                .catch(() => {});
+
             // Rename PlayerN groups to readable body parts, then persist again.
-            const partInfo = applyBodyPartNames(outputDir, obj);
+            const partInfo = applyBodyPartNames(outputDir, obj, robloxType);
             obj = partInfo.objText;
             await fs.writeFile(path.join(outputDir, "avatar.obj"), obj);
 
@@ -389,7 +420,9 @@ module.exports = function (app, options = {}) {
                 textureCount: textureFiles.length,
                 files,
                 totalSize,
-                rigType: partInfo.rigType
+                rigType: partInfo.rigType,
+                robloxType,
+                compatibility: partInfo.compatibility
             });
 
         } catch (error) {

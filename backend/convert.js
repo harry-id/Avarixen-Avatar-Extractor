@@ -139,6 +139,8 @@ module.exports = function (app) {
             res.json({
                 success: true,
                 rigType: info.rigType,
+                robloxType: info.robloxType,
+                compatibility: info.compatibility,
                 groups: info.groups,
                 bones: info.bones
             });

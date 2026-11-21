@@ -341,20 +341,115 @@ function normalizePartName(name) {
 // must still detect the rig and map bones when the groups are already named.
 function detectNamedRigType(groups) {
     const names = new Set(groups.map((group) => normalizePartName(group.name)));
+    const has = (name) => names.has(normalizePartName(name));
 
-    if (R6_PART_NAMES.every((name) => names.has(normalizePartName(name)))) {
+    if (R6_PART_NAMES.every(has)) {
         return "R6";
     }
 
-    if (R15_PART_NAMES.every((name) => names.has(normalizePartName(name)))) {
+    if (R15_PART_NAMES.every(has)) {
+        return "R15";
+    }
+
+    // Partial/custom R15 avatars (a limb segment missing) still use the R15
+    // skeleton. Any R15-only part name (UpperTorso, UpperArm, ...) plus a
+    // majority of the R15 parts is enough to classify it as R15 instead of
+    // leaving it unrigged.
+    const r15Only = R15_PART_NAMES.filter((name) => !R6_PART_NAMES.includes(name));
+    const hasR15Only = r15Only.some(has);
+    const r15Matches = R15_PART_NAMES.filter(has).length;
+
+    if (hasR15Only && r15Matches >= 7) {
         return "R15";
     }
 
     return null;
 }
 
+/**
+ * Resolve the rig type from the available evidence.
+ *
+ * Evidence, strongest first:
+ *   1. Renamed body-part groups (Head, UpperTorso, ...) — unambiguous.
+ *   2. PlayerN group count (6 = R6, 7..15 = R15).
+ *   3. The Roblox `playerAvatarType` hint ("R6"/"R15"), used only to
+ *      disambiguate a borderline PlayerN count (e.g. 6 groups that are
+ *      actually a heavily-merged R15).
+ *
+ * Returns { rigType, source } where source is "named" | "players" | "hint" |
+ * null. `rigType` is null when nothing can be determined.
+ */
+function resolveRigType(groups, playerCount, hint) {
+    const named = detectNamedRigType(groups);
+    if (named) {
+        return { rigType: named, source: "named" };
+    }
+
+    const byCount = detectRigType(playerCount);
+    if (byCount && playerCount !== 6) {
+        return { rigType: byCount, source: "players" };
+    }
+
+    // A count of 6 is ambiguous: usually R6, but a heavily-merged R15 can also
+    // expose six groups. Defer to the Roblox hint when we have one.
+    if (playerCount === 6) {
+        if (hint === "R6" || hint === "R15") {
+            return { rigType: hint, source: "hint" };
+        }
+        return { rigType: "R6", source: "players" };
+    }
+
+    // No usable PlayerN count, but Roblox still knows the type.
+    if (hint === "R6" || hint === "R15") {
+        return { rigType: hint, source: "hint" };
+    }
+
+    return { rigType: null, source: null };
+}
+
+// Full list of rig parts that make an avatar "complete" for each rig type.
+const RIG_EXPECTED_PARTS = {
+    R6: R6_PART_NAMES,
+    R15: R15_PART_NAMES
+};
+
+/**
+ * Build a compatibility report from a part mapping.
+ *
+ * `status` is one of:
+ *   - "compatible"   — every expected part was mapped.
+ *   - "partial"      — rig detected but one or more parts are missing.
+ *   - "incompatible" — no rig could be detected at all.
+ */
+function computeCompatibility(rigType, partMapping) {
+    if (!rigType) {
+        return {
+            status: "incompatible",
+            expected: 0,
+            matched: 0,
+            missing: [],
+            complete: false
+        };
+    }
+
+    const expected = RIG_EXPECTED_PARTS[rigType] || [];
+    const matchedParts = expected.filter((part) => partMapping[part]);
+    const missing = expected.filter((part) => !partMapping[part]);
+    const complete = missing.length === 0;
+
+    return {
+        status: complete ? "compatible" : "partial",
+        expected: expected.length,
+        matched: matchedParts.length,
+        missing,
+        complete
+    };
+}
+
 // Map each rig part (Head, Left Arm, ...) to the actual group name in the OBJ,
 // which may be written as LeftArm to avoid OBJ's whitespace-separated groups.
+// Parts that are absent from the OBJ are simply skipped so partial/custom
+// avatars can still produce a valid (partial) skeleton.
 function mappingFromPartNames(rigType, groups) {
     const partNames = rigType === "R6" ? R6_PART_NAMES : R15_PART_NAMES;
     const groupByNormalized = new Map(
@@ -363,13 +458,16 @@ function mappingFromPartNames(rigType, groups) {
     const mapping = {};
 
     for (const name of partNames) {
-        mapping[name] = groupByNormalized.get(normalizePartName(name)) || name;
+        const groupName = groupByNormalized.get(normalizePartName(name));
+        if (groupName) {
+            mapping[name] = groupName;
+        }
     }
 
     return mapping;
 }
 
-function matchBodyParts(playerGroups, boxes) {
+function matchBodyParts(playerGroups, boxes, options = {}) {
     // Match Player groups to body parts by POSITION, never by group number.
     // Works for full R6/R15 rigs and for partial/custom avatars (e.g. an R15
     // with a missing limb segment).
@@ -388,8 +486,11 @@ function matchBodyParts(playerGroups, boxes) {
     const headBox = boxes[headGroup.name];
 
     // R6 has exactly 6 groups; anything larger is treated as an R15-style rig
-    // even when a part is missing.
-    const isR15 = playerGroups.length > 6;
+    // even when a part is missing. An explicit rigType (from the Roblox hint)
+    // overrides the count so a merged R15 with six groups still maps as R15.
+    const isR15 = options.rigType
+        ? options.rigType === "R15"
+        : playerGroups.length > 6;
 
     // Torso: centered groups in the upper half. Torso parts are the widest
     // centered groups, which keeps A-pose arms (hanging close to the body)
@@ -1687,7 +1788,7 @@ function findHeadGroupName(parsed) {
  * bone hierarchy, and a per-vertex skin function. Shared by the glTF and FBX
  * exporters so both produce an identical skeleton.
  */
-function computeRig(parsed, { moreJoints = false } = {}) {
+function computeRig(parsed, { moreJoints = false, hint = null } = {}) {
     const boxes = {};
     for (const g of parsed.groups) {
         boxes[g.name] = computeBox(g.vertexIndices, parsed.positions);
@@ -1696,19 +1797,19 @@ function computeRig(parsed, { moreJoints = false } = {}) {
     const playerGroups = parsed.groups.filter((g) => g.name.startsWith("Player"));
     const handleGroups = parsed.groups.filter((g) => g.name.startsWith("Handle"));
 
-    let rigType = detectRigType(playerGroups.length);
+    const { rigType, source } = resolveRigType(parsed.groups, playerGroups.length, hint);
     let partMapping = {};
 
-    if (rigType) {
-        partMapping = matchBodyParts(playerGroups, boxes);
-    } else {
-        // Exported avatars are renamed (Head, Torso, ...), so fall back to
-        // detecting the rig from those part names.
-        rigType = detectNamedRigType(parsed.groups);
-
-        if (rigType) {
-            partMapping = mappingFromPartNames(rigType, parsed.groups);
-        }
+    if (rigType && (source === "players" || source === "hint")) {
+        // Map from geometry: PlayerN groups by position. The resolved rigType
+        // overrides the count so a hint-selected R15 with six groups still maps
+        // to R15 parts.
+        partMapping = playerGroups.length
+            ? matchBodyParts(playerGroups, boxes, { rigType })
+            : mappingFromPartNames(rigType, parsed.groups);
+    } else if (rigType && source === "named") {
+        // Exported avatars are renamed (Head, Torso, ...).
+        partMapping = mappingFromPartNames(rigType, parsed.groups);
     }
 
     if (!rigType) {
@@ -1834,7 +1935,10 @@ async function convertAvatar(assetDir, {
     }
 
     if (rig) {
-        const rigData = computeRig(parsed, { moreJoints });
+        const rigData = computeRig(parsed, {
+            moreJoints,
+            hint: readCachedRobloxType(assetDir)
+        });
 
         rigType = rigData.rigType;
         partMapping = rigData.partMapping;
@@ -1897,17 +2001,44 @@ async function convertAvatar(assetDir, {
 }
 
 /**
+ * Read the cached Roblox avatar type ("R6"/"R15") written to
+ * downloads/<userId>/avatar.json at download time. Returns null when the file
+ * is missing or malformed — callers treat that as "no hint".
+ */
+function readCachedRobloxType(assetDir) {
+    try {
+        const raw = fs.readFileSync(path.join(assetDir, "avatar.json"), "utf8");
+        const data = JSON.parse(raw);
+        return data && (data.playerAvatarType === "R6" || data.playerAvatarType === "R15")
+            ? data.playerAvatarType
+            : null;
+    } catch {
+        return null;
+    }
+}
+
+/**
  * Lightweight part-mapping lookup (no GLB build).
  * Parses the OBJ, computes boxes, detects rig type, and matches body parts.
- * Returns group names, vertex counts, and their mapped body-part names.
+ * Returns group names, vertex counts, their mapped body-part names, plus a
+ * compatibility report (matched vs expected parts).
  *
  * @param {string} assetDir
- * @returns {{ rigType: string|null, groups: Array<{name, vertices, faces, type, part}> }}
+ * @returns {{ rigType: string|null, robloxType: string|null, compatibility: object, groups: Array<{name, vertices, faces, type, part}> }}
  */
-function getPartInfo(assetDir, { moreJoints = false } = {}) {
+function getPartInfo(assetDir, { moreJoints = false, hint = undefined } = {}) {
     const objPath = path.join(assetDir, "avatar.obj");
     if (!fs.existsSync(objPath)) {
         throw new Error("avatar.obj not found in " + assetDir);
+    }
+
+    // Resolve the Roblox type hint: explicit arg wins, else the cached
+    // avatar.json written at download time.
+    let resolvedHint = hint;
+    let robloxType = hint || null;
+    if (resolvedHint === undefined) {
+        robloxType = readCachedRobloxType(assetDir);
+        resolvedHint = robloxType;
     }
 
     const parsed = parseObj(objPath);
@@ -1920,14 +2051,14 @@ function getPartInfo(assetDir, { moreJoints = false } = {}) {
     const playerGroups = parsed.groups.filter(g => g.name.startsWith("Player"));
     const handleGroups = parsed.groups.filter(g => g.name.startsWith("Handle"));
 
-    const rigType = detectRigType(playerGroups.length) || detectNamedRigType(parsed.groups);
+    const { rigType } = resolveRigType(parsed.groups, playerGroups.length, resolvedHint);
 
     let partMapping = {};
     let handleBoneMap = {};
 
     if (rigType) {
-        partMapping = detectRigType(playerGroups.length)
-            ? matchBodyParts(playerGroups, boxes)
+        partMapping = playerGroups.length
+            ? matchBodyParts(playerGroups, boxes, { rigType })
             : mappingFromPartNames(rigType, parsed.groups);
 
         const playerBoxes = {};
@@ -1978,7 +2109,9 @@ function getPartInfo(assetDir, { moreJoints = false } = {}) {
         }));
     }
 
-    return { rigType, groups, bones };
+    const compatibility = computeCompatibility(rigType, partMapping);
+
+    return { rigType, robloxType, compatibility, groups, bones };
 }
 
 module.exports = {
@@ -1991,6 +2124,9 @@ module.exports = {
     computeBox,
     detectRigType,
     detectNamedRigType,
+    resolveRigType,
+    computeCompatibility,
+    readCachedRobloxType,
     mappingFromPartNames,
     matchBodyParts,
     computeRecenter,
