@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
     <title>Avarixen - Roblox Avatar Downloader &amp; 3D Exporter</title>
+    <link rel="icon" href="data:,">
     <meta name="description" content="Avarixen is a Roblox avatar downloader and 3D exporter. Retrieve Roblox avatars, preview 3D models, inspect mesh hierarchy, configure rigging, and export assets into FBX, GLB, glTF, and OBJ formats.">
     <meta name="robots" content="index, follow">
     <meta name="theme-color" content="#10131c">
@@ -873,6 +874,12 @@
                 <input type="checkbox" id="moreJoints">
                 <span data-i18n="moreJoints">More joints</span>
             </label>
+            <label class="option-checkbox" id="bendAccessoriesRow"
+                   data-i18n-title="bendAccessoriesHint"
+                   title="When on, multi-part clothing (jackets, trousers) deforms with the body; off keeps every accessory rigid.">
+                <input type="checkbox" id="bendAccessories">
+                <span data-i18n="bendAccessories">Bend accessories</span>
+            </label>
         </div>
     </details>
 
@@ -954,6 +961,32 @@
     </p>
 </footer>
 
+<script>
+(function () {
+    // Detect WebGL before the module runs. Without a context, constructing
+    // THREE.WebGLRenderer throws and leaves the page with no explanation.
+    try {
+        const canvas = document.createElement("canvas");
+        const gl = canvas.getContext("webgl2") || canvas.getContext("webgl");
+        window.__AAE_WEBGL_UNAVAILABLE__ = !gl;
+    } catch (error) {
+        window.__AAE_WEBGL_UNAVAILABLE__ = true;
+    }
+
+    if (window.__AAE_WEBGL_UNAVAILABLE__) {
+        const statusEl = document.getElementById("status");
+        const indonesian = String(navigator.language || "").toLowerCase().startsWith("id");
+
+        if (statusEl) {
+            statusEl.textContent = indonesian
+                ? "WebGL tidak tersedia. Aktifkan akselerasi hardware atau gunakan browser yang mendukung WebGL."
+                : "WebGL is unavailable. Enable hardware acceleration or use a WebGL-capable browser.";
+            statusEl.classList.add("is-error");
+        }
+    }
+})();
+</script>
+
 <script type="module">
 
 import * as THREE from "three";
@@ -969,6 +1002,12 @@ import { MTLLoader } from
 
 import { OBJLoader } from
     "https://cdn.jsdelivr.net/npm/three@0.180.0/examples/jsm/loaders/OBJLoader.js";
+
+if (window.__AAE_WEBGL_UNAVAILABLE__) {
+    // The inline pre-check already displayed a message; stop before creating
+    // a renderer (which would throw and abort the rest of the module).
+    throw new Error("WebGL is unavailable; viewer initialization skipped.");
+}
 
 
 
@@ -1030,6 +1069,8 @@ const LANG = {
         meshQualityExtreme: "Extreme (Subdivisi 4)",
         moreJoints: "Lebih banyak sendi",
         moreJointsHint: "R6 saja: tambahkan tangan, siku, lutut, pinggang (torso bisa menekuk), dan kaki.",
+        bendAccessories: "Tekuk aksesori",
+        bendAccessoriesHint: "Jika aktif, pakaian berlapis (jaket, celana) mengikuti gerakan tubuh; jika nonaktif, semua aksesori tetap kaku.",
         statusWaiting: "Masukkan username Roblox untuk memuat pratinjau 3D.",
         statusLoadingMaterial: "Memuat material dan tekstur...",
         statusLoadingModel: "Memuat model 3D...",
@@ -1075,6 +1116,7 @@ const LANG = {
         apiOnline: "API Online",
         apiOffline: "API Offline",
         errorApiOffline: "API sedang offline. Coba lagi sesaat lagi.",
+        errorTimeout: "Permintaan melebihi batas waktu. Silakan coba lagi.",
         apiChecking: "Checking..."
     },
     en: {
@@ -1134,6 +1176,8 @@ const LANG = {
         meshQualityExtreme: "Extreme (Subdivision 4)",
         moreJoints: "More joints",
         moreJointsHint: "R6 only: add hands, elbows, knees, waist (bendable torso), and feet.",
+        bendAccessories: "Bend accessories",
+        bendAccessoriesHint: "When on, multi-part clothing (jackets, trousers) deforms with the body; off keeps every accessory rigid.",
         statusWaiting: "Enter a Roblox username to load 3D preview.",
         statusLoadingMaterial: "Loading materials and textures...",
         statusLoadingModel: "Loading 3D model...",
@@ -1179,6 +1223,7 @@ const LANG = {
         apiOnline: "API Online",
         apiOffline: "API Offline",
         errorApiOffline: "API is offline. Please try again shortly.",
+        errorTimeout: "The request timed out. Please try again.",
         apiChecking: "Checking..."
     }
 };
@@ -1245,6 +1290,11 @@ function setLang(lang) {
     if (currentGroups && typeof renderExplorer === "function") {
         renderExplorer();
     }
+
+    // The account panel is built dynamically, so it needs an explicit refresh.
+    if (typeof renderAccountInfo === "function") {
+        renderAccountInfo();
+    }
 }
 
 let currentStatusKey = null;
@@ -1295,8 +1345,8 @@ function startStatusSpinner() {
 
     let last = 0;
     const tick = (now) => {
-        // ~5 fps is a calm, readable spinner cadence.
-        if (now - last > 200) {
+        // 250ms per frame (4 fps): a calm, readable spinner cadence.
+        if (now - last > 250) {
             statusSpinnerIndex = (statusSpinnerIndex + 1) % STATUS_SPINNER_FRAMES.length;
             last = now;
             renderStatus();
@@ -1375,11 +1425,35 @@ function apiHeaders() {
     };
 }
 
-// fetch() wrapper: convert network failures into a friendly "API offline" error.
+// GET/HEAD requests only need localization. Omitting Content-Type keeps them
+// CORS-safelisted, avoiding an OPTIONS preflight for every API read.
+function acceptLanguageHeaders() {
+    return {
+        "Accept-Language": currentLang
+    };
+}
+
+// fetch() wrapper: convert network failures into a friendly "API offline"
+// error and optionally bound the whole request (headers + body).
 async function apiFetch(url, options = {}) {
+    const { timeoutMs, ...init } = options;
+    let signal = init.signal;
+
+    if (!signal && timeoutMs > 0 &&
+        typeof AbortSignal !== "undefined" &&
+        typeof AbortSignal.timeout === "function") {
+        signal = AbortSignal.timeout(timeoutMs);
+    }
+
     try {
-        return await fetch(url, options);
+        return await fetch(url, { ...init, signal });
     } catch (error) {
+        if (error && (error.name === "TimeoutError" || error.name === "AbortError")) {
+            const timeoutError = new Error(t("errorTimeout"));
+            timeoutError.isTimeout = true;
+            throw timeoutError;
+        }
+
         throw apiFetchError();
     }
 }
@@ -1437,7 +1511,15 @@ function setStatusError(error) {
 
 async function checkApiStatus() {
     try {
-        const resp = await fetch(`${BACKEND_URL}/api/health`, { cache: "no-store" });
+        const healthSignal =
+            typeof AbortSignal !== "undefined" &&
+            typeof AbortSignal.timeout === "function"
+                ? AbortSignal.timeout(8000)
+                : undefined;
+        const resp = await fetch(`${BACKEND_URL}/api/health`, {
+            cache: "no-store",
+            signal: healthSignal
+        });
         if (!resp.ok) throw new Error("bad status");
         const health = await resp.json().catch(() => null);
         apiVersion = health && typeof health.version === "string" ? health.version : null;
@@ -1610,6 +1692,12 @@ function updateOptionVisibility() {
         }
     }
 
+    const bendAccessoriesRow = document.getElementById("bendAccessoriesRow");
+    if (bendAccessoriesRow) {
+        // Only relevant when an auto-rig skeleton is being generated.
+        bendAccessoriesRow.hidden = !autoRig.checked;
+    }
+
     applyForcedMeshQuality();
 }
 
@@ -1687,15 +1775,180 @@ scene.add(frontLight);
 
 let currentModel = null;
 let currentUserId = null;
+let currentAccountUserId = null;
 let currentDisplayName = null;
 let currentUsername = null;
 let currentRigType = null;
+let currentCompatibility = null;
 let currentAssetFiles = null;
 
+// Monotonic tokens invalidate late async callbacks after a newer search or a
+// preview reset, so an old model cannot overwrite the current one.
+let modelLoadToken = 0;
+let explorerLoadToken = 0;
 
+// Invalidates the *entire* search/reload workflow. Model and explorer tokens
+// alone are not enough: a slow search can call loadModel() after a newer
+// search has already finished, which would make the old request the newest.
+let operationToken = 0;
+
+
+
+// Make a loaded model render correctly regardless of how its faces/normals are
+// wound. Roblox exports some accessories "inside-out" (inverted winding and/or
+// normals); with backface culling they'd be invisible or badly lit. We:
+//   1. Force every material to render double-sided (visible from both sides).
+//   2. If a mesh's vertex normals oppose its triangle winding, flip the normals
+//      so they agree with the winding. Combined with double-siding, three.js
+//      then lights whichever side faces the camera correctly.
+function prepareModel(root) {
+
+    const a = new THREE.Vector3();
+    const b = new THREE.Vector3();
+    const c = new THREE.Vector3();
+    const ab = new THREE.Vector3();
+    const ac = new THREE.Vector3();
+    const faceNormal = new THREE.Vector3();
+    const vertexNormal = new THREE.Vector3();
+
+    root.traverse((child) => {
+
+        if (!child.isMesh) {
+            return;
+        }
+
+        const geometry = child.geometry;
+
+        // 1. Double-sided materials (also covers materials OBJLoader created
+        //    as a fallback, which the MTL pass never touched).
+        const meshMaterials = Array.isArray(child.material)
+            ? child.material
+            : [child.material];
+
+        for (const material of meshMaterials) {
+            if (!material) {
+                continue;
+            }
+            material.side = THREE.DoubleSide;
+            material.shadowSide = THREE.DoubleSide;
+            material.needsUpdate = true;
+        }
+
+        // 2. Fix normals that oppose the triangle winding.
+        const position = geometry.getAttribute
+            && geometry.getAttribute("position");
+        const normal = geometry.getAttribute
+            && geometry.getAttribute("normal");
+
+        if (!position || !normal) {
+            return;
+        }
+
+        const index = geometry.getIndex();
+        const triangleCount =
+            Math.floor((index ? index.count : position.count) / 3);
+
+        let windingDot = 0;
+
+        for (let t = 0; t < triangleCount; t++) {
+
+            let i0;
+            let i1;
+            let i2;
+
+            if (index) {
+                i0 = index.getX(t * 3);
+                i1 = index.getX(t * 3 + 1);
+                i2 = index.getX(t * 3 + 2);
+            } else {
+                i0 = t * 3;
+                i1 = t * 3 + 1;
+                i2 = t * 3 + 2;
+            }
+
+            a.fromBufferAttribute(position, i0);
+            b.fromBufferAttribute(position, i1);
+            c.fromBufferAttribute(position, i2);
+
+            ab.subVectors(b, a);
+            ac.subVectors(c, a);
+            faceNormal.crossVectors(ab, ac);
+
+            if (faceNormal.lengthSq() < 1e-12) {
+                continue;
+            }
+
+            faceNormal.normalize();
+
+            vertexNormal.set(
+                normal.getX(i0) + normal.getX(i1) + normal.getX(i2),
+                normal.getY(i0) + normal.getY(i1) + normal.getY(i2),
+                normal.getZ(i0) + normal.getZ(i1) + normal.getZ(i2)
+            );
+
+            if (vertexNormal.lengthSq() < 1e-12) {
+                continue;
+            }
+
+            vertexNormal.normalize();
+            windingDot += faceNormal.dot(vertexNormal);
+        }
+
+        if (windingDot < 0) {
+            // Normals point opposite the winding: flip them to match.
+            for (let i = 0; i < normal.count; i++) {
+                normal.setXYZ(
+                    i,
+                    -normal.getX(i),
+                    -normal.getY(i),
+                    -normal.getZ(i)
+                );
+            }
+            normal.needsUpdate = true;
+        }
+    });
+}
+
+// Release geometries, materials, and textures owned by a loaded model.
+function disposeObject(root) {
+    if (!root) {
+        return;
+    }
+
+    root.traverse((child) => {
+        if (!child.isMesh) {
+            return;
+        }
+
+        if (child.geometry && typeof child.geometry.dispose === "function") {
+            child.geometry.dispose();
+        }
+
+        const materials = Array.isArray(child.material)
+            ? child.material
+            : [child.material];
+
+        for (const material of materials) {
+            if (!material) {
+                continue;
+            }
+
+            for (const value of Object.values(material)) {
+                if (value && value.isTexture && typeof value.dispose === "function") {
+                    value.dispose();
+                }
+            }
+
+            if (typeof material.dispose === "function") {
+                material.dispose();
+            }
+        }
+    });
+}
 
 function loadModel(userId = null, bustCache = false) {
 
+    const loadToken = ++modelLoadToken;
     const cacheBustVersion = bustCache ? String(Date.now()) : "";
     const cacheBust = bustCache ? `?v=${cacheBustVersion}` : "";
 
@@ -1728,13 +1981,16 @@ function loadModel(userId = null, bustCache = false) {
 
         materials => {
 
+            if (loadToken !== modelLoadToken) {
+                return;
+            }
+
             materials.preload();
 
             materials.materials = materials.materials || {};
             Object.values(materials.materials).forEach((material) => {
                 if (!material) return;
 
-                // Use both sides so faces aren't invisible
                 material.side = THREE.DoubleSide;
 
                 // Fix transparency: MTL "d" / "Tr" can force transparent:true
@@ -1788,9 +2044,20 @@ function loadModel(userId = null, bustCache = false) {
 
                 object => {
 
+                    if (loadToken !== modelLoadToken) {
+                        disposeObject(object);
+                        return;
+                    }
+
                     if (currentModel) {
                         scene.remove(currentModel);
+                        disposeObject(currentModel);
+                        currentModel = null;
                     }
+
+                    // Support inside-out / inverted accessories: double-side
+                    // all materials and fix normals that oppose the winding.
+                    prepareModel(object);
 
                     currentModel = object;
 
@@ -1836,6 +2103,10 @@ function loadModel(userId = null, bustCache = false) {
 
                 error => {
 
+                    if (loadToken !== modelLoadToken) {
+                        return;
+                    }
+
                     console.error(error);
 
                     refreshControls();
@@ -1850,6 +2121,10 @@ function loadModel(userId = null, bustCache = false) {
         undefined,
 
         error => {
+
+            if (loadToken !== modelLoadToken) {
+                return;
+            }
 
             console.error(error);
 
@@ -1866,9 +2141,17 @@ function loadModel(userId = null, bustCache = false) {
 
 function clearPreview() {
 
+    // Invalidate in-flight model/explorer requests and release their GPU
+    // resources instead of just detaching the object from the scene.
+    operationToken += 1;
+    modelLoadToken += 1;
+    explorerLoadToken += 1;
+
     if (currentModel) {
 
         scene.remove(currentModel);
+
+        disposeObject(currentModel);
 
         currentModel = null;
 
@@ -1887,7 +2170,11 @@ function clearPreview() {
 
     currentUserId = null;
 
+    currentAccountUserId = null;
+
     currentRigType = null;
+
+    currentCompatibility = null;
 
     currentAssetFiles = null;
 
@@ -1903,14 +2190,48 @@ function clearPreview() {
 
 function setAccountAvatarType(rigType, compatibility) {
     currentRigType = rigType || null;
+    currentCompatibility = compatibility || null;
 
     const el = document.getElementById("accountAvatarType");
     if (el) {
         el.textContent = currentRigType || t("avatarTypeUnknown");
-        el.appendChild(compatibilityBadge(compatibility));
+
+        // compatibilityBadge() returns null when no report is available
+        // (e.g. an older backend). appendChild(null) would throw and abort the
+        // whole search, so only append when a node was produced.
+        const badge = compatibilityBadge(currentCompatibility);
+        if (badge) {
+            el.appendChild(badge);
+        }
     }
 
     updateOptionVisibility();
+}
+
+// Rebuild the account panel from state so it can follow language changes and
+// version-skewed backends without duplicating translation strings.
+function renderAccountInfo() {
+    const userId = currentAccountUserId || currentUserId;
+
+    if (!userId) {
+        accountInfo.style.display = "none";
+        accountInfo.innerHTML = "";
+        return;
+    }
+
+    const displayName = currentDisplayName || currentUsername || "Roblox";
+    const safeDisplay = escapeHTML(displayName);
+    const safeUsername = currentUsername ? escapeHTML(currentUsername) : "";
+
+    accountInfo.innerHTML = `
+        <strong>${t("accountInfoTitle")}</strong><br>
+        ${t("userLabel")}: ${safeDisplay}${safeUsername ? ` (@${safeUsername})` : ""}<br>
+        ${t("userIdLabel")}: ${escapeHTML(String(userId))}<br>
+        ${t("avatarTypeLabel")}: <span id="accountAvatarType">${t("avatarTypeUnknown")}</span>
+    `;
+    accountInfo.style.display = "block";
+
+    setAccountAvatarType(currentRigType, currentCompatibility);
 }
 
 // Small inline badge summarising how completely the avatar's body was matched
@@ -1962,6 +2283,29 @@ function setExplorerSize(bytes) {
 
 let currentGroups = null;
 let currentBones = null;
+
+// Opt-in, read-only diagnostics for integration tests. Disabled unless the
+// page is opened with ?debug=1; exposes no credentials or remote data.
+if (new URLSearchParams(location.search).has("debug")) {
+    Object.defineProperty(window, "__AAE_DEBUG__", {
+        configurable: true,
+        value: {
+            state: () => ({
+                userId: currentUserId,
+                accountUserId: currentAccountUserId,
+                modelLoaded: Boolean(currentModel),
+                modelChildren: currentModel ? currentModel.children.length : 0,
+                rigType: currentRigType,
+                groupCount: Array.isArray(currentGroups) ? currentGroups.length : 0,
+                sceneChildren: scene.children.length
+            }),
+            memory: () => ({
+                geometries: renderer.info.memory.geometries,
+                textures: renderer.info.memory.textures
+            })
+        }
+    });
+}
 
 // Preferred top-to-bottom ordering for body parts in the Player section.
 const PART_ORDER = {
@@ -2157,6 +2501,7 @@ async function buildExplorer(userId) {
 
     }
 
+    const requestToken = ++explorerLoadToken;
     let groups = null;
     let bones = null;
     let compatibility = null;
@@ -2170,17 +2515,23 @@ async function buildExplorer(userId) {
             `${BACKEND_URL}/api/roblox/parts/${encodeURIComponent(userId)}` +
             (moreJoints ? "?moreJoints=1" : "");
 
-        const resp = await fetch(
+        const resp = await apiFetch(
 
             partsUrl,
 
-            { headers: apiHeaders() }
+            { headers: acceptLanguageHeaders(), timeoutMs: 30000 }
 
         );
 
         if (resp.ok) {
 
             const data = await resp.json();
+
+            // Do not let a superseded explorer request update the account
+            // badge/rig state before the final token check below.
+            if (requestToken !== explorerLoadToken) {
+                return;
+            }
 
             if (data.success && Array.isArray(data.groups)) {
 
@@ -2207,6 +2558,10 @@ async function buildExplorer(userId) {
 
     }
 
+    if (requestToken !== explorerLoadToken) {
+        return;
+    }
+
     // Fallback: parse the OBJ client-side (group names only, no body-part mapping).
     if (!groups) {
 
@@ -2214,7 +2569,9 @@ async function buildExplorer(userId) {
 
             const assetPath = `${BACKEND_URL}/assets/${encodeURIComponent(userId)}/`;
 
-            const response = await fetch(assetPath + "avatar.obj");
+            const response = await apiFetch(assetPath + "avatar.obj", {
+                timeoutMs: 60000
+            });
 
             if (!response.ok) throw new Error("Failed to fetch OBJ");
 
@@ -2280,6 +2637,11 @@ async function buildExplorer(userId) {
 
     }
 
+    // A newer search/clear has superseded this response.
+    if (requestToken !== explorerLoadToken) {
+        return;
+    }
+
     currentGroups = groups;
     currentBones = bones;
 
@@ -2305,6 +2667,7 @@ searchButton.addEventListener(
 
         clearPreview();
 
+        const requestToken = ++operationToken;
         searchButton.disabled = true;
 
         searchButton.textContent = t("searchButtonSearching");
@@ -2320,6 +2683,7 @@ searchButton.addEventListener(
                 {
                     method: "POST",
                     headers: apiHeaders(),
+                    timeoutMs: 30000,
                     body: JSON.stringify({
                         username: username
                     })
@@ -2327,6 +2691,10 @@ searchButton.addEventListener(
             );
 
             const userResult = await userResponse.json();
+
+            if (requestToken !== operationToken) {
+                return;
+            }
 
             if (!userResponse.ok || !userResult.success) {
                 throw new Error(
@@ -2338,46 +2706,28 @@ searchButton.addEventListener(
             const user = userResult.user;
             currentDisplayName = user.displayName || user.username;
             currentUsername = user.username || null;
+            currentAccountUserId = user.id;
+            currentRigType = null;
+            currentCompatibility = null;
 
-            accountInfo.innerHTML = `
-                <strong>${t("accountInfoTitle")}</strong><br>
-                ${t("userLabel")}: ${escapeHTML(user.displayName || user.username)}${user.username ? ` (@${escapeHTML(user.username)})` : ""}<br>
-                ${t("userIdLabel")}: ${user.id}<br>
-                ${t("avatarTypeLabel")}: <span id="accountAvatarType">${t("avatarTypeUnknown")}</span>
-            `;
+            renderAccountInfo();
 
-            accountInfo.style.display = "block";
-
-
-            setStatus("statusFetchMetadata");
-
-
-            const avatarResponse = await apiFetch(
-                BACKEND_URL +
-                "/api/roblox/avatar/" +
-                encodeURIComponent(user.id),
-                { headers: apiHeaders() }
-            );
-
-            const avatarResult = await avatarResponse.json();
-
-            if (!avatarResponse.ok || !avatarResult.success) {
-                throw new Error(
-                    avatarResult.message ||
-                    t("errorFetchMetadata")
-                );
-            }
-
+            // The download endpoint performs the metadata lookup itself, so
+            // the extra /avatar round-trip (and its retries) is redundant.
             setStatus("statusDownloadAssets");
 
             const downloadResponse = await apiFetch(
                 BACKEND_URL +
                 "/api/roblox/download/" +
                 encodeURIComponent(user.id),
-                { headers: apiHeaders() }
+                { headers: acceptLanguageHeaders(), timeoutMs: 300000 }
             );
 
             const downloadResult = await downloadResponse.json();
+
+            if (requestToken !== operationToken) {
+                return;
+            }
 
             if (!downloadResponse.ok || !downloadResult.success) {
                 throw new Error(
@@ -2408,17 +2758,18 @@ searchButton.addEventListener(
 
         } catch (error) {
 
-            console.error(error);
-
-            setStatusError(error);
+            if (requestToken === operationToken) {
+                console.error(error);
+                setStatusError(error);
+            }
 
         } finally {
 
-            searchButton.disabled = false;
-
-            searchButton.textContent = t("searchButton");
-
-            refreshControls();
+            if (requestToken === operationToken) {
+                searchButton.disabled = false;
+                searchButton.textContent = t("searchButton");
+                refreshControls();
+            }
 
         }
 
@@ -2463,6 +2814,8 @@ reloadButton.addEventListener(
             return;
         }
 
+        const requestToken = ++operationToken;
+        const userId = currentUserId;
         reloadButton.disabled = true;
 
         try {
@@ -2474,11 +2827,15 @@ reloadButton.addEventListener(
             const response = await apiFetch(
                 BACKEND_URL +
                 "/api/roblox/download/" +
-                encodeURIComponent(currentUserId),
-                { headers: apiHeaders() }
+                encodeURIComponent(userId),
+                { headers: acceptLanguageHeaders(), timeoutMs: 300000 }
             );
 
             const result = await response.json();
+
+            if (requestToken !== operationToken) {
+                return;
+            }
 
             if (!response.ok || !result.success) {
                 throw new Error(
@@ -2497,19 +2854,22 @@ reloadButton.addEventListener(
 
             setExplorerSize(result.totalSize);
 
-            loadModel(currentUserId, true);
+            loadModel(userId, true);
 
-            buildExplorer(currentUserId);
+            buildExplorer(userId);
 
         } catch (error) {
 
-            console.error(error);
-
-            setStatusError(error);
+            if (requestToken === operationToken) {
+                console.error(error);
+                setStatusError(error);
+            }
 
         } finally {
 
-            refreshControls();
+            if (requestToken === operationToken) {
+                refreshControls();
+            }
 
         }
 
@@ -2711,8 +3071,9 @@ async function downloadZip() {
         while (true) {
             const filename = `texture${textureIndex}.png`;
 
-            const check = await fetch(assetPath + filename, {
-                method: "HEAD"
+            const check = await apiFetch(assetPath + filename, {
+                method: "HEAD",
+                timeoutMs: 15000
             });
 
             if (!check.ok) break;
@@ -2726,8 +3087,9 @@ async function downloadZip() {
 
     for (const file of files) {
 
-        const response = await fetch(
-            assetPath + file
+        const response = await apiFetch(
+            assetPath + file,
+            { timeoutMs: 60000 }
         );
 
         if (!response.ok) {
@@ -2805,6 +3167,9 @@ async function downloadConverted(format) {
         currentRigType === "R6" &&
         document.getElementById("moreJoints").checked;
 
+    // Bend accessories: when on, multi-part R15 clothing deforms with the body.
+    const bendAccessories = document.getElementById("bendAccessories").checked;
+
     const convertUrl = `${BACKEND_URL}/api/roblox/convert/${encodeURIComponent(currentUserId)}/${format}`;
 
     const params = new URLSearchParams();
@@ -2812,6 +3177,7 @@ async function downloadConverted(format) {
     if (separate) params.set("separate", "1");
     if (subdivision > 0) params.set("subdivision", String(subdivision));
     if (moreJoints) params.set("moreJoints", "1");
+    if (rig) params.set("bendAccessories", bendAccessories ? "1" : "0");
     if (currentDisplayName) params.set("name", currentDisplayName);
     const qs = params.toString();
     const url = qs ? `${convertUrl}?${qs}` : convertUrl;
@@ -2822,8 +3188,9 @@ async function downloadConverted(format) {
         setStatus("statusConverting", { format: format.toUpperCase() });
     }
 
-    const response = await fetch(url, {
-        headers: apiHeaders()
+    const response = await apiFetch(url, {
+        headers: acceptLanguageHeaders(),
+        timeoutMs: 300000
     });
 
     if (!response.ok) {
