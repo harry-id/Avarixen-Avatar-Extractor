@@ -20,7 +20,7 @@ const fs = require("fs");
 
 const OUT = "/tmp/opencode/test_character.glb";
 
-// ---- Geometry: vertical capsule rings ----
+// Geometry: vertical capsule rings
 const SEG = 12;
 const R = 0.25;
 
@@ -63,7 +63,7 @@ const rLeg = capsuleSegment(R * 0.6, 0.0, 0.6, SEG, [0.2, 1.0, 0.2, 1]); // gree
 
 const segments = [torso, head, lArm, rArm, lLeg, rLeg];
 
-// ---- Build separate attribute arrays ----
+// Build separate attribute arrays
 const NJ = 7;
 const segToJoint = [1, 2, 3, 4, 5, 6];
 
@@ -99,7 +99,7 @@ for (let si = 0; si < segments.length; si++) {
 const NUM_VERT = vertCount;
 const NUM_INDICES = indices.length;
 
-// ---- Build binary buffer (separate sections) ----
+// Build binary buffer (separate sections)
 const POS_BYTES = NUM_VERT * 3 * 4;      // 1728
 const NOR_BYTES = NUM_VERT * 3 * 4;      // 1728
 const COL_BYTES = NUM_VERT * 4 * 1;      // 576
@@ -156,7 +156,7 @@ for (let j = 0; j < NJ; j++) {
     buf.writeFloatLE(-t[0], base + 48); buf.writeFloatLE(-t[1], base + 52); buf.writeFloatLE(-t[2], base + 56); buf.writeFloatLE(1, base + 60);
 }
 
-// ---- Build glTF JSON ----
+// Build glTF JSON
 const json = {
     asset: { version: "2.0", generator: "test-character-generator" },
     scene: 0,

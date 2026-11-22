@@ -1091,7 +1091,7 @@ function addTerminalTips(joints, parentOf) {
     }
 }
 
-// --- Minimal quaternion helpers for orienting GLB joints ---
+// Minimal quaternion helpers for orienting GLB joints.
 const Q_IDENTITY = [0, 0, 0, 1];
 
 function qNormalize(q) {
@@ -1894,7 +1894,7 @@ function computeRig(parsed, { moreJoints = false, hint = null, bendAccessories =
         return { indices: [boneIdx, 0, 0, 0], weights: [1, 0, 0, 0] };
     };
 
-    // --- R15 layered-clothing skinning -----------------------------------
+    // R15 layered-clothing skinning.
     // Accessories (Handle*) are rigid by default so hats and props keep their
     // shape. Layered clothing, however, spans several body parts and must
     // deform with the skeleton instead of sticking to one bone. A handle is

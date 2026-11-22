@@ -53,7 +53,6 @@ function getAllHosts(hash) {
     for (let i = 0; i < 8; i++) {
         hosts.push(`t${i}.rbxcdn.com`);
     }
-    // Put the computed host first, then the rest
     const computed = getHost(hash);
     return [computed, ...hosts.filter((h) => h !== computed)];
 }

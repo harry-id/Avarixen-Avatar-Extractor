@@ -16,9 +16,7 @@ const fs = require("fs");
 const path = require("path");
 const { Document, NodeIO, Accessor } = require("@gltf-transform/core");
 
-// ---------------------------------------------------------------------------
 // OBJ / MTL parsing
-// ---------------------------------------------------------------------------
 
 function parseMtl(mtlPath) {
     const materials = {};
@@ -87,7 +85,6 @@ function parseObj(objPath, assetDir) {
                 uvIdx.push(t ? +t - 1 : -1);
                 normIdx.push(n ? +n - 1 : -1);
             }
-            // Triangulate fan
             for (let i = 1; i < vertIdx.length - 1; i++) {
                 faces.push({
                     verts: [vertIdx[0], vertIdx[i], vertIdx[i + 1]],
@@ -129,7 +126,6 @@ function parseObj(objPath, assetDir) {
             for (const vi of f.verts) vertSet.add(vi);
         }
         const vertIndices = Array.from(vertSet).sort((a, b) => a - b);
-        // Material = material of first face in group
         const material = faces[faceIdxs[0]]?.material || "default";
         groups.push({
             name: gname,
@@ -170,9 +166,7 @@ function computeBox(vertexIndices, positions) {
     };
 }
 
-// ---------------------------------------------------------------------------
 // Rig type detection
-// ---------------------------------------------------------------------------
 
 function detectRigType(playerCount) {
     if (playerCount === 6) return "R6";
@@ -180,9 +174,7 @@ function detectRigType(playerCount) {
     return null;
 }
 
-// ---------------------------------------------------------------------------
 // Body part matching by position
-// ---------------------------------------------------------------------------
 
 function matchBodyParts(playerGroups, boxes) {
     /**
@@ -226,7 +218,6 @@ function matchBodyParts(playerGroups, boxes) {
         torsoNames.push(torsoCandidates[1].name);
     }
 
-    // Remove torso candidates from remaining
     const torsoSet = new Set(torsoNames);
     const limbs = remaining.filter(g => !torsoSet.has(g.name));
 
@@ -273,9 +264,7 @@ function matchBodyParts(playerGroups, boxes) {
     return result;
 }
 
-// ---------------------------------------------------------------------------
 // Recentering
-// ---------------------------------------------------------------------------
 
 function computeRecenter(boxes, partMapping) {
     /**
@@ -300,9 +289,7 @@ function computeRecenter(boxes, partMapping) {
     return { offsetX, offsetY, offsetZ };
 }
 
-// ---------------------------------------------------------------------------
 // Joint computation
-// ---------------------------------------------------------------------------
 
 function computeJoints(partMapping, boxes, offsetX, offsetY, offsetZ, rigType) {
     /**
@@ -424,9 +411,7 @@ function computeJoints(partMapping, boxes, offsetX, offsetY, offsetZ, rigType) {
     return J;
 }
 
-// ---------------------------------------------------------------------------
 // Weight assignment
-// ---------------------------------------------------------------------------
 
 function nearestPlayerPart(vertex, playerBoxes) {
     let bestName = null;
@@ -466,9 +451,7 @@ function assignHandleBone(handleGroup, playerBoxes, positions) {
     return bestPart;
 }
 
-// ---------------------------------------------------------------------------
 // GLB building
-// ---------------------------------------------------------------------------
 
 function createAccessor(doc, buffer, array, typeStr, componentType, normalized = false) {
     const acc = doc.createAccessor();
@@ -576,7 +559,6 @@ function buildGlb(doc, root, scene, buffer, parsed, partMapping, joints, offsetX
         groupToPart[gname] = part;
     }
 
-    // Hierarchy
     if (rigType === "R6") {
         const torsoNode = jointNodeMap["Torso"];
         if (torsoNode) rootNode.addChild(torsoNode);
@@ -584,12 +566,10 @@ function buildGlb(doc, root, scene, buffer, parsed, partMapping, joints, offsetX
             torsoNode.addChild(jointNodeMap["Neck"]);
             jointNodeMap["Neck"].addChild(jointNodeMap["Head"]);
         }
-        // Arms attach to torso
         for (const side of ["Left", "Right"]) {
             const armNode = jointNodeMap[side + " Arm"];
             if (torsoNode && armNode) torsoNode.addChild(armNode);
         }
-        // Legs attach to root/hip
         for (const side of ["Left", "Right"]) {
             const legNode = jointNodeMap[side + " Leg"];
             if (rootNode && legNode) rootNode.addChild(legNode);
@@ -675,14 +655,12 @@ function buildGlb(doc, root, scene, buffer, parsed, partMapping, joints, offsetX
                     localIdx = groupLocalPos.length / 3;
                     cornerMap[key] = localIdx;
 
-                    // Position (recentered)
                     groupLocalPos.push(
                         positions[vIdx * 3] - offsetX,
                         positions[vIdx * 3 + 1] - offsetY,
                         positions[vIdx * 3 + 2] - offsetZ
                     );
 
-                    // Normal
                     if (nIdx >= 0 && normals.length > nIdx * 3) {
                         groupLocalNor.push(
                             normals[nIdx * 3], normals[nIdx * 3 + 1], normals[nIdx * 3 + 2]
@@ -698,7 +676,6 @@ function buildGlb(doc, root, scene, buffer, parsed, partMapping, joints, offsetX
                         groupLocalUv.push(0, 0);
                     }
 
-                    // Vertex color
                     groupLocalCol.push(
                         vertexColors[vIdx * 4], vertexColors[vIdx * 4 + 1],
                         vertexColors[vIdx * 4 + 2], vertexColors[vIdx * 4 + 3]
@@ -732,7 +709,6 @@ function buildGlb(doc, root, scene, buffer, parsed, partMapping, joints, offsetX
             }
         }
 
-        // Append to global arrays
         allPos.push(...groupLocalPos);
         allNor.push(...groupLocalNor);
         allUv.push(...groupLocalUv);
@@ -750,7 +726,6 @@ function buildGlb(doc, root, scene, buffer, parsed, partMapping, joints, offsetX
         globalIndexOffset += groupLocalPos.length / 3;
     }
 
-    // Create single merged mesh
     const mesh = doc.createMesh("character_mesh");
 
     // Convert float colors (0-1) to Uint8 (0-255) for UNSIGNED_BYTE normalized accessor.
@@ -761,7 +736,6 @@ function buildGlb(doc, root, scene, buffer, parsed, partMapping, joints, offsetX
         colorBytes[i] = Math.max(0, Math.min(255, Math.round(allCol[i] * 255)));
     }
 
-    // Create one primitive per unique material
     const materialsUsed = [...new Set(primInfos.map(p => p.material))];
     for (const matName of materialsUsed) {
         const matPrims = primInfos.filter(p => p.material === matName);
@@ -804,15 +778,12 @@ function buildGlb(doc, root, scene, buffer, parsed, partMapping, joints, offsetX
     }
     skin.setInverseBindMatrices(createAccessor(doc, buffer, ibmData, "MAT4", Accessor.ComponentType.FLOAT));
 
-    // Set skin on the merged mesh node
     meshNode.setSkin(skin);
 
     return doc;
 }
 
-// ---------------------------------------------------------------------------
 // Main
-// ---------------------------------------------------------------------------
 
 async function main() {
     const input = process.argv[2];
@@ -855,13 +826,11 @@ async function main() {
 
     console.log(`Rig type: ${rigType} (${playerGroups.length} Player groups, ${handleGroups.length} Handle groups)`);
 
-    // Compute boxes for all groups
     const boxes = {};
     for (const g of parsed.groups) {
         boxes[g.name] = computeBox(g.vertexIndices, parsed.positions);
     }
 
-    // Match body parts
     const partMapping = matchBodyParts(playerGroups, boxes);
     const groupToPart = {};
     for (const [part, gname] of Object.entries(partMapping)) {
@@ -873,18 +842,15 @@ async function main() {
         console.log(`  ${String(part).padEnd(14)} <- ${String(gname).padEnd(10)} n=${String(b.n).padStart(4)} cy=${b.cy.toFixed(3)} cx=${b.cx.toFixed(3)}`);
     }
 
-    // Recenter
     const { offsetX, offsetY, offsetZ } = computeRecenter(boxes, partMapping);
     console.log(`\nRecenter offset: x=${offsetX.toFixed(4)} y=${offsetY.toFixed(4)} z=${offsetZ.toFixed(4)}`);
 
-    // Compute joints
     const joints = computeJoints(partMapping, boxes, offsetX, offsetY, offsetZ, rigType);
     console.log("\nJoint positions (recentered):");
     for (const [jname, jpos] of Object.entries(joints)) {
         console.log(`  ${jname.padEnd(20)} [${jpos[0].toFixed(4)}, ${jpos[1].toFixed(4)}, ${jpos[2].toFixed(4)}]`);
     }
 
-    // Assign Handle groups to bones
     const playerBoxes = {};
     for (const [part, gname] of Object.entries(partMapping)) {
         playerBoxes[part] = boxes[gname];
@@ -906,7 +872,6 @@ async function main() {
         console.log(`  ${hg.name.padEnd(10)} n=${String(b.n).padStart(4)} -> ${bone} (closest Player: ${closestPart}, dist=${closestDist.toFixed(3)}) outside=${outside ? "YES" : "no"}`);
     }
 
-    // Build Document
     const doc = new Document();
     const root = doc.getRoot();
     const scene = doc.createScene("Scene");
@@ -914,12 +879,10 @@ async function main() {
 
     buildGlb(doc, root, scene, buffer, parsed, partMapping, joints, offsetX, offsetY, offsetZ, rigType, handleBoneMap);
 
-    // Write GLB
     const io = new NodeIO();
     await io.write(output, doc);
     console.log(`\nWritten: ${output}`);
 
-    // Vertex count per bone
     console.log("\nVertex count per bone:");
     const boneVerts = {};
     for (const g of parsed.groups) {

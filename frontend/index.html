@@ -1991,7 +1991,6 @@ function loadModel(userId = null, bustCache = false) {
             Object.values(materials.materials).forEach((material) => {
                 if (!material) return;
 
-                // Use both sides so faces aren't invisible
                 material.side = THREE.DoubleSide;
 
                 // Fix transparency: MTL "d" / "Tr" can force transparent:true

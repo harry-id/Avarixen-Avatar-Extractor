@@ -86,7 +86,7 @@ for (let i = 0; i < 4; i++) {
     indices.push(e, f, g, e, g, h);
 }
 
-// ---- Skinning weights ----
+// Skinning weights
 // Bottom 4 vertices -> Root (joint 0)
 // Middle 4 vertices -> split 50/50
 // Top 4 vertices -> Limb (joint 1)
@@ -112,11 +112,11 @@ for (let i = 0; i < 12; i++) {
     }
 }
 
-// ---- Material ----
+// Material
 const mat = doc.createMaterial("test_mat")
     .setBaseColorFactor([0.8, 0.4, 0.2, 1.0]);
 
-// ---- Mesh + Primitive ----
+// Mesh + Primitive
 const mesh = doc.createMesh("test_mesh");
 const prim = doc.createPrimitive()
     .setMode(4) // TRIANGLES
@@ -130,7 +130,7 @@ const prim = doc.createPrimitive()
     .setMaterial(mat);
 mesh.addPrimitive(prim);
 
-// ---- Joint nodes ----
+// Joint nodes
 const rootNode = doc.createNode("Root");
 rootNode.setTranslation([0, 0, 0]);
 scene.addChild(rootNode);
@@ -142,7 +142,7 @@ rootNode.addChild(limbNode);
 const meshNode = doc.createNode("test_mesh");
 meshNode.setMesh(mesh);
 
-// ---- Skin ----
+// Skin
 const skin = doc.createSkin("test_skin");
 skin.addJoint(rootNode);
 skin.addJoint(limbNode);
@@ -165,7 +165,7 @@ skin.setInverseBindMatrices(createAccessor(ibm, "MAT4", Accessor.ComponentType.F
 meshNode.setSkin(skin);
 scene.addChild(meshNode);
 
-// ---- Write GLB ----
+// Write GLB
 const io = new NodeIO();
 io.write(OUT, doc).then(() => {
     console.log("Written:", OUT);

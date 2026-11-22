@@ -270,7 +270,6 @@ app.get("/api/health", (req, res) => {
     res.json({ status: "online", version: APP_VERSION });
 });
 
-// Pencarian username / user ID Roblox
 app.post("/api/roblox/user", async (req, res) => {
     const lang = getLang(req);
 
@@ -380,7 +379,6 @@ app.post("/api/roblox/user", async (req, res) => {
     }
 });
 
-// Pengambilan Avatar 3D
 app.get("/api/roblox/avatar/:userId", async (req, res) => {
     const lang = getLang(req);
 
