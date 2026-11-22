@@ -242,6 +242,71 @@
             color: #f87171;
         }
 
+        .viewer-tools {
+            position: absolute;
+            top: 12px;
+            right: 12px;
+            z-index: 10;
+            display: flex;
+            flex-direction: column;
+            align-items: flex-end;
+            gap: 8px;
+        }
+
+        .viewer-toggle {
+            display: flex;
+            align-items: center;
+            gap: 7px;
+            padding: 6px 10px;
+            border: 1px solid #39445c;
+            border-radius: 8px;
+            background: rgba(25, 30, 43, 0.72);
+            color: #d0d8e8;
+            font-size: 12px;
+            user-select: none;
+            cursor: pointer;
+            backdrop-filter: blur(4px);
+            -webkit-backdrop-filter: blur(4px);
+        }
+
+        .viewer-toggle.disabled {
+            opacity: 0.45;
+            cursor: not-allowed;
+        }
+
+        .viewer-toggle input {
+            margin: 0;
+            accent-color: #4285f4;
+        }
+
+        .flip-warning {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            max-width: 230px;
+            padding: 6px 10px;
+            border: 1px solid rgba(234, 179, 8, 0.4);
+            border-radius: 8px;
+            background: rgba(234, 179, 8, 0.12);
+            color: #facc15;
+            font-size: 12px;
+            font-family: inherit;
+            line-height: 1.35;
+            text-align: left;
+            cursor: pointer;
+            backdrop-filter: blur(4px);
+            -webkit-backdrop-filter: blur(4px);
+        }
+
+        .flip-warning[hidden] {
+            display: none;
+        }
+
+        .flip-warning-icon {
+            font-size: 14px;
+            line-height: 1;
+        }
+
         #viewer {
             width: 100%;
             height: 500px;
@@ -374,6 +439,13 @@
             color: #6c7a94;
             font-size: 11px;
             flex-shrink: 0;
+        }
+
+        .explorer-node .node-warning {
+            color: #facc15;
+            font-size: 11px;
+            flex-shrink: 0;
+            cursor: help;
         }
 
         .explorer-section-label {
@@ -736,6 +808,22 @@
                 height: 380px;
             }
 
+            .viewer-tools {
+                top: 8px;
+                right: 8px;
+                gap: 6px;
+            }
+
+            .viewer-toggle,
+            .flip-warning {
+                padding: 5px 8px;
+                font-size: 11px;
+            }
+
+            .flip-warning {
+                max-width: 180px;
+            }
+
             .brand-desc {
                 font-size: 12px;
             }
@@ -799,6 +887,20 @@
     <div class="viewer-layout">
         <div id="viewer">
             <div id="accountInfo"></div>
+            <div class="viewer-tools">
+                <label class="viewer-toggle disabled" id="backfaceCullingToggle"
+                       data-i18n-title="viewerBackfaceCullingHint"
+                       title="Show front faces only. Accessories with flipped normals may disappear.">
+                    <input type="checkbox" id="backfaceCulling" disabled>
+                    <span data-i18n="viewerBackfaceCulling">Backface culling</span>
+                </label>
+                <button type="button" class="flip-warning" id="flipWarning" hidden
+                        data-i18n-title="viewerFlippedNormalsHint"
+                        title="The preview corrected normals that opposed their face winding. Click to toggle backface culling and see which meshes rely on double-sided rendering.">
+                    <span class="flip-warning-icon" aria-hidden="true">⚠</span>
+                    <span id="flipWarningText">Flipped normals: 0</span>
+                </button>
+            </div>
             <div class="status is-waiting" id="status" data-i18n="statusWaiting">Enter a Roblox username to load 3D preview.</div>
         </div>
         <aside id="explorer">
@@ -1108,6 +1210,11 @@ const LANG = {
         explorerPlayers: "Player (Tubuh)",
         explorerHandles: "Handle (Aksesori)",
         explorerOther: "Lainnya",
+        explorerFlippedNormals: "Normal terbalik (diperbaiki otomatis di preview)",
+        viewerBackfaceCulling: "Backface culling",
+        viewerBackfaceCullingHint: "Hanya tampilkan sisi depan. Aksesori dengan normal terbalik bisa menghilang.",
+        viewerFlippedNormals: "Normal terbalik: {{count}} (diperbaiki otomatis)",
+        viewerFlippedNormalsHint: "Normal mesh ini berlawanan dengan arah face. Preview memperbaikinya otomatis; klik untuk mengaktifkan/mematikan backface culling dan melihat mesh yang bergantung pada rendering dua sisi.",
         optionSeparateAssets: "Pisahkan aset",
         optionSeparateAssetsHint: "Ekspor aset terpisah (tekstur/bin) dalam satu ZIP.",
         optionAutoRig: "Auto-rig (R6/R15)",
@@ -1215,6 +1322,11 @@ const LANG = {
         explorerPlayers: "Player (Body)",
         explorerHandles: "Handle (Accessories)",
         explorerOther: "Other",
+        explorerFlippedNormals: "Flipped normals (auto-corrected in preview)",
+        viewerBackfaceCulling: "Backface culling",
+        viewerBackfaceCullingHint: "Show front faces only. Accessories with flipped normals may disappear.",
+        viewerFlippedNormals: "Flipped normals: {{count}} (auto-fixed)",
+        viewerFlippedNormalsHint: "This mesh's normals oppose its face winding. The preview corrects them automatically; click to toggle backface culling and see meshes that depend on double-sided rendering.",
         optionSeparateAssets: "Separate assets",
         optionSeparateAssetsHint: "Export separate asset files (textures/bin) in one ZIP.",
         optionAutoRig: "Auto-rig (R6/R15)",
@@ -1289,6 +1401,11 @@ function setLang(lang) {
     // Re-render the model explorer so its labels follow the active language.
     if (currentGroups && typeof renderExplorer === "function") {
         renderExplorer();
+    }
+
+    // The flipped-normal badge is built dynamically too.
+    if (typeof updateViewerDiagnostics === "function") {
+        updateViewerDiagnostics();
     }
 
     // The account panel is built dynamically, so it needs an explicit refresh.
@@ -1781,6 +1898,8 @@ let currentUsername = null;
 let currentRigType = null;
 let currentCompatibility = null;
 let currentAssetFiles = null;
+let currentFlippedNormals = new Set();
+let backfaceCullingEnabled = false;
 
 // Monotonic tokens invalidate late async callbacks after a newer search or a
 // preview reset, so an old model cannot overwrite the current one.
@@ -1794,6 +1913,70 @@ let operationToken = 0;
 
 
 
+function normalizePreviewName(name) {
+    return String(name || "").replace(/\s+/g, "").toLowerCase();
+}
+
+function updateViewerDiagnostics() {
+    const toggle = document.getElementById("backfaceCulling");
+    const toggleRow = document.getElementById("backfaceCullingToggle");
+    const warning = document.getElementById("flipWarning");
+    const warningText = document.getElementById("flipWarningText");
+    const hasModel = Boolean(currentModel);
+
+    if (toggle) {
+        toggle.disabled = !hasModel;
+        toggle.checked = backfaceCullingEnabled;
+    }
+    if (toggleRow) {
+        toggleRow.classList.toggle("disabled", !hasModel);
+    }
+    if (warning) {
+        warning.hidden = currentFlippedNormals.size === 0;
+    }
+    if (warningText) {
+        warningText.textContent = t("viewerFlippedNormals", {
+            count: currentFlippedNormals.size
+        });
+    }
+}
+
+function applyBackfaceCulling(enabled) {
+    backfaceCullingEnabled = Boolean(enabled);
+
+    const toggle = document.getElementById("backfaceCulling");
+    if (toggle) {
+        toggle.checked = backfaceCullingEnabled;
+    }
+
+    if (!currentModel) {
+        return;
+    }
+
+    currentModel.traverse((child) => {
+        if (!child.isMesh) {
+            return;
+        }
+
+        const materials = Array.isArray(child.material)
+            ? child.material
+            : [child.material];
+
+        for (const material of materials) {
+            if (!material) {
+                continue;
+            }
+            material.side = backfaceCullingEnabled
+                ? THREE.FrontSide
+                : THREE.DoubleSide;
+            material.shadowSide = backfaceCullingEnabled
+                ? THREE.FrontSide
+                : THREE.DoubleSide;
+            material.needsUpdate = true;
+        }
+    });
+}
+
 // Make a loaded model render correctly regardless of how its faces/normals are
 // wound. Roblox exports some accessories "inside-out" (inverted winding and/or
 // normals); with backface culling they'd be invisible or badly lit. We:
@@ -1801,8 +1984,10 @@ let operationToken = 0;
 //   2. If a mesh's vertex normals oppose its triangle winding, flip the normals
 //      so they agree with the winding. Combined with double-siding, three.js
 //      then lights whichever side faces the camera correctly.
+// Returns the normalized names of meshes whose normals were auto-corrected.
 function prepareModel(root) {
 
+    const flippedNames = new Set();
     const a = new THREE.Vector3();
     const b = new THREE.Vector3();
     const c = new THREE.Vector3();
@@ -1817,6 +2002,7 @@ function prepareModel(root) {
             return;
         }
 
+        child.userData.flippedNormals = false;
         const geometry = child.geometry;
 
         // 1. Double-sided materials (also covers materials OBJLoader created
@@ -1905,8 +2091,18 @@ function prepareModel(root) {
                 );
             }
             normal.needsUpdate = true;
+
+            child.userData.flippedNormals = true;
+            if (child.name) {
+                flippedNames.add(normalizePreviewName(child.name));
+            }
+            if (child.parent && child.parent.name) {
+                flippedNames.add(normalizePreviewName(child.parent.name));
+            }
         }
     });
+
+    return flippedNames;
 }
 
 // Release geometries, materials, and textures owned by a loaded model.
@@ -2057,11 +2253,16 @@ function loadModel(userId = null, bustCache = false) {
 
                     // Support inside-out / inverted accessories: double-side
                     // all materials and fix normals that oppose the winding.
-                    prepareModel(object);
+                    currentFlippedNormals = prepareModel(object);
 
                     currentModel = object;
 
                     scene.add(object);
+                    applyBackfaceCulling(backfaceCullingEnabled);
+                    updateViewerDiagnostics();
+                    if (currentGroups) {
+                        renderExplorer();
+                    }
 
                     const box = new THREE.Box3()
                         .setFromObject(object);
@@ -2157,6 +2358,8 @@ function clearPreview() {
 
     }
 
+    currentFlippedNormals = new Set();
+    updateViewerDiagnostics();
 
     camera.position.set(0, 0, 12);
 
@@ -2297,6 +2500,8 @@ if (new URLSearchParams(location.search).has("debug")) {
                 modelChildren: currentModel ? currentModel.children.length : 0,
                 rigType: currentRigType,
                 groupCount: Array.isArray(currentGroups) ? currentGroups.length : 0,
+                flippedNormalMeshes: currentFlippedNormals.size,
+                backfaceCulling: backfaceCullingEnabled,
                 sceneChildren: scene.children.length
             }),
             memory: () => ({
@@ -2363,14 +2568,18 @@ function buildRigTree(bones) {
     return lines;
 }
 
-function explorerNode(name, meta, cls, depth) {
+function explorerNode(name, meta, cls, depth, warning = null) {
     const pad = 12 + (depth || 0) * 14;
     const metaHtml = meta !== null && meta !== undefined
         ? `<span class="node-meta">${meta}</span>`
         : "";
+    const warningHtml = warning
+        ? `<span class="node-warning" title="${escapeHTML(warning)}">⚠</span>`
+        : "";
     return `<div class="explorer-node" style="padding-left:${pad}px" title="${escapeHTML(name)}">`
         + `<span class="node-icon ${cls}"></span>`
         + `<span class="node-name">${escapeHTML(name)}</span>`
+        + warningHtml
         + metaHtml
         + `</div>`;
 }
@@ -2389,6 +2598,18 @@ function renderExplorer() {
     const playerGroups = groups.filter((g) => g.type === "player");
     const handleGroups = groups.filter((g) => g.type === "handle");
     const otherGroups = groups.filter((g) => g.type === "other");
+
+    const flippedWarning = (group) => {
+        if (!currentFlippedNormals.size) {
+            return null;
+        }
+        const names = [group.name, group.part]
+            .filter(Boolean)
+            .map(normalizePreviewName);
+        return names.some((name) => currentFlippedNormals.has(name))
+            ? t("explorerFlippedNormals")
+            : null;
+    };
 
     const handlesByPart = new Map();
     for (const h of handleGroups) {
@@ -2410,22 +2631,46 @@ function renderExplorer() {
     const usedHandles = new Set();
     for (const g of sortedPlayers) {
         const label = g.part || g.name;
-        html += explorerNode(label, `${simulatedVertices(g)} v`, "player", 0);
+        html += explorerNode(
+            label,
+            `${simulatedVertices(g)} v`,
+            "player",
+            0,
+            flippedWarning(g)
+        );
 
         const handles = handlesByPart.get(g.part) || handlesByPart.get(g.name) || [];
         for (const h of handles) {
             usedHandles.add(h.name);
-            html += explorerNode(h.name || "Handle", `${h.vertices} v`, "handle", 1);
+            html += explorerNode(
+                h.name || "Handle",
+                `${h.vertices} v`,
+                "handle",
+                1,
+                flippedWarning(h)
+            );
         }
     }
 
     for (const h of handleGroups) {
         if (usedHandles.has(h.name)) continue;
-        html += explorerNode(h.name || "Handle", `${h.vertices} v`, "handle", 0);
+        html += explorerNode(
+            h.name || "Handle",
+            `${h.vertices} v`,
+            "handle",
+            0,
+            flippedWarning(h)
+        );
     }
 
     for (const g of otherGroups) {
-        html += explorerNode(g.name, `${g.vertices} v`, "other", 0);
+        html += explorerNode(
+            g.name,
+            `${g.vertices} v`,
+            "other",
+            0,
+            flippedWarning(g)
+        );
     }
 
     const autoRigEl = document.getElementById("autoRig");
@@ -3276,6 +3521,22 @@ function animate() {
 animate();
 
 
+
+const backfaceCullingInput = document.getElementById("backfaceCulling");
+if (backfaceCullingInput) {
+    backfaceCullingInput.addEventListener("change", () => {
+        applyBackfaceCulling(backfaceCullingInput.checked);
+    });
+}
+
+const flipWarningButton = document.getElementById("flipWarning");
+if (flipWarningButton) {
+    flipWarningButton.addEventListener("click", () => {
+        applyBackfaceCulling(!backfaceCullingEnabled);
+    });
+}
+
+updateViewerDiagnostics();
 
 setLang(currentLang);
 
