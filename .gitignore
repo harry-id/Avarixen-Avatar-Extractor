@@ -30,10 +30,10 @@ textures/
 temp/
 
 # Host deployment script (lives on the server, not in git)
-/start.sh
+start.sh
 
 # Local API documentation (not published yet)
-/API.md
+API.md
 
 # Build artifacts
 backend/backend.tar.gz
