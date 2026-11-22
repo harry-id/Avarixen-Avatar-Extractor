@@ -2446,11 +2446,13 @@ function getPartInfo(assetDir, { moreJoints = false, hint = undefined } = {}) {
     const groups = parsed.groups
         .filter(g => g.faceCount > 0)
         .map(g => {
-            const part = mappedGroupToPart[g.name] || handleBoneMap[g.name] || null;
+            const mappedPart = mappedGroupToPart[g.name] || null;
+            const handlePart = handleBoneMap[g.name] || null;
+            const part = mappedPart || handlePart || null;
             const extraPart = extraGroupParts[g.name] || null;
-            const type = g.name.startsWith("Player") || part
+            const type = g.name.startsWith("Player") || mappedPart
                 ? "player"
-                : g.name.startsWith("Handle")
+                : g.name.startsWith("Handle") || handlePart
                     ? "handle"
                     : "other";
             return {

@@ -429,6 +429,10 @@
             background: #6c7a94;
         }
 
+        .explorer-node .node-icon.extra {
+            background: #3fb6a8;
+        }
+
         .explorer-node .node-name {
             flex: 1;
             overflow: hidden;
@@ -1210,6 +1214,7 @@ const LANG = {
         explorerPlayers: "Player (Tubuh)",
         explorerHandles: "Handle (Aksesori)",
         explorerOther: "Lainnya",
+        explorerExtra: "tambahan",
         explorerFlippedNormals: "Normal terbalik (diperbaiki otomatis di preview)",
         viewerBackfaceCulling: "Backface culling",
         viewerBackfaceCullingHint: "Hanya tampilkan sisi depan. Aksesori dengan normal terbalik bisa menghilang.",
@@ -1322,6 +1327,7 @@ const LANG = {
         explorerPlayers: "Player (Body)",
         explorerHandles: "Handle (Accessories)",
         explorerOther: "Other",
+        explorerExtra: "extra",
         explorerFlippedNormals: "Flipped normals (auto-corrected in preview)",
         viewerBackfaceCulling: "Backface culling",
         viewerBackfaceCullingHint: "Show front faces only. Accessories with flipped normals may disappear.",
@@ -2618,9 +2624,17 @@ function renderExplorer() {
         handlesByPart.get(key).push(h);
     }
 
-    const sortedPlayers = [...playerGroups].sort(
-        (a, b) => partOrderIndex(currentRigType, a.part || a.extraPart || a.name)
-            - partOrderIndex(currentRigType, b.part || b.extraPart || b.name)
+    const primaryPlayers = playerGroups.filter((g) => !g.extraPart);
+    const extraPlayers = playerGroups.filter((g) => g.extraPart && !g.part);
+    const extrasByPart = new Map();
+    for (const g of extraPlayers) {
+        if (!extrasByPart.has(g.extraPart)) extrasByPart.set(g.extraPart, []);
+        extrasByPart.get(g.extraPart).push(g);
+    }
+
+    const sortedPlayers = [...primaryPlayers].sort(
+        (a, b) => partOrderIndex(currentRigType, a.part || a.name)
+            - partOrderIndex(currentRigType, b.part || b.name)
     );
 
     let html = "";
@@ -2629,9 +2643,9 @@ function renderExplorer() {
     html += `<div class="explorer-section-label">${t("explorerSectionPlayer")} (${totalParts})</div>`;
 
     const usedHandles = new Set();
+    const usedExtras = new Set();
     for (const g of sortedPlayers) {
-        const label = g.part
-            || (g.extraPart ? `${g.name} → ${g.extraPart}` : g.name);
+        const label = g.part || g.name;
         html += explorerNode(
             label,
             `${simulatedVertices(g)} v`,
@@ -2639,6 +2653,18 @@ function renderExplorer() {
             0,
             flippedWarning(g)
         );
+
+        const extras = extrasByPart.get(g.part) || extrasByPart.get(g.name) || [];
+        for (const extra of extras) {
+            usedExtras.add(extra.name);
+            html += explorerNode(
+                extra.name,
+                `${extra.vertices} v · ${t("explorerExtra")}`,
+                "extra",
+                1,
+                flippedWarning(extra)
+            );
+        }
 
         const handles = handlesByPart.get(g.part) || handlesByPart.get(g.name) || [];
         for (const h of handles) {
@@ -2661,6 +2687,17 @@ function renderExplorer() {
             "handle",
             0,
             flippedWarning(h)
+        );
+    }
+
+    for (const g of extraPlayers) {
+        if (usedExtras.has(g.name)) continue;
+        html += explorerNode(
+            g.name,
+            `${g.vertices} v · ${t("explorerExtra")}`,
+            "extra",
+            0,
+            flippedWarning(g)
         );
     }
 
