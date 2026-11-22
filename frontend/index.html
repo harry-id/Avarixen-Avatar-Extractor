@@ -2619,8 +2619,8 @@ function renderExplorer() {
     }
 
     const sortedPlayers = [...playerGroups].sort(
-        (a, b) => partOrderIndex(currentRigType, a.part || a.name)
-            - partOrderIndex(currentRigType, b.part || b.name)
+        (a, b) => partOrderIndex(currentRigType, a.part || a.extraPart || a.name)
+            - partOrderIndex(currentRigType, b.part || b.extraPart || b.name)
     );
 
     let html = "";
@@ -2630,7 +2630,8 @@ function renderExplorer() {
 
     const usedHandles = new Set();
     for (const g of sortedPlayers) {
-        const label = g.part || g.name;
+        const label = g.part
+            || (g.extraPart ? `${g.name} → ${g.extraPart}` : g.name);
         html += explorerNode(
             label,
             `${simulatedVertices(g)} v`,

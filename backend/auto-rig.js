@@ -553,6 +553,149 @@ function mappingFromPartNames(rigType, groups) {
     return mapping;
 }
 
+function nearestMappedPart(box, boxes, mapping) {
+    const point = { x: box.cx, y: box.cy, z: box.cz };
+    let bestPart = null;
+    let bestDistance = Infinity;
+
+    for (const [part, groupName] of Object.entries(mapping)) {
+        const reference = boxes[groupName];
+        if (!reference || !Number.isFinite(reference.cx)) {
+            continue;
+        }
+
+        const distance = distanceToBox(point, reference);
+        if (distance < bestDistance) {
+            bestDistance = distance;
+            bestPart = part;
+        }
+    }
+
+    return bestPart;
+}
+
+function partReferenceNames(part, rigType) {
+    const side = part.startsWith("Left")
+        ? "Left"
+        : part.startsWith("Right")
+            ? "Right"
+            : null;
+
+    if (rigType === "R6") {
+        if (part === "Torso") {
+            return ["Head", "Left Arm", "Right Arm", "Left Leg", "Right Leg"];
+        }
+        return part === "Head" ? ["Torso"] : ["Torso"];
+    }
+
+    if (part === "Head") return ["UpperTorso", "LowerTorso"];
+    if (part === "UpperTorso") return ["LowerTorso", "Head"];
+    if (part === "LowerTorso") return ["UpperTorso"];
+    if (!side) return [];
+
+    if (part.endsWith("UpperArm")) return ["UpperTorso", `${side}LowerArm`];
+    if (part.endsWith("LowerArm")) return [`${side}UpperArm`, `${side}Hand`];
+    if (part.endsWith("Hand")) return [`${side}LowerArm`, `${side}UpperArm`];
+    if (part.endsWith("UpperLeg")) return ["LowerTorso", `${side}LowerLeg`];
+    if (part.endsWith("LowerLeg")) return [`${side}UpperLeg`, `${side}Foot`];
+    if (part.endsWith("Foot")) return [`${side}LowerLeg`, `${side}UpperLeg`];
+
+    return [];
+}
+
+function bodyCenterX(mapping, boxes) {
+    const names = ["UpperTorso", "LowerTorso", "Torso"];
+    let total = 0;
+    let count = 0;
+
+    for (const name of names) {
+        const groupName = mapping[name];
+        const box = groupName ? boxes[groupName] : null;
+        if (box && Number.isFinite(box.cx)) {
+            total += box.cx;
+            count += 1;
+        }
+    }
+
+    return count ? total / count : 0;
+}
+
+function partSideMatches(part, box, mapping, boxes) {
+    if (!part.startsWith("Left") && !part.startsWith("Right")) {
+        return true;
+    }
+
+    const centerX = bodyCenterX(mapping, boxes);
+    return part.startsWith("Left") ? box.cx <= centerX : box.cx >= centerX;
+}
+
+// Mixed avatars can contain both named body groups and leftover PlayerN groups.
+// Keep the named mapping, then use the leftovers only for missing parts when a
+// nearby mapped group makes the assignment unambiguous.
+function resolvePartMapping(groups, boxes, rigType) {
+    const playerGroups = groups.filter((group) => /^Player\d+$/i.test(group.name));
+    const named = mappingFromPartNames(rigType, groups);
+
+    if (!playerGroups.length) {
+        return { partMapping: named, extraGroupParts: {} };
+    }
+
+    if (!Object.keys(named).length) {
+        return {
+            partMapping: matchBodyParts(playerGroups, boxes, { rigType }),
+            extraGroupParts: {}
+        };
+    }
+
+    const expected = rigType === "R6" ? R6_PART_NAMES : R15_PART_NAMES;
+    const mapping = { ...named };
+    const used = new Set(Object.values(mapping));
+    const leftovers = playerGroups.filter((group) => !used.has(group.name));
+
+    for (const group of leftovers) {
+        const box = boxes[group.name];
+        if (!box || !Number.isFinite(box.cx)) {
+            continue;
+        }
+
+        const nearest = nearestMappedPart(box, boxes, mapping);
+        if (!nearest) {
+            continue;
+        }
+
+        const candidates = expected.filter((part) =>
+            !mapping[part] &&
+            partReferenceNames(part, rigType).includes(nearest) &&
+            partSideMatches(part, box, mapping, boxes)
+        );
+
+        if (candidates.length === 1) {
+            mapping[candidates[0]] = group.name;
+        }
+    }
+
+    const finalUsed = new Set(Object.values(mapping));
+    const extraGroupParts = {};
+
+    for (const group of leftovers) {
+        if (finalUsed.has(group.name)) {
+            continue;
+        }
+
+        const box = boxes[group.name];
+        if (!box || !Number.isFinite(box.cx)) {
+            continue;
+        }
+
+        const nearest = nearestMappedPart(box, boxes, mapping);
+        if (nearest) {
+            extraGroupParts[group.name] = nearest;
+        }
+    }
+
+    return { partMapping: mapping, extraGroupParts };
+}
+
 function matchBodyParts(playerGroups, boxes, options = {}) {
     // Match Player groups to body parts by POSITION, never by group number.
     // Works for full R6/R15 rigs and for partial/custom avatars (e.g. an R15
@@ -1377,9 +1520,14 @@ function buildDocument(parsed, partMapping, joints, offsetX, offsetY, offsetZ, r
         }
     }
 
-    const groupToPart = {};
-    for (const [part, gname] of Object.entries(partMapping)) {
-        groupToPart[gname] = part;
+    const groupToPart = rigData && rigData.groupToPart
+        ? { ...rigData.groupToPart }
+        : {};
+
+    if (!rigData || !rigData.groupToPart) {
+        for (const [part, gname] of Object.entries(partMapping)) {
+            groupToPart[gname] = part;
+        }
     }
 
     if (rigged && rigType === "R6") {
@@ -1889,19 +2037,14 @@ function computeRig(parsed, { moreJoints = false, hint = null, bendAccessories =
     const playerGroups = parsed.groups.filter((g) => g.name.startsWith("Player"));
     const handleGroups = parsed.groups.filter((g) => g.name.startsWith("Handle"));
 
-    const { rigType, source } = resolveRigType(parsed.groups, playerGroups.length, hint);
+    const { rigType } = resolveRigType(parsed.groups, playerGroups.length, hint);
     let partMapping = {};
+    let extraGroupParts = {};
 
-    if (rigType && (source === "players" || source === "hint")) {
-        // Map from geometry: PlayerN groups by position. The resolved rigType
-        // overrides the count so a hint-selected R15 with six groups still maps
-        // to R15 parts.
-        partMapping = playerGroups.length
-            ? matchBodyParts(playerGroups, boxes, { rigType })
-            : mappingFromPartNames(rigType, parsed.groups);
-    } else if (rigType && source === "named") {
-        // Exported avatars are renamed (Head, Torso, ...).
-        partMapping = mappingFromPartNames(rigType, parsed.groups);
+    if (rigType) {
+        const resolved = resolvePartMapping(parsed.groups, boxes, rigType);
+        partMapping = resolved.partMapping;
+        extraGroupParts = resolved.extraGroupParts;
     }
 
     if (!rigType) {
@@ -1941,6 +2084,7 @@ function computeRig(parsed, { moreJoints = false, hint = null, bendAccessories =
     for (const [part, gname] of Object.entries(partMapping)) {
         groupToPart[gname] = part;
     }
+    Object.assign(groupToPart, extraGroupParts);
 
     const { parentOf, rootName } = buildParentMap(rigType, joints);
     addTerminalTips(joints, parentOf);
@@ -2273,11 +2417,12 @@ function getPartInfo(assetDir, { moreJoints = false, hint = undefined } = {}) {
 
     let partMapping = {};
     let handleBoneMap = {};
+    let extraGroupParts = {};
 
     if (rigType) {
-        partMapping = playerGroups.length
-            ? matchBodyParts(playerGroups, boxes, { rigType })
-            : mappingFromPartNames(rigType, parsed.groups);
+        const resolved = resolvePartMapping(parsed.groups, boxes, rigType);
+        partMapping = resolved.partMapping;
+        extraGroupParts = resolved.extraGroupParts;
 
         const playerBoxes = {};
         for (const [part, gname] of Object.entries(partMapping)) {
@@ -2293,16 +2438,17 @@ function getPartInfo(assetDir, { moreJoints = false, hint = undefined } = {}) {
         }
     }
 
-    const groupToPart = {};
+    const mappedGroupToPart = {};
     for (const [part, gname] of Object.entries(partMapping)) {
-        groupToPart[gname] = part;
+        mappedGroupToPart[gname] = part;
     }
 
     const groups = parsed.groups
         .filter(g => g.faceCount > 0)
         .map(g => {
-            const part = groupToPart[g.name] || handleBoneMap[g.name] || null;
-            const type = g.name.startsWith("Player") || groupToPart[g.name]
+            const part = mappedGroupToPart[g.name] || handleBoneMap[g.name] || null;
+            const extraPart = extraGroupParts[g.name] || null;
+            const type = g.name.startsWith("Player") || part
                 ? "player"
                 : g.name.startsWith("Handle")
                     ? "handle"
@@ -2312,7 +2458,8 @@ function getPartInfo(assetDir, { moreJoints = false, hint = undefined } = {}) {
                 vertices: g.vertexIndices.length,
                 faces: g.faceCount,
                 type,
-                part
+                part,
+                extraPart
             };
         });
 
@@ -2346,6 +2493,7 @@ module.exports = {
     computeCompatibility,
     readCachedRobloxType,
     mappingFromPartNames,
+    resolvePartMapping,
     matchBodyParts,
     computeRecenter,
     computeJoints,

@@ -16,6 +16,7 @@ const {
     computeCompatibility,
     computeBox,
     computeRecenter,
+    resolvePartMapping,
     matchBodyParts,
     getPartInfo,
     convertAvatar,
@@ -914,4 +915,36 @@ test("subdivision shares midpoints across adjacent faces", () => {
     assert.equal(refined.faces.length, 8);
     // 4 original vertices + 5 unique edge midpoints (one edge is shared).
     assert.equal(refined.positions.length / 3, 9);
+});
+
+test("mixed named and Player groups keep named parts and map safe leftovers", () => {
+    const boxes = {
+        Head: makeBox(-0.5, 0.5, 9, 11, -0.5, 0.5),
+        UpperTorso: makeBox(-1, 1, 7, 9, -0.5, 0.5),
+        LowerTorso: makeBox(-1, 1, 5, 7, -0.5, 0.5),
+        LeftUpperArm: makeBox(-2, -1.2, 7, 9, -0.3, 0.3),
+        RightUpperArm: makeBox(1.2, 2, 7, 9, -0.3, 0.3),
+        LeftLowerArm: makeBox(-2, -1.5, 5, 7, -0.3, 0.3),
+        RightLowerArm: makeBox(1.5, 2, 5, 7, -0.3, 0.3),
+        LeftUpperLeg: makeBox(-0.8, -0.1, 2, 5, -0.3, 0.3),
+        RightUpperLeg: makeBox(0.1, 0.8, 2, 5, -0.3, 0.3),
+        LeftLowerLeg: makeBox(-0.8, -0.1, 0.5, 2, -0.3, 0.3),
+        RightLowerLeg: makeBox(0.1, 0.8, 0.5, 2, -0.3, 0.3),
+        LeftFoot: makeBox(-0.8, -0.1, 0, 0.5, -0.3, 0.3),
+        RightFoot: makeBox(0.1, 0.8, 0, 0.5, -0.3, 0.3),
+        Player12: makeBox(0.1, 0.8, 0, 0.3, -0.3, 0.3),
+        Player15: makeBox(-0.8, -0.1, 0, 0.3, -0.3, 0.3),
+        Player20: makeBox(1.5, 1.8, 4.5, 5, -0.3, 0.3)
+    };
+    const groups = Object.keys(boxes).map((name) => ({ name }));
+
+    const { partMapping, extraGroupParts } = resolvePartMapping(groups, boxes, "R15");
+
+    assert.equal(partMapping.Head, "Head");
+    assert.equal(partMapping.UpperTorso, "UpperTorso");
+    assert.equal(partMapping.RightFoot, "RightFoot");
+    assert.equal(partMapping.RightHand, "Player20");
+    assert.equal(partMapping.LeftHand, undefined);
+    assert.equal(extraGroupParts.Player12, "RightFoot");
+    assert.equal(extraGroupParts.Player15, "LeftFoot");
 });
