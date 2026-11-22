@@ -21,6 +21,7 @@ const {
     getPartInfo,
     convertAvatar,
     assignHandleBone,
+    splitHandleGroups,
     computeJoints,
     buildParentMap,
     subdivideParsed
@@ -979,4 +980,29 @@ test("getPartInfo keeps handles typed as handles after attachment mapping", () =
     } finally {
         fs.rmSync(dir, { recursive: true, force: true });
     }
+});
+
+test("splitHandleGroups separates disconnected accessories by body part", () => {
+    const left = makeBox(-2.2, -1.1, 7, 9, -0.3, 0.3);
+    const right = makeBox(1.1, 2.2, 7, 9, -0.3, 0.3);
+    const obj = [
+        objFromBoxes({ Handle1: left }),
+        objFromBoxes({ Handle1: right }, 9)
+    ].join("\n");
+
+    const parsed = parseObjString(obj);
+    assert.equal(parsed.groups.length, 1);
+    assert.equal(parsed.groups[0].name, "Handle1");
+
+    const playerBoxes = {
+        LeftUpperArm: makeBox(-2, -1.2, 7, 9, -0.3, 0.3),
+        RightUpperArm: makeBox(1.2, 2, 7, 9, -0.3, 0.3)
+    };
+
+    assert.equal(splitHandleGroups(parsed, playerBoxes), true);
+    assert.equal(parsed.groups.length, 2);
+
+    const parts = parsed.groups.map((group) => group.splitPart).sort();
+    assert.deepEqual(parts, ["LeftUpperArm", "RightUpperArm"]);
+    assert.ok(parsed.groups.every((group) => group.baseName === "Handle1"));
 });

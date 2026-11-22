@@ -270,6 +270,20 @@ async function buildFbx({
         })
         : null;
 
+    // Even an unrigged FBX should keep split accessory components separate.
+    let splitData = rigData;
+    if (!splitData) {
+        try {
+            splitData = computeRig(parseObjString(objText), {
+                moreJoints,
+                hint: readCachedRobloxType(assetDir),
+                bendAccessories
+            });
+        } catch {
+            splitData = null;
+        }
+    }
+
     // Match the GLB export: center the body on X/Z and put the feet at y = 0.
     let safeSubdivision = Math.max(0, Math.min(4, Math.floor(subdivision || 0)));
 
@@ -549,10 +563,28 @@ async function buildFbx({
     const partList = [];
 
     if (splitParts) {
+        const splitMaps = new Map();
+        const handleSplits = (splitData && splitData.handleSplits) || {};
+
+        for (const [originalName, groups] of Object.entries(handleSplits)) {
+            const vertexToSplit = new Map();
+            for (const group of groups) {
+                for (const vertex of group.vertexIndices) {
+                    vertexToSplit.set(vertex, group.name);
+                }
+            }
+            splitMaps.set(originalName, vertexToSplit);
+        }
+
         const byGroup = new Map();
 
         for (const poly of obj.polygons) {
-            const key = poly.group || "Avatar";
+            const originalName = poly.group || "Avatar";
+            const splitMap = splitMaps.get(originalName);
+            const splitName = splitMap && poly.corners.length
+                ? splitMap.get(poly.corners[0].p)
+                : null;
+            const key = splitName || originalName;
 
             if (!byGroup.has(key)) {
                 byGroup.set(key, []);

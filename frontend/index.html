@@ -2670,7 +2670,7 @@ function renderExplorer() {
         for (const h of handles) {
             usedHandles.add(h.name);
             html += explorerNode(
-                h.name || "Handle",
+                h.baseName || h.name || "Handle",
                 `${h.vertices} v`,
                 "handle",
                 1,
@@ -2682,7 +2682,7 @@ function renderExplorer() {
     for (const h of handleGroups) {
         if (usedHandles.has(h.name)) continue;
         html += explorerNode(
-            h.name || "Handle",
+            h.baseName || h.name || "Handle",
             `${h.vertices} v`,
             "handle",
             0,

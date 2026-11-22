@@ -1050,7 +1050,8 @@ function addR6HandBoxes(playerBoxes) {
     return playerBoxes;
 }
 
-function assignHandleBone(handleGroup, playerBoxes, positions) {
+function assignHandleBone(handleGroup, playerBoxes, positions, options = {}) {
+    const allowLegs = Boolean(options.allowLegs);
     const handleBox = computeBox(handleGroup.vertexIndices, positions);
 
     if (!Number.isFinite(handleBox.cx)) {
@@ -1075,7 +1076,7 @@ function assignHandleBone(handleGroup, playerBoxes, positions) {
         let score = distanceToBox(center, box);
 
         // Items hanging near a leg are usually tails / waist / back accessories.
-        if (/Leg|Foot/.test(part)) {
+        if (!allowLegs && /Leg|Foot/.test(part)) {
             score *= 2.5;
         }
 
@@ -1098,7 +1099,7 @@ function assignHandleBone(handleGroup, playerBoxes, positions) {
     // a tail or waist item belongs to the hips, and a central low item is never
     // a head/arm accessory.
     let finalPart = bestPart;
-    if (/Leg|Foot/.test(bestPart)) {
+    if (!allowLegs && /Leg|Foot/.test(bestPart)) {
         finalPart = hipsPart(rigType);
     } else if (central && belowWaist && /Head|Arm|Hand/.test(bestPart)) {
         finalPart = hipsPart(rigType);
@@ -1116,6 +1117,151 @@ function assignHandleBone(handleGroup, playerBoxes, positions) {
     }
 
     return finalPart;
+}
+
+// Roblox often merges disconnected accessory pieces into one OBJ group (for
+// example, sleeves covering both arms). Positions are duplicated per face, so
+// weld by position before looking for connected components.
+function weldedComponents(group, parsed, epsilon = 1e-4) {
+    const keyFor = (vertexIndex) => {
+        const x = parsed.positions[vertexIndex * 3];
+        const y = parsed.positions[vertexIndex * 3 + 1];
+        const z = parsed.positions[vertexIndex * 3 + 2];
+        return `${Math.round(x / epsilon)}|${Math.round(y / epsilon)}|${Math.round(z / epsilon)}`;
+    };
+
+    const parent = new Map();
+    const find = (key) => {
+        if (!parent.has(key)) {
+            parent.set(key, key);
+            return key;
+        }
+        let root = key;
+        while (parent.get(root) !== root) {
+            root = parent.get(root);
+        }
+        while (key !== root) {
+            const next = parent.get(key);
+            parent.set(key, root);
+            key = next;
+        }
+        return root;
+    };
+    const union = (a, b) => {
+        const rootA = find(a);
+        const rootB = find(b);
+        if (rootA !== rootB) {
+            parent.set(rootA, rootB);
+        }
+    };
+
+    const faceRoots = [];
+    for (const faceIndex of group.faceIndices) {
+        const face = parsed.faces[faceIndex];
+        const keys = face.verts.map(keyFor);
+        for (let i = 1; i < keys.length; i++) {
+            union(keys[0], keys[i]);
+        }
+        faceRoots.push({ faceIndex, key: keys[0], verts: face.verts });
+    }
+
+    const components = new Map();
+    for (const entry of faceRoots) {
+        const root = find(entry.key);
+        let component = components.get(root);
+        if (!component) {
+            component = { faceIndices: [], vertexSet: new Set() };
+            components.set(root, component);
+        }
+        component.faceIndices.push(entry.faceIndex);
+        for (const vertex of entry.verts) {
+            component.vertexSet.add(vertex);
+        }
+    }
+
+    return Array.from(components.values()).map((component) => ({
+        faceIndices: component.faceIndices,
+        vertexIndices: Array.from(component.vertexSet).sort((a, b) => a - b)
+    }));
+}
+
+// Split a merged handle into one virtual group per attached body part. Groups
+// whose components all belong to the same part are kept intact.
+function splitHandleGroups(parsed, playerBoxes) {
+    let changed = false;
+    const groups = [];
+    const splits = {};
+
+    for (const group of parsed.groups) {
+        if (!/^Handle/i.test(group.name) || group.faceCount < 2) {
+            groups.push(group);
+            continue;
+        }
+
+        const components = weldedComponents(group, parsed);
+        if (components.length < 2) {
+            groups.push(group);
+            continue;
+        }
+
+        const byPart = new Map();
+        for (const component of components) {
+            const part = assignHandleBone(
+                { vertexIndices: component.vertexIndices },
+                playerBoxes,
+                parsed.positions,
+                { allowLegs: true }
+            ) || "Other";
+
+            if (!byPart.has(part)) {
+                byPart.set(part, []);
+            }
+            byPart.get(part).push(component);
+        }
+
+        if (byPart.size < 2) {
+            groups.push(group);
+            continue;
+        }
+
+        const splitGroups = [];
+
+        for (const [part, partComponents] of byPart) {
+            const faceIndices = [];
+            const vertexSet = new Set();
+
+            for (const component of partComponents) {
+                for (const faceIndex of component.faceIndices) {
+                    faceIndices.push(faceIndex);
+                }
+                for (const vertex of component.vertexIndices) {
+                    vertexSet.add(vertex);
+                }
+            }
+
+            const splitGroup = {
+                ...group,
+                name: `${group.name}_${part.replace(/\s+/g, "")}`,
+                baseName: group.name,
+                splitPart: part,
+                faceIndices,
+                vertexIndices: Array.from(vertexSet).sort((a, b) => a - b),
+                faceCount: faceIndices.length
+            };
+            splitGroups.push(splitGroup);
+            groups.push(splitGroup);
+            changed = true;
+        }
+
+        splits[group.name] = splitGroups;
+    }
+
+    if (changed) {
+        parsed.groups = groups;
+        parsed._handleSplits = splits;
+    }
+
+    return changed;
 }
 
 function createAccessor(doc, buffer, array, typeStr, componentType, normalized = false) {
@@ -2035,7 +2181,7 @@ function computeRig(parsed, { moreJoints = false, hint = null, bendAccessories =
     }
 
     const playerGroups = parsed.groups.filter((g) => g.name.startsWith("Player"));
-    const handleGroups = parsed.groups.filter((g) => g.name.startsWith("Handle"));
+    let handleGroups = parsed.groups.filter((g) => g.name.startsWith("Handle"));
 
     const { rigType } = resolveRigType(parsed.groups, playerGroups.length, hint);
     let partMapping = {};
@@ -2075,9 +2221,14 @@ function computeRig(parsed, { moreJoints = false, hint = null, bendAccessories =
         addR6HandBoxes(playerBoxes);
     }
 
+    if (splitHandleGroups(parsed, playerBoxes)) {
+        handleGroups = parsed.groups.filter((g) => g.name.startsWith("Handle"));
+    }
+
     const handleBoneMap = {};
     for (const hg of handleGroups) {
-        handleBoneMap[hg.name] = assignHandleBone(hg, playerBoxes, parsed.positions);
+        handleBoneMap[hg.name] = hg.splitPart
+            || assignHandleBone(hg, playerBoxes, parsed.positions);
     }
 
     const groupToPart = {};
@@ -2235,6 +2386,7 @@ function computeRig(parsed, { moreJoints = false, hint = null, bendAccessories =
         rootName,
         groupToPart,
         handleBoneMap,
+        handleSplits: parsed._handleSplits || {},
         boneNameToIdx,
         skinFor,
         isClothingGroup,
@@ -2316,6 +2468,30 @@ async function convertAvatar(assetDir, {
             joints[name] = [p[0] - offsetX, p[1] - offsetY, p[2] - offsetZ];
         }
     } else {
+        // Split merged accessories even without a skeleton so each component
+        // remains a separate exportable object.
+        const playerGroups = parsed.groups.filter(
+            (g) => /^Player\d+$/i.test(g.name)
+        );
+        const hint = readCachedRobloxType(assetDir);
+        const resolvedRig = resolveRigType(parsed.groups, playerGroups.length, hint);
+
+        if (resolvedRig.rigType) {
+            const resolved = resolvePartMapping(
+                parsed.groups,
+                boxes,
+                resolvedRig.rigType
+            );
+            const playerBoxes = {};
+            for (const [part, groupName] of Object.entries(resolved.partMapping)) {
+                playerBoxes[part] = boxes[groupName];
+            }
+            if (resolvedRig.rigType === "R6") {
+                addR6HandBoxes(playerBoxes);
+            }
+            splitHandleGroups(parsed, playerBoxes);
+        }
+
         // Non-rigged: center on the body only (accessories must not pull the
         // character off the origin) and put the feet at y = 0.
         const bodyGroups = parsed.groups.filter(
@@ -2411,7 +2587,7 @@ function getPartInfo(assetDir, { moreJoints = false, hint = undefined } = {}) {
     }
 
     const playerGroups = parsed.groups.filter(g => g.name.startsWith("Player"));
-    const handleGroups = parsed.groups.filter(g => g.name.startsWith("Handle"));
+    let handleGroups = parsed.groups.filter(g => g.name.startsWith("Handle"));
 
     const { rigType } = resolveRigType(parsed.groups, playerGroups.length, resolvedHint);
 
@@ -2433,8 +2609,13 @@ function getPartInfo(assetDir, { moreJoints = false, hint = undefined } = {}) {
             addR6HandBoxes(playerBoxes);
         }
 
+        if (splitHandleGroups(parsed, playerBoxes)) {
+            handleGroups = parsed.groups.filter((g) => g.name.startsWith("Handle"));
+        }
+
         for (const hg of handleGroups) {
-            handleBoneMap[hg.name] = assignHandleBone(hg, playerBoxes, parsed.positions);
+            handleBoneMap[hg.name] = hg.splitPart
+                || assignHandleBone(hg, playerBoxes, parsed.positions);
         }
     }
 
@@ -2457,6 +2638,7 @@ function getPartInfo(assetDir, { moreJoints = false, hint = undefined } = {}) {
                     : "other";
             return {
                 name: g.name,
+                baseName: g.baseName || g.name,
                 vertices: g.vertexIndices.length,
                 faces: g.faceCount,
                 type,
@@ -2500,6 +2682,8 @@ module.exports = {
     computeRecenter,
     computeJoints,
     assignHandleBone,
+    weldedComponents,
+    splitHandleGroups,
     addR6HandBoxes,
     createSkinner,
     buildParentMap,
