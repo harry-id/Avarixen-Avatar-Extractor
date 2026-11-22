@@ -1118,52 +1118,69 @@ function triangleCount(nodes) {
     return total;
 }
 
-test("connected jacket spanning torso and arms is segmented by body region", () => {
+
+function writeHandlePieces(dir, pieceOptions, body = r15Body()) {
+    const bodyVertCount = Object.keys(body).length * 8;
+    const parts = [objFromBoxes(body)];
+    let vOffset = bodyVertCount + 1;
+    let vtOffset = 1;
+    let vnOffset = 1;
+    let faceCount = 0;
+
+    for (const options of pieceOptions) {
+        const grid = objGrid({
+            ...options,
+            vOffset,
+            vtOffset,
+            vnOffset
+        });
+        parts.push(grid.text);
+        vOffset += grid.vertexCount;
+        vtOffset += grid.vertexCount;
+        vnOffset += 1;
+        faceCount += grid.faceCount;
+    }
+
+    fs.writeFileSync(path.join(dir, "avatar.obj"), parts.join("\n"));
+    fs.writeFileSync(path.join(dir, "avatar.mtl"), CLOTH_MTL);
+    return { faceCount };
+}
+
+const SLEEVE_LEFT = { x0: -1.91, x1: -0.91, y0: 3.2, y1: 4.8, z: 0.52, cols: 10 };
+const SLEEVE_RIGHT = { x0: 0.91, x1: 1.91, y0: 3.2, y1: 4.8, z: 0.52, cols: 10 };
+
+test("spatially separate accessory islands become one object per side", () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "aae-test-"));
 
     try {
-        const { handle } = writeR15Avatar(dir, {
-            x0: -1.91, x1: 1.91, y0: 3.2, y1: 4.8, z: 0.52, cols: 24
-        });
-
+        const { faceCount } = writeHandlePieces(dir, [SLEEVE_LEFT, SLEEVE_RIGHT]);
         const info = getPartInfo(dir);
         const handles = info.groups.filter((group) => group.type === "handle");
-        const parts = handles.map((group) => group.part).sort();
 
-        assert.deepEqual(parts, ["LeftUpperArm", "RightUpperArm", "UpperTorso"]);
+        assert.equal(handles.length, 2);
         assert.equal(
             handles.reduce((sum, group) => sum + group.faces, 0),
-            handle.faceCount
+            faceCount
         );
-        assert.ok(info.segmentation.minConfidence > 0.3);
-        assert.ok(handles.every((group) => group.segmentationConfidence !== null));
+        assert.ok(
+            handles.every((group) => /Arm|Hand/.test(group.part)),
+            `parts=${handles.map((group) => group.part)}`
+        );
     } finally {
         fs.rmSync(dir, { recursive: true, force: true });
     }
 });
 
-test("connected accessory export preserves attributes, materials and triangles", async () => {
+test("separate sleeve objects keep UVs, normals, materials and triangles", async () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "aae-test-"));
 
     try {
-        const { handle } = writeR15Avatar(dir, {
-            x0: -1.91, x1: 1.91, y0: 3.2, y1: 4.8, z: 0.52, cols: 24
-        });
-
+        const { faceCount } = writeHandlePieces(dir, [SLEEVE_LEFT, SLEEVE_RIGHT]);
         const conversion = await convertAvatar(dir, { rig: true, splitParts: true });
-        const root = conversion.doc.getRoot();
-        const nodes = handleMeshNodes(root);
+        const nodes = handleMeshNodes(conversion.doc.getRoot());
 
-        assert.equal(nodes.length, 3);
-        assert.deepEqual(
-            nodes.map((node) => node.getName()).sort(),
-            [
-                "Handle1_LeftUpperArm",
-                "Handle1_RightUpperArm",
-                "Handle1_UpperTorso"
-            ]
-        );
-        assert.equal(triangleCount(nodes), handle.faceCount);
+        assert.equal(nodes.length, 2);
+        assert.equal(triangleCount(nodes), faceCount);
 
         for (const node of nodes) {
             for (const primitive of node.getMesh().listPrimitives()) {
@@ -1172,7 +1189,7 @@ test("connected accessory export preserves attributes, materials and triangles",
                 assert.ok(primitive.getAttribute("TEXCOORD_0"));
                 assert.equal(primitive.getMaterial().getName(), "cloth");
             }
-            assert.equal(node.getSkin(), null, "rigid accessory parts are not skinned");
+            assert.equal(node.getSkin(), null);
             assert.ok(node.getParentNode() && !node.getParentNode().getMesh());
         }
     } finally {
@@ -1180,31 +1197,72 @@ test("connected accessory export preserves attributes, materials and triangles",
     }
 });
 
-test("connected pants spanning both legs are segmented without losing faces", () => {
+test("overlapping accessory panels stay one object on the hips", () => {
+    const body = r15Body();
+    const leftPanel = makeBox(-1.0, 0.2, 1.0, 2.9, -0.4, 0.4);
+    const rightPanel = makeBox(-0.2, 1.0, 1.0, 2.9, -0.4, 0.4);
+
+    const obj = [
+        objFromBoxes({ Handle1: leftPanel }),
+        objFromBoxes({ Handle1: rightPanel }, 9)
+    ].join("\n");
+
+    const parsed = parseObjString(obj);
+    assert.equal(splitHandleGroups(parsed, body), false);
+    assert.equal(parsed.groups.length, 1);
+    assert.equal(parsed.groups[0].name, "Handle1");
+});
+
+test("a connected single-surface garment stays whole by default", async () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "aae-test-"));
 
     try {
         const { handle } = writeR15Avatar(dir, {
-            x0: -0.98, x1: 0.98, y0: 1.2, y1: 2.88, z: 0.47, cols: 16
+            x0: -1.91, x1: 1.91, y0: 3.2, y1: 4.8, z: 0.52, cols: 24
         });
 
         const info = getPartInfo(dir);
         const handles = info.groups.filter((group) => group.type === "handle");
 
-        assert.deepEqual(
-            handles.map((group) => group.part).sort(),
-            ["LeftUpperLeg", "RightUpperLeg"]
-        );
-        assert.equal(
-            handles.reduce((sum, group) => sum + group.faces, 0),
-            handle.faceCount
-        );
+        assert.equal(handles.length, 1);
+        assert.equal(handles[0].name, "Handle1");
+        assert.equal(handles[0].faces, handle.faceCount);
+        assert.equal(info.segmentation.groups, 0);
+
+        const conversion = await convertAvatar(dir, { rig: true, splitParts: true });
+        const nodes = handleMeshNodes(conversion.doc.getRoot());
+
+        assert.equal(nodes.length, 1);
+        assert.equal(triangleCount(nodes), handle.faceCount);
     } finally {
         fs.rmSync(dir, { recursive: true, force: true });
     }
 });
 
-test("connected layered clothing keeps its skinning path and geometry", async () => {
+test("connected surface segmentation remains available as an opt-in", () => {
+    const body = r15Body();
+    const bodyVertCount = Object.keys(body).length * 8;
+    const jacket = objGrid({
+        x0: -1.91, x1: 1.91, y0: 3.2, y1: 4.8, z: 0.52, cols: 24,
+        vOffset: bodyVertCount + 1
+    });
+
+    const parsed = parseObjString([objFromBoxes(body), jacket.text].join("\n"));
+    assert.equal(
+        splitHandleGroups(parsed, body, { segmentConnected: true }),
+        true
+    );
+
+    const parts = parsed.groups
+        .filter((group) => /^Handle/i.test(group.name))
+        .map((group) => group.splitPart)
+        .filter(Boolean)
+        .sort();
+
+    assert.deepEqual(parts, ["LeftUpperArm", "RightUpperArm", "UpperTorso"]);
+});
+
+test("connected layered clothing stays one export node", async () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "aae-test-"));
 
     try {
@@ -1217,27 +1275,19 @@ test("connected layered clothing keeps its skinning path and geometry", async ()
             splitParts: true,
             bendAccessories: true
         });
-        const root = conversion.doc.getRoot();
-        const nodes = handleMeshNodes(root);
+        const nodes = handleMeshNodes(conversion.doc.getRoot());
 
-        assert.equal(nodes.length, 3);
+        assert.equal(nodes.length, 1);
         assert.equal(triangleCount(nodes), handle.faceCount);
-
-        for (const node of nodes) {
-            const primitives = node.getMesh().listPrimitives();
-            for (const primitive of primitives) {
-                assert.ok(primitive.getAttribute("TEXCOORD_0"));
-                assert.ok(primitive.getAttribute("NORMAL"));
-            }
-            const parent = node.getParentNode();
-            assert.ok(node.getSkin() || (parent && !parent.getMesh()));
-        }
+        const primitive = nodes[0].getMesh().listPrimitives()[0];
+        assert.ok(primitive.getAttribute("TEXCOORD_0"));
+        assert.ok(primitive.getAttribute("NORMAL"));
     } finally {
         fs.rmSync(dir, { recursive: true, force: true });
     }
 });
 
-test("connected segmentation follows custom body proportions", () => {
+test("custom body proportions still split spatially separate sleeves", () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "aae-test-"));
 
     try {
@@ -1246,126 +1296,62 @@ test("connected segmentation follows custom body proportions", () => {
         for (const name of ["LeftUpperArm", "LeftLowerArm", "LeftHand"]) {
             const box = body[name];
             body[name] = makeBox(
-                box.xmin + shift, box.xmax + shift,
+                box.xmin - shift, box.xmax - shift,
                 box.ymin, box.ymax, box.zmin, box.zmax
             );
         }
 
-        const { handle } = writeR15Avatar(dir, {
-            x0: -2.51, x1: 0.91, y0: 3.2, y1: 4.8, z: 0.52, cols: 24
-        }, body);
+        const { faceCount } = writeHandlePieces(dir, [
+            { ...SLEEVE_LEFT, x0: -2.51, x1: -1.51 },
+            SLEEVE_RIGHT
+        ], body);
 
         const info = getPartInfo(dir);
         const handles = info.groups.filter((group) => group.type === "handle");
-        const parts = new Set(handles.map((group) => group.part));
+        const parts = handles.map((group) => group.part);
 
-        assert.ok(parts.has("LeftUpperArm"), `parts=${[...parts]}`);
-        assert.ok(parts.has("UpperTorso"), `parts=${[...parts]}`);
-        assert.ok(handles.length >= 2);
+        assert.equal(handles.length, 2);
+        assert.ok(parts.includes("LeftUpperArm") || parts.includes("LeftLowerArm"));
+        assert.ok(parts.includes("RightUpperArm") || parts.includes("RightLowerArm"));
         assert.equal(
             handles.reduce((sum, group) => sum + group.faces, 0),
-            handle.faceCount
+            faceCount
         );
     } finally {
         fs.rmSync(dir, { recursive: true, force: true });
     }
 });
 
-test("connected segmentation handles a missing body part", () => {
+test("missing body parts do not break spatial sleeve splitting", () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "aae-test-"));
 
     try {
         const body = r15Body();
         delete body.LeftLowerArm;
 
-        const { handle } = writeR15Avatar(dir, {
-            x0: -1.91, x1: -0.91, y0: 2.5, y1: 4.8, z: 0.52, cols: 16, rows: 3
-        }, body);
+        const { faceCount } = writeHandlePieces(dir, [
+            { ...SLEEVE_LEFT, y0: 2.6, rows: 2 },
+            SLEEVE_RIGHT
+        ], body);
 
         const info = getPartInfo(dir);
         const handles = info.groups.filter((group) => group.type === "handle");
 
-        assert.ok(handles.length >= 2, `handles=${handles.length}`);
-        assert.ok(
-            handles.every((group) => /Arm|Hand/.test(group.part)),
-            `parts=${handles.map((group) => group.part)}`
-        );
+        assert.equal(handles.length, 2);
         assert.equal(
             handles.reduce((sum, group) => sum + group.faces, 0),
-            handle.faceCount
+            faceCount
         );
     } finally {
         fs.rmSync(dir, { recursive: true, force: true });
     }
 });
 
-test("ambiguous accessory boundaries preserve the original geometry", () => {
+test("FBX exports spatially separate sleeves as two objects", async () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "aae-test-"));
 
     try {
-        // Both arms are far away from the centred strip, so no body region is a
-        // credible boundary. The strip must stay one accessory.
-        const body = r15Body();
-        body.LeftUpperArm = makeBox(-3.2, -2.2, 3.5, 4.91, -0.5, 0.5);
-        body.LeftLowerArm = makeBox(-3.2, -2.2, 2.86, 4.13, -0.5, 0.5);
-        body.RightUpperArm = makeBox(2.2, 3.2, 3.5, 4.91, -0.5, 0.5);
-        body.RightLowerArm = makeBox(2.2, 3.2, 2.86, 4.13, -0.5, 0.5);
-
-        const { handle } = writeR15Avatar(dir, {
-            x0: -0.1, x1: 0.1, y0: 2.0, y1: 2.2, z: 0.52, cols: 6
-        }, body);
-
-        const info = getPartInfo(dir);
-        const handles = info.groups.filter((group) => group.type === "handle");
-
-        assert.equal(handles.length, 1);
-        assert.equal(handles[0].name, "Handle1");
-        assert.equal(handles[0].faces, handle.faceCount);
-        assert.equal(info.segmentation.groups, 0);
-    } finally {
-        fs.rmSync(dir, { recursive: true, force: true });
-    }
-});
-
-test("irregular connected geometry is segmented without losing faces", async () => {
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "aae-test-"));
-
-    try {
-        const { handle } = writeR15Avatar(dir, {
-            x0: -1.91, x1: 1.91, y0: 3.2, y1: 4.8, z: 0.52,
-            cols: 24, rows: 3, wobble: 0.05
-        });
-
-        const conversion = await convertAvatar(dir, { rig: true, splitParts: true });
-        const root = conversion.doc.getRoot();
-        const nodes = handleMeshNodes(root);
-
-        assert.ok(nodes.length >= 3, `nodes=${nodes.length}`);
-        assert.equal(triangleCount(nodes), handle.faceCount);
-
-        const names = nodes.map((node) => node.getName());
-        assert.ok(names.includes("Handle1_LeftUpperArm"));
-        assert.ok(names.includes("Handle1_RightUpperArm"));
-        assert.ok(names.includes("Handle1_UpperTorso"));
-
-        const info = getPartInfo(dir);
-        const handles = info.groups.filter((group) => group.type === "handle");
-        assert.equal(
-            handles.reduce((sum, group) => sum + group.faces, 0),
-            handle.faceCount
-        );
-    } finally {
-        fs.rmSync(dir, { recursive: true, force: true });
-    }
-});
-
-test("FBX export contains the connected accessory split by body region", async () => {
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "aae-test-"));
-
-    try {
-        const { handle } = writeR15Avatar(dir, {
-            x0: -1.91, x1: 1.91, y0: 3.2, y1: 4.8, z: 0.52, cols: 24
-        });
+        const { faceCount } = writeHandlePieces(dir, [SLEEVE_LEFT, SLEEVE_RIGHT]);
 
         const fbx = await buildFbx({
             objText: fs.readFileSync(path.join(dir, "avatar.obj"), "utf8"),
@@ -1376,37 +1362,35 @@ test("FBX export contains the connected accessory split by body region", async (
             groupName: "Avatar"
         });
 
-        assert.equal(fbx.includes(Buffer.from("Handle1_LeftUpperArm")), true);
-        assert.equal(fbx.includes(Buffer.from("Handle1_RightUpperArm")), true);
-        assert.equal(fbx.includes(Buffer.from("Handle1_UpperTorso")), true);
-
         const { FBXLoader } = await import("three/examples/jsm/loaders/FBXLoader.js");
         const scene = new FBXLoader().parse(
             fbx.buffer.slice(fbx.byteOffset, fbx.byteOffset + fbx.byteLength),
             ""
         );
-        let handleTriangles = 0;
-        let handleMeshes = 0;
+
+        const names = [];
+        let triangles = 0;
 
         scene.traverse((object) => {
             if (!object.isMesh || !/^Handle/i.test(object.name)) return;
-            handleMeshes += 1;
+            names.push(object.name);
             const geometry = object.geometry;
-            handleTriangles += (geometry.index
+            triangles += (geometry.index
                 ? geometry.index.count
                 : geometry.attributes.position.count) / 3;
-            assert.ok(geometry.attributes.uv, "UVs survive FBX export");
-            assert.ok(geometry.attributes.normal, "normals survive FBX export");
+            assert.ok(geometry.attributes.uv);
+            assert.ok(geometry.attributes.normal);
         });
 
-        assert.equal(handleMeshes, 3);
-        assert.equal(handleTriangles, handle.faceCount);
+        assert.equal(names.length, 2);
+        assert.equal(new Set(names).size, 2);
+        assert.equal(triangles, faceCount);
     } finally {
         fs.rmSync(dir, { recursive: true, force: true });
     }
 });
 
-test("connected garments still segment when the handle also has an island", () => {
+test("a separate island and a connected garment split as two objects", () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "aae-test-"));
 
     try {
@@ -1430,15 +1414,33 @@ test("connected garments still segment when the handle also has an island", () =
         const handles = info.groups.filter((group) => group.type === "handle");
         const names = handles.map((group) => group.name);
 
-        assert.equal(new Set(names).size, names.length, "no duplicate group names");
+        assert.equal(handles.length, 2);
+        assert.equal(new Set(names).size, 2);
         assert.ok(names.includes("Handle1_Head"));
-        assert.ok(names.includes("Handle1_LeftUpperArm"));
-        assert.ok(names.includes("Handle1_RightUpperArm"));
         assert.ok(names.includes("Handle1_UpperTorso"));
         assert.equal(
             handles.reduce((sum, group) => sum + group.faces, 0),
             12 + jacket.faceCount
         );
+    } finally {
+        fs.rmSync(dir, { recursive: true, force: true });
+    }
+});
+
+test("irregular connected geometry is preserved without fragmentation", () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "aae-test-"));
+
+    try {
+        const { handle } = writeR15Avatar(dir, {
+            x0: -1.91, x1: 1.91, y0: 3.2, y1: 4.8, z: 0.52,
+            cols: 24, rows: 3, wobble: 0.05
+        });
+
+        const info = getPartInfo(dir);
+        const handles = info.groups.filter((group) => group.type === "handle");
+
+        assert.equal(handles.length, 1);
+        assert.equal(handles[0].faces, handle.faceCount);
     } finally {
         fs.rmSync(dir, { recursive: true, force: true });
     }

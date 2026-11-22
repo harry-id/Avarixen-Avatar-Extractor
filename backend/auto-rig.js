@@ -1192,6 +1192,56 @@ function boxGap(a, b) {
     return Math.hypot(dx, dy, dz);
 }
 
+// Disconnected islands can still be parts of one physical object (a skirt made
+// from separate panels), or truly separate objects (left and right sleeves).
+// Merge islands whose bounding boxes touch or nearly touch, scaled to the
+// handle size so custom body proportions keep working.
+function spatialComponentClusters(components, parsed, groupBox) {
+    if (components.length <= 1) {
+        return components.length ? [components] : [];
+    }
+
+    const groupSize = Math.max(groupBox.sx, groupBox.sy, groupBox.sz) || 1;
+    const threshold = Math.max(0.02, groupSize * 0.12);
+    const boxes = components.map((component) =>
+        computeBox(component.vertexIndices, parsed.positions)
+    );
+    const parent = components.map((_, index) => index);
+
+    const find = (index) => {
+        let root = index;
+        while (parent[root] !== root) root = parent[root];
+        while (parent[index] !== root) {
+            const next = parent[index];
+            parent[index] = root;
+            index = next;
+        }
+        return root;
+    };
+    const union = (a, b) => {
+        const rootA = find(a);
+        const rootB = find(b);
+        if (rootA !== rootB) parent[rootA] = rootB;
+    };
+
+    for (let i = 0; i < components.length; i++) {
+        for (let j = i + 1; j < components.length; j++) {
+            if (boxGap(boxes[i], boxes[j]) <= threshold) {
+                union(i, j);
+            }
+        }
+    }
+
+    const clusters = new Map();
+    for (let i = 0; i < components.length; i++) {
+        const root = find(i);
+        if (!clusters.has(root)) clusters.set(root, []);
+        clusters.get(root).push(components[i]);
+    }
+
+    return Array.from(clusters.values());
+}
+
 function buildFaceGraph(group, parsed) {
     const epsilon = 1e-4;
     const keyFor = (vertexIndex) => {
@@ -1505,7 +1555,7 @@ function segmentConnectedGroup(group, parsed, playerBoxes) {
 
 // Split a merged handle into one virtual group per attached body part. Groups
 // whose components all belong to the same part are kept intact.
-function splitHandleGroups(parsed, playerBoxes) {
+function splitHandleGroups(parsed, playerBoxes, { segmentConnected = false } = {}) {
     // The parsed mesh may be handed to rigging more than once (conversion plus
     // part discovery); splitting must remain idempotent.
     if (parsed._handleSplitDone) {
@@ -1529,19 +1579,44 @@ function splitHandleGroups(parsed, playerBoxes) {
             continue;
         }
 
+        // Only islands that are spatially separate become separate objects.
+        // Overlapping panels stay together and are attached as one accessory.
+        const clusters = spatialComponentClusters(
+            components,
+            parsed,
+            computeBox(group.vertexIndices, parsed.positions)
+        );
+        group.spatialClusterCount = clusters.length;
+
+        if (clusters.length < 2) {
+            groups.push(group);
+            continue;
+        }
+
         const byPart = new Map();
-        for (const component of components) {
+        for (const cluster of clusters) {
+            const vertexIndices = [];
+            const seen = new Set();
+
+            for (const component of cluster) {
+                for (const vertex of component.vertexIndices) {
+                    if (!seen.has(vertex)) {
+                        seen.add(vertex);
+                        vertexIndices.push(vertex);
+                    }
+                }
+            }
+
             const part = assignHandleBone(
-                { vertexIndices: component.vertexIndices },
+                { vertexIndices },
                 playerBoxes,
-                parsed.positions,
-                { allowLegs: true }
+                parsed.positions
             ) || "Other";
 
             if (!byPart.has(part)) {
                 byPart.set(part, []);
             }
-            byPart.get(part).push(component);
+            byPart.get(part).push(cluster);
         }
 
         if (byPart.size < 2) {
@@ -1549,16 +1624,18 @@ function splitHandleGroups(parsed, playerBoxes) {
             continue;
         }
 
-        for (const [part, partComponents] of byPart) {
+        for (const [part, partClusters] of byPart) {
             const faceIndices = [];
             const vertexSet = new Set();
 
-            for (const component of partComponents) {
-                for (const faceIndex of component.faceIndices) {
-                    faceIndices.push(faceIndex);
-                }
-                for (const vertex of component.vertexIndices) {
-                    vertexSet.add(vertex);
+            for (const cluster of partClusters) {
+                for (const component of cluster) {
+                    for (const faceIndex of component.faceIndices) {
+                        faceIndices.push(faceIndex);
+                    }
+                    for (const vertex of component.vertexIndices) {
+                        vertexSet.add(vertex);
+                    }
                 }
             }
 
@@ -1570,7 +1647,10 @@ function splitHandleGroups(parsed, playerBoxes) {
                 faceIndices,
                 vertexIndices: Array.from(vertexSet).sort((a, b) => a - b),
                 faceCount: faceIndices.length,
-                weldedComponentCount: partComponents.length
+                weldedComponentCount: partClusters.reduce(
+                    (sum, cluster) => sum + cluster.length,
+                    0
+                )
             };
             groups.push(splitGroup);
             changed = true;
@@ -1581,49 +1661,56 @@ function splitHandleGroups(parsed, playerBoxes) {
         parsed.groups = groups;
     }
 
-    // Second stage: one connected surface may still span multiple body regions
-    // (a jacket or trousers). Disconnected islands are already single-region
-    // pieces and must not be segmented again.
-    const finalGroups = [];
+    // Optional second stage: cut one connected surface by body region. It is
+    // off by default because connected garments (dresses, thobes, skirts) are
+    // usually one intended object, and cutting them makes them break apart.
     let connectedChanged = false;
 
-    for (const group of parsed.groups) {
-        if (
-            !/^Handle/i.test(group.name) ||
-            group.faceCount < 8 ||
-            (group.weldedComponentCount || 1) > 1
-        ) {
-            finalGroups.push(group);
-            continue;
-        }
+    if (segmentConnected) {
+        const segmentedGroups = [];
 
-        const segmented = segmentConnectedGroup(group, parsed, playerBoxes);
-        if (!segmented || segmented.groups.length < 2) {
-            finalGroups.push(group);
-            continue;
-        }
-
-        const baseName = group.baseName || group.name;
-        for (const segment of segmented.groups) {
-            const vertexSet = new Set();
-            for (const faceIndex of segment.faceIndices) {
-                const face = parsed.faces[faceIndex];
-                for (const vertex of face.verts) {
-                    vertexSet.add(vertex);
-                }
+        for (const group of parsed.groups) {
+            if (
+                !/^Handle/i.test(group.name) ||
+                group.faceCount < 8 ||
+                (group.weldedComponentCount || 1) > 1
+            ) {
+                segmentedGroups.push(group);
+                continue;
             }
 
-            finalGroups.push({
-                ...group,
-                name: `${baseName}_${segment.part.replace(/\s+/g, "")}`,
-                baseName,
-                splitPart: segment.part,
-                faceIndices: segment.faceIndices,
-                vertexIndices: Array.from(vertexSet).sort((a, b) => a - b),
-                faceCount: segment.faceIndices.length,
-                segmentationConfidence: segmented.confidence
-            });
-            connectedChanged = true;
+            const segmented = segmentConnectedGroup(group, parsed, playerBoxes);
+            if (!segmented || segmented.groups.length < 2) {
+                segmentedGroups.push(group);
+                continue;
+            }
+
+            const baseName = group.baseName || group.name;
+            for (const segment of segmented.groups) {
+                const vertexSet = new Set();
+                for (const faceIndex of segment.faceIndices) {
+                    const face = parsed.faces[faceIndex];
+                    for (const vertex of face.verts) {
+                        vertexSet.add(vertex);
+                    }
+                }
+
+                segmentedGroups.push({
+                    ...group,
+                    name: `${baseName}_${segment.part.replace(/\s+/g, "")}`,
+                    baseName,
+                    splitPart: segment.part,
+                    faceIndices: segment.faceIndices,
+                    vertexIndices: Array.from(vertexSet).sort((a, b) => a - b),
+                    faceCount: segment.faceIndices.length,
+                    segmentationConfidence: segmented.confidence
+                });
+                connectedChanged = true;
+            }
+        }
+
+        if (connectedChanged) {
+            parsed.groups = segmentedGroups;
         }
     }
 
@@ -1634,7 +1721,7 @@ function splitHandleGroups(parsed, playerBoxes) {
         const mergedGroups = [];
         const byName = new Map();
 
-        for (const group of finalGroups) {
+        for (const group of parsed.groups) {
             const existing = byName.get(group.name);
 
             if (!existing) {
