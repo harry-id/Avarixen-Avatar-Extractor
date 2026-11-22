@@ -891,7 +891,7 @@
                 <label class="viewer-toggle disabled" id="backfaceCullingToggle"
                        data-i18n-title="viewerBackfaceCullingHint"
                        title="Show front faces only. Accessories with flipped normals may disappear.">
-                    <input type="checkbox" id="backfaceCulling" disabled>
+                    <input type="checkbox" id="backfaceCulling" checked disabled>
                     <span data-i18n="viewerBackfaceCulling">Backface culling</span>
                 </label>
                 <button type="button" class="flip-warning" id="flipWarning" hidden
@@ -1899,7 +1899,7 @@ let currentRigType = null;
 let currentCompatibility = null;
 let currentAssetFiles = null;
 let currentFlippedNormals = new Set();
-let backfaceCullingEnabled = false;
+let backfaceCullingEnabled = true;
 
 // Monotonic tokens invalidate late async callbacks after a newer search or a
 // preview reset, so an old model cannot overwrite the current one.
