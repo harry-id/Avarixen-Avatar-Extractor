@@ -28,9 +28,30 @@ function parseObj(text) {
     const positions = [];
     const normals = [];
     const uvs = [];
+    const colors = [];
     const polygons = [];
     let currentMaterial = null;
     let currentGroup = null;
+    let currentObject = null;
+
+    const finite = (value, label) => {
+        const number = Number(value);
+        if (!Number.isFinite(number)) {
+            throw new Error(`FBX conversion failed: invalid ${label} in the OBJ.`);
+        }
+        return number;
+    };
+
+    const resolveIndex = (raw, count) => {
+        if (raw === undefined || raw === "") {
+            return null;
+        }
+        const index = Number(raw);
+        if (!Number.isInteger(index) || index === 0) {
+            return null;
+        }
+        return index > 0 ? index - 1 : count + index;
+    };
 
     for (const rawLine of text.split(/\r?\n/)) {
         const line = rawLine.trim();
@@ -43,35 +64,72 @@ function parseObj(text) {
         const tag = parts[0];
 
         if (tag === "v") {
-            positions.push([Number(parts[1]), Number(parts[2]), Number(parts[3])]);
+            positions.push([
+                finite(parts[1], "vertex"),
+                finite(parts[2], "vertex"),
+                finite(parts[3], "vertex")
+            ]);
+            colors.push(parts.length >= 7
+                ? [
+                    finite(parts[4], "vertex color"),
+                    finite(parts[5], "vertex color"),
+                    finite(parts[6], "vertex color"),
+                    parts.length >= 8 ? finite(parts[7], "vertex color") : 1
+                ]
+                : [1, 1, 1, 1]);
         } else if (tag === "vn") {
-            normals.push([Number(parts[1]), Number(parts[2]), Number(parts[3])]);
+            normals.push([
+                finite(parts[1], "normal"),
+                finite(parts[2], "normal"),
+                finite(parts[3], "normal")
+            ]);
         } else if (tag === "vt") {
-            uvs.push([Number(parts[1]), Number(parts[2])]);
+            uvs.push([
+                finite(parts[1], "UV"),
+                parts[2] === undefined ? 0 : finite(parts[2], "UV")
+            ]);
         } else if (tag === "usemtl") {
             currentMaterial = parts.slice(1).join(" ") || null;
         } else if (tag === "g") {
             currentGroup = parts.slice(1).join(" ") || null;
+        } else if (tag === "o") {
+            currentObject = parts.slice(1).join(" ") || null;
+            currentGroup = null;
         } else if (tag === "f") {
+            if (parts.length < 4) {
+                throw new Error("FBX conversion failed: an OBJ face has fewer than three vertices.");
+            }
+
             const corners = [];
 
             for (let i = 1; i < parts.length; i++) {
                 const [vp, vt, vn] = parts[i].split("/");
+                const p = resolveIndex(vp, positions.length);
+                const t = resolveIndex(vt, uvs.length);
+                const n = resolveIndex(vn, normals.length);
 
-                corners.push({
-                    p: vp ? Number(vp) - 1 : null,
-                    t: vt ? Number(vt) - 1 : null,
-                    n: vn ? Number(vn) - 1 : null
-                });
+                if (p === null || p < 0 || p >= positions.length) {
+                    throw new Error("FBX conversion failed: an OBJ face references an invalid vertex index.");
+                }
+                if (vt !== undefined && vt !== "" && (t === null || t < 0 || t >= uvs.length)) {
+                    throw new Error("FBX conversion failed: an OBJ face references an invalid UV index.");
+                }
+                if (vn !== undefined && vn !== "" && (n === null || n < 0 || n >= normals.length)) {
+                    throw new Error("FBX conversion failed: an OBJ face references an invalid normal index.");
+                }
+
+                corners.push({ p, t, n });
             }
 
-            if (corners.length >= 3 && corners.every((corner) => corner.p !== null)) {
-                polygons.push({ corners, material: currentMaterial, group: currentGroup });
-            }
+            polygons.push({
+                corners,
+                material: currentMaterial,
+                group: currentGroup || currentObject || "Avatar"
+            });
         }
     }
 
-    return { positions, normals, uvs, polygons };
+    return { positions, normals, uvs, colors, polygons };
 }
 
 function parseMtl(text) {
@@ -92,13 +150,23 @@ function parseMtl(text) {
             current = {
                 name: parts.slice(1).join(" ") || "material",
                 Kd: [0.8, 0.8, 0.8],
-                map_Kd: null
+                map_Kd: null,
+                opacity: 1
             };
             materials.set(current.name, current);
         } else if (current && tag === "Kd") {
-            current.Kd = [Number(parts[1]), Number(parts[2]), Number(parts[3])];
+            const kd = [Number(parts[1]), Number(parts[2]), Number(parts[3])];
+            if (kd.every(Number.isFinite)) {
+                current.Kd = kd;
+            }
         } else if (current && (tag === "map_Kd" || tag === "map_kd")) {
             current.map_Kd = parts.slice(1).join(" ") || null;
+        } else if (current && (tag === "d" || tag === "Tr")) {
+            const value = Number(parts[parts.length - 1]);
+            if (Number.isFinite(value)) {
+                const clamped = Math.max(0, Math.min(1, value));
+                current.opacity = tag === "Tr" ? 1 - clamped : clamped;
+            }
         }
     }
 
@@ -260,10 +328,20 @@ async function buildFbx({
     const materialCache = new Map();
     const materialFor = (name) => {
         if (!materialCache.has(name)) {
-            const material = mtl.get(name) || { Kd: [0.8, 0.8, 0.8] };
+            const material = mtl.get(name) || { Kd: [0.8, 0.8, 0.8], opacity: 1 };
+            const texture = texMap.get(name);
+            const opacity = Number.isFinite(material.opacity) ? material.opacity : 1;
+            const color = texture
+                ? new T.Color(1, 1, 1)
+                : new T.Color(material.Kd[0], material.Kd[1], material.Kd[2]);
+
             materialCache.set(name, new T.MeshPhongMaterial({
-                color: new T.Color(material.Kd[0], material.Kd[1], material.Kd[2]),
-                map: texMap.get(name) || undefined
+                color,
+                map: texture || undefined,
+                vertexColors: true,
+                transparent: opacity < 1,
+                opacity,
+                side: T.DoubleSide
             }));
         }
 
@@ -277,6 +355,7 @@ async function buildFbx({
         const positions = [];
         const normals = [];
         const uvs = [];
+        const colors = [];
         const indices = [];
         const groupCounts = {};
         const skinIndices = [];
@@ -306,6 +385,7 @@ async function buildFbx({
                 ],
                 n: [-n[0], n[1], -n[2]],
                 t: uv,
+                c: obj.colors[idx.p] || [1, 1, 1, 1],
                 // Raw OBJ position, used for skin-weight evaluation.
                 raw: [pos[0], pos[1], pos[2]]
             };
@@ -332,6 +412,12 @@ async function buildFbx({
                     (c1.t[0] + c2.t[0]) / 2,
                     (c1.t[1] + c2.t[1]) / 2
                 ],
+                c: [
+                    (c1.c[0] + c2.c[0]) / 2,
+                    (c1.c[1] + c2.c[1]) / 2,
+                    (c1.c[2] + c2.c[2]) / 2,
+                    (c1.c[3] + c2.c[3]) / 2
+                ],
                 raw: [
                     (c1.raw[0] + c2.raw[0]) / 2,
                     (c1.raw[1] + c2.raw[1]) / 2,
@@ -352,6 +438,7 @@ async function buildFbx({
                     );
                     normals.push(c.n[0], c.n[1], c.n[2]);
                     uvs.push(c.t[0], c.t[1]);
+                    colors.push(c.c[0], c.c[1], c.c[2]);
 
                     if (rigData && !recenter) {
                         const skin = (skinFn || rigData.skinFor)(groupName, c.raw[0], c.raw[1], c.raw[2]);
@@ -412,6 +499,7 @@ async function buildFbx({
         geometry.setAttribute("position", new T.Float32BufferAttribute(positions, 3));
         geometry.setAttribute("normal", new T.Float32BufferAttribute(normals, 3));
         geometry.setAttribute("uv", new T.Float32BufferAttribute(uvs, 2));
+        geometry.setAttribute("color", new T.Float32BufferAttribute(colors, 3));
 
         if (rigData && !recenter) {
             geometry.setAttribute("skinIndex", new T.Uint16BufferAttribute(skinIndices, 4));

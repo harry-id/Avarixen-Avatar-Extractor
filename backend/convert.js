@@ -113,10 +113,73 @@ async function writeGltfEmbedded(doc) {
             }
         }
 
-        return JSON.stringify(json, null, 2);
+        return JSON.stringify(json);
     } finally {
         await fs.rm(tmpDir, { recursive: true, force: true }).catch(() => {});
     }
+}
+
+function streamZip(res, zip, filename) {
+    res.setHeader("Content-Type", "application/zip");
+    res.setHeader(
+        "Content-Disposition",
+        `attachment; filename="${filename}"`
+    );
+
+    return new Promise((resolve, reject) => {
+        const stream = zip.generateNodeStream({
+            type: "nodebuffer",
+            streamFiles: true
+        });
+        let settled = false;
+        const finish = (error) => {
+            if (settled) return;
+            settled = true;
+            if (error) {
+                if (!res.headersSent) {
+                    reject(error);
+                } else {
+                    res.destroy(error);
+                    resolve();
+                }
+            } else {
+                resolve();
+            }
+        };
+
+        stream.on("error", finish);
+        res.on("finish", () => finish());
+        res.on("close", () => {
+            if (!res.writableEnded) {
+                stream.destroy();
+            }
+            finish();
+        });
+        stream.pipe(res);
+    });
+}
+
+function sendGeneratedFile(res, filePath, filename, contentType) {
+    res.setHeader("Content-Type", contentType);
+    res.setHeader(
+        "Content-Disposition",
+        `attachment; filename="${filename}"`
+    );
+
+    return new Promise((resolve, reject) => {
+        res.sendFile(filePath, (error) => {
+            fs.unlink(filePath).catch(() => {});
+            if (error) {
+                if (!res.headersSent) {
+                    reject(error);
+                } else {
+                    resolve();
+                }
+            } else {
+                resolve();
+            }
+        });
+    });
 }
 
 module.exports = function (app) {
@@ -313,13 +376,8 @@ module.exports = function (app) {
                         zip.file(entry, await fs.readFile(path.join(assetDir, entry)));
                     }
 
-                    const zipBuffer = await zip.generateAsync({ type: "nodebuffer" });
-                    res.setHeader("Content-Type", "application/zip");
-                    res.setHeader(
-                        "Content-Disposition",
-                        `attachment; filename="${userId}.zip"`
-                    );
-                    return res.send(zipBuffer);
+                    await streamZip(res, zip, `${userId}.zip`);
+                    return;
                 }
 
                 res.setHeader("Content-Type", "application/octet-stream");
@@ -330,16 +388,16 @@ module.exports = function (app) {
                 return res.send(fbx);
             }
 
-            let conversion;
+            let doc;
             try {
-                conversion = await convertAvatar(assetDir, {
+                ({ doc } = await convertAvatar(assetDir, {
                     rig,
                     splitParts,
                     groupName,
                     subdivision,
                     moreJoints,
                     bendAccessories
-                });
+                }));
             } catch (conversionError) {
                 console.error("Avatar conversion failed:", conversionError);
 
@@ -360,7 +418,7 @@ module.exports = function (app) {
             if (separate) {
                 const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "aae-convert-"));
                 try {
-                    const files = await writeGltfSeparate(conversion.doc, tmpDir);
+                    const files = await writeGltfSeparate(doc, tmpDir);
                     const zip = new JSZip();
                     const baseName = String(userId);
                     for (const file of files) {
@@ -370,14 +428,8 @@ module.exports = function (app) {
                             : file.name;
                         zip.file(zipName, data);
                     }
-                    const zipBuffer = await zip.generateAsync({ type: "nodebuffer" });
-
-                    res.setHeader("Content-Type", "application/zip");
-                    res.setHeader(
-                        "Content-Disposition",
-                        `attachment; filename="${baseName}.zip"`
-                    );
-                    return res.send(zipBuffer);
+                    await streamZip(res, zip, `${baseName}.zip`);
+                    return;
                 } finally {
                     await fs.rm(tmpDir, { recursive: true, force: true }).catch(() => {});
                 }
@@ -386,18 +438,21 @@ module.exports = function (app) {
             const io = new NodeIO();
             if (fmt === "glb") {
                 const tmpPath = path.join(os.tmpdir(), `aae-${userId}-${Date.now()}.glb`);
-                await io.write(tmpPath, conversion.doc);
-                const glbBuffer = await fs.readFile(tmpPath);
-                await fs.unlink(tmpPath).catch(() => {});
-
-                res.setHeader("Content-Type", "model/gltf-binary");
-                res.setHeader(
-                    "Content-Disposition",
-                    `attachment; filename="${userId}.glb"`
-                );
-                return res.send(glbBuffer);
+                try {
+                    await io.write(tmpPath, doc);
+                    await sendGeneratedFile(
+                        res,
+                        tmpPath,
+                        `${userId}.glb`,
+                        "model/gltf-binary"
+                    );
+                } catch (error) {
+                    await fs.unlink(tmpPath).catch(() => {});
+                    throw error;
+                }
+                return;
             } else {
-                const gltfText = await writeGltfEmbedded(conversion.doc);
+                const gltfText = await writeGltfEmbedded(doc);
 
                 res.setHeader("Content-Type", "model/gltf+json");
                 res.setHeader(

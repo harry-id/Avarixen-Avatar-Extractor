@@ -5,6 +5,7 @@ const assert = require("node:assert/strict");
 const fs = require("fs/promises");
 const path = require("path");
 const express = require("express");
+const JSZip = require("jszip");
 
 const registerConvertRoutes = require("../convert");
 
@@ -52,6 +53,45 @@ test("non-rigged conversion failures are 500, rig failures are 422", async () =>
                 { method: "HEAD" }
             );
             assert.equal(head.status, 405);
+        });
+    } finally {
+        await fs.rm(USER_DIR, { recursive: true, force: true });
+    }
+});
+
+test("conversion streams GLB and separate GLTF ZIP responses", async () => {
+    await fs.mkdir(USER_DIR, { recursive: true });
+    await fs.writeFile(path.join(USER_DIR, "avatar.obj"), [
+        "g Torso",
+        "v 0 0 0",
+        "v 1 0 0",
+        "v 0 1 0",
+        "f 1 2 3",
+        ""
+    ].join("\n"));
+    await fs.writeFile(path.join(USER_DIR, "avatar.mtl"), "");
+
+    try {
+        await withServer(async (base) => {
+            const glb = await fetch(
+                `${base}/api/roblox/convert/${USER_ID}/glb`
+            );
+            assert.equal(glb.status, 200);
+            const glbBody = Buffer.from(await glb.arrayBuffer());
+            assert.equal(glbBody.subarray(0, 4).toString("ascii"), "glTF");
+            assert.ok(glbBody.length > 20);
+
+            const zipped = await fetch(
+                `${base}/api/roblox/convert/${USER_ID}/gltf?separate=1`
+            );
+            assert.equal(zipped.status, 200);
+            assert.equal(zipped.headers.get("content-type"), "application/zip");
+
+            const archive = await JSZip.loadAsync(
+                Buffer.from(await zipped.arrayBuffer())
+            );
+            assert.ok(archive.file(`${USER_ID}.gltf`));
+            assert.ok(archive.file("model.bin"));
         });
     } finally {
         await fs.rm(USER_DIR, { recursive: true, force: true });

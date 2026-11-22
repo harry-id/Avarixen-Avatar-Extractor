@@ -9,6 +9,15 @@ const { PNG } = require("pngjs");
 
 const { buildFbx } = require("../fbx-exporter");
 
+async function loadFbx(buffer) {
+    const { FBXLoader } = await import("three/examples/jsm/loaders/FBXLoader.js");
+    const loader = new FBXLoader();
+    return loader.parse(
+        buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength),
+        ""
+    );
+}
+
 const OBJ = `mtllib avatar.mtl
 v 0 0 0
 v 1 0 0
@@ -166,7 +175,19 @@ test("buildFbx subdivides geometry when a level is requested", async () => {
 
         assert.ok(Buffer.isBuffer(refined));
         assert.equal(refined.subarray(0, 20).toString("ascii").startsWith("Kaydara FBX Binary"), true);
-        assert.ok(refined.length > base.length);
+
+        const vertexCount = async (buffer) => {
+            const group = await loadFbx(buffer);
+            let count = 0;
+            group.traverse((object) => {
+                if (object.isMesh) {
+                    count += object.geometry.attributes.position.count;
+                }
+            });
+            return count;
+        };
+
+        assert.ok(await vertexCount(refined) > await vertexCount(base));
     } finally {
         fs.rmSync(dir, { recursive: true, force: true });
     }
@@ -221,6 +242,78 @@ test("buildFbx stays static without a rig", async () => {
 
         assert.equal(fbx.includes(Buffer.from("LimbNode")), false);
         assert.equal(fbx.includes(Buffer.from("Cluster")), false);
+    } finally {
+        fs.rmSync(dir, { recursive: true, force: true });
+    }
+});
+
+test("buildFbx preserves vertex colors and material opacity", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "aae-fbx-"));
+    const obj = [
+        "g Torso",
+        "v 0 0 0 1 0 0",
+        "v 1 0 0 0 1 0",
+        "v 0 1 0 0 0 1",
+        "usemtl cloth",
+        "f 1 2 3",
+        ""
+    ].join("\n");
+    const mtl = "newmtl cloth\nKd 1 1 1\nd 0.4\n";
+
+    try {
+        const fbx = await buildFbx({
+            objText: obj,
+            mtlText: mtl,
+            assetDir: dir,
+            splitParts: true,
+            groupName: "Tester"
+        });
+        const group = await loadFbx(fbx);
+        let mesh = null;
+        group.traverse((object) => {
+            if (object.isMesh && object.name === "Torso") {
+                mesh = object;
+            }
+        });
+
+        assert.ok(mesh);
+        assert.ok(mesh.geometry.attributes.color);
+        assert.equal(mesh.geometry.attributes.color.count, 3);
+        assert.equal(mesh.material.opacity, 0.4);
+        assert.equal(mesh.material.transparent, true);
+    } finally {
+        fs.rmSync(dir, { recursive: true, force: true });
+    }
+});
+
+test("buildFbx supports ungrouped OBJ with negative indices", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "aae-fbx-"));
+    const obj = [
+        "v 0 0 0",
+        "v 1 0 0",
+        "v 0 1 0",
+        "f -3 -2 -1",
+        ""
+    ].join("\n");
+
+    try {
+        const fbx = await buildFbx({
+            objText: obj,
+            mtlText: "",
+            assetDir: dir,
+            splitParts: true,
+            groupName: "Tester"
+        });
+        const group = await loadFbx(fbx);
+        let mesh = null;
+        group.traverse((object) => {
+            if (object.isMesh) {
+                mesh = object;
+            }
+        });
+
+        assert.ok(mesh);
+        assert.equal(mesh.geometry.attributes.position.count, 3);
     } finally {
         fs.rmSync(dir, { recursive: true, force: true });
     }

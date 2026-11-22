@@ -2,7 +2,7 @@
 
 const fs = require("fs");
 const path = require("path");
-const { Document, Accessor } = require("@gltf-transform/core");
+const { Document, Accessor, Material } = require("@gltf-transform/core");
 
 function parseMtl(mtlPath) {
     const materials = {};
@@ -21,12 +21,22 @@ function parseMtl(mtlPath) {
             materials[current] = {
                 name: current,
                 Kd: [0.8, 0.8, 0.8],
-                map_Kd: null
+                map_Kd: null,
+                opacity: 1
             };
         } else if (current && tag === "Kd") {
-            materials[current].Kd = [+parts[1], +parts[2], +parts[3]];
+            const kd = [+parts[1], +parts[2], +parts[3]];
+            if (kd.every(Number.isFinite)) {
+                materials[current].Kd = kd;
+            }
         } else if (current && (tag === "map_Kd" || tag === "map_kd")) {
             materials[current].map_Kd = parts.slice(1).join(" ") || null;
+        } else if (current && (tag === "d" || tag === "Tr")) {
+            const value = Number(parts[parts.length - 1]);
+            if (Number.isFinite(value)) {
+                const clamped = Math.max(0, Math.min(1, value));
+                materials[current].opacity = tag === "Tr" ? 1 - clamped : clamped;
+            }
         }
     }
     return materials;
@@ -61,6 +71,26 @@ function parseObjString(text) {
 
     let currentMaterial = "default";
     let currentGroup = null;
+    let currentObject = null;
+
+    const finite = (value, label) => {
+        const number = Number(value);
+        if (!Number.isFinite(number)) {
+            throw new Error(`OBJ ${label} contains a non-numeric value`);
+        }
+        return number;
+    };
+
+    const resolveIndex = (raw, count) => {
+        if (raw === undefined || raw === "") {
+            return -1;
+        }
+        const index = Number(raw);
+        if (!Number.isInteger(index) || index === 0) {
+            return -1;
+        }
+        return index > 0 ? index - 1 : count + index;
+    };
 
     const lines = text.split(/\r?\n/);
     for (const raw of lines) {
@@ -70,37 +100,79 @@ function parseObjString(text) {
         const tag = parts[0];
 
         if (tag === "v") {
-            positions.push(+parts[1], +parts[2], +parts[3]);
+            const x = finite(parts[1], "vertex");
+            const y = finite(parts[2], "vertex");
+            const z = finite(parts[3], "vertex");
+            positions.push(x, y, z);
             if (parts.length >= 7) {
-                vertexColors.push(+parts[4], +parts[5], +parts[6], parts.length >= 8 ? +parts[7] : 1.0);
+                vertexColors.push(
+                    finite(parts[4], "vertex color"),
+                    finite(parts[5], "vertex color"),
+                    finite(parts[6], "vertex color"),
+                    parts.length >= 8 ? finite(parts[7], "vertex color") : 1.0
+                );
             } else {
                 vertexColors.push(1, 1, 1, 1);
             }
         } else if (tag === "vn") {
-            normals.push(+parts[1], +parts[2], +parts[3]);
+            normals.push(
+                finite(parts[1], "normal"),
+                finite(parts[2], "normal"),
+                finite(parts[3], "normal")
+            );
         } else if (tag === "vt") {
-            uvs.push(+parts[1], +parts[2]);
+            uvs.push(
+                finite(parts[1], "UV"),
+                parts[2] === undefined ? 0 : finite(parts[2], "UV")
+            );
         } else if (tag === "usemtl") {
             currentMaterial = parts.slice(1).join(" ") || "default";
         } else if (tag === "g") {
             currentGroup = parts.slice(1).join(" ") || null;
+        } else if (tag === "o") {
+            currentObject = parts.slice(1).join(" ") || null;
+            currentGroup = null;
         } else if (tag === "f") {
+            if (parts.length < 4) {
+                throw new Error("OBJ face needs at least three vertices");
+            }
+
+            const vertCount = positions.length / 3;
+            const uvCount = uvs.length / 2;
+            const normalCount = normals.length / 3;
             const vertIdx = [];
             const normIdx = [];
             const uvIdx = [];
+
             for (let i = 1; i < parts.length; i++) {
                 const [v, t, n] = parts[i].split("/");
-                vertIdx.push(v ? +v - 1 : -1);
-                uvIdx.push(t ? +t - 1 : -1);
-                normIdx.push(n ? +n - 1 : -1);
+                const vertex = resolveIndex(v, vertCount);
+                const uv = resolveIndex(t, uvCount);
+                const normal = resolveIndex(n, normalCount);
+
+                if (vertex < 0 || vertex >= vertCount) {
+                    throw new Error("OBJ face references an invalid vertex index");
+                }
+                if (t !== undefined && t !== "" && (uv < 0 || uv >= uvCount)) {
+                    throw new Error("OBJ face references an invalid UV index");
+                }
+                if (n !== undefined && n !== "" && (normal < 0 || normal >= normalCount)) {
+                    throw new Error("OBJ face references an invalid normal index");
+                }
+
+                vertIdx.push(vertex);
+                uvIdx.push(uv);
+                normIdx.push(normal);
             }
+
+            const group = currentGroup || currentObject || "Avatar";
             for (let i = 1; i < vertIdx.length - 1; i++) {
                 faces.push({
                     verts: [vertIdx[0], vertIdx[i], vertIdx[i + 1]],
                     norms: [normIdx[0], normIdx[i], normIdx[i + 1]],
                     uvs: [uvIdx[0], uvIdx[i], uvIdx[i + 1]],
                     material: currentMaterial,
-                    group: currentGroup
+                    group
                 });
             }
         }
@@ -113,19 +185,16 @@ function rebuildGroups(faces) {
     const map = new Map();
 
     faces.forEach((face, index) => {
-        if (!face.group) {
-            return;
-        }
-
-        let entry = map.get(face.group);
+        const groupName = face.group || "Avatar";
+        let entry = map.get(groupName);
 
         if (!entry) {
             entry = {
-                name: face.group,
+                name: groupName,
                 faceIndices: [],
                 vertices: new Set()
             };
-            map.set(face.group, entry);
+            map.set(groupName, entry);
         }
 
         entry.faceIndices.push(index);
@@ -160,6 +229,96 @@ function subdivideParsed(parsed, levels, shouldSubdivide = null) {
 
     for (let level = 0; level < safeLevels; level++) {
         const nextFaces = [];
+        const midpointCache = new Map();
+
+        const midpoint = (c1, c2) => {
+            // Adjacent faces share an edge. Cache the midpoint (including its
+            // attribute indices) so the edge is not split into duplicate
+            // vertices. The key is order-independent and keeps UV/normal seams
+            // separate when the attributes differ.
+            const key = [
+                Math.min(c1.p, c2.p), Math.max(c1.p, c2.p),
+                Math.min(c1.n, c2.n), Math.max(c1.n, c2.n),
+                Math.min(c1.t, c2.t), Math.max(c1.t, c2.t)
+            ].join("|");
+
+            if (midpointCache.has(key)) {
+                return midpointCache.get(key);
+            }
+
+            const p1 = [
+                parsed.positions[c1.p * 3],
+                parsed.positions[c1.p * 3 + 1],
+                parsed.positions[c1.p * 3 + 2]
+            ];
+            const p2 = [
+                parsed.positions[c2.p * 3],
+                parsed.positions[c2.p * 3 + 1],
+                parsed.positions[c2.p * 3 + 2]
+            ];
+
+            const p = [(p1[0] + p2[0]) / 2, (p1[1] + p2[1]) / 2, (p1[2] + p2[2]) / 2];
+            const pIdx = parsed.positions.length / 3;
+            parsed.positions.push(...p);
+
+            let nIdx = -1;
+            if (c1.n >= 0 && c2.n >= 0) {
+                const n1 = [
+                    parsed.normals[c1.n * 3],
+                    parsed.normals[c1.n * 3 + 1],
+                    parsed.normals[c1.n * 3 + 2]
+                ];
+                const n2 = [
+                    parsed.normals[c2.n * 3],
+                    parsed.normals[c2.n * 3 + 1],
+                    parsed.normals[c2.n * 3 + 2]
+                ];
+                let n = [
+                    (n1[0] + n2[0]) / 2,
+                    (n1[1] + n2[1]) / 2,
+                    (n1[2] + n2[2]) / 2
+                ];
+                const length = Math.hypot(n[0], n[1], n[2]);
+                n = length > 0
+                    ? [n[0] / length, n[1] / length, n[2] / length]
+                    : [0, 1, 0];
+                nIdx = parsed.normals.length / 3;
+                parsed.normals.push(...n);
+            }
+
+            let tIdx = -1;
+            if (c1.t >= 0 && c2.t >= 0) {
+                const t = [
+                    (parsed.uvs[c1.t * 2] + parsed.uvs[c2.t * 2]) / 2,
+                    (parsed.uvs[c1.t * 2 + 1] + parsed.uvs[c2.t * 2 + 1]) / 2
+                ];
+                tIdx = parsed.uvs.length / 2;
+                parsed.uvs.push(...t);
+            }
+
+            const c1Colors = [
+                parsed.vertexColors[c1.p * 4],
+                parsed.vertexColors[c1.p * 4 + 1],
+                parsed.vertexColors[c1.p * 4 + 2],
+                parsed.vertexColors[c1.p * 4 + 3]
+            ];
+            const c2Colors = [
+                parsed.vertexColors[c2.p * 4],
+                parsed.vertexColors[c2.p * 4 + 1],
+                parsed.vertexColors[c2.p * 4 + 2],
+                parsed.vertexColors[c2.p * 4 + 3]
+            ];
+            parsed.vertexColors.push(
+                (c1Colors[0] + c2Colors[0]) / 2,
+                (c1Colors[1] + c2Colors[1]) / 2,
+                (c1Colors[2] + c2Colors[2]) / 2,
+                (c1Colors[3] + c2Colors[3]) / 2
+            );
+
+            const result = { p: pIdx, n: nIdx, t: tIdx };
+            midpointCache.set(key, result);
+            return result;
+        };
 
         for (const face of parsed.faces) {
             if (
@@ -175,79 +334,6 @@ function subdivideParsed(parsed, levels, shouldSubdivide = null) {
                 n: face.norms[i] ?? -1,
                 t: face.uvs[i] ?? -1
             });
-
-            const midpoint = (c1, c2) => {
-                const p1 = [
-                    parsed.positions[c1.p * 3],
-                    parsed.positions[c1.p * 3 + 1],
-                    parsed.positions[c1.p * 3 + 2]
-                ];
-                const p2 = [
-                    parsed.positions[c2.p * 3],
-                    parsed.positions[c2.p * 3 + 1],
-                    parsed.positions[c2.p * 3 + 2]
-                ];
-
-                const p = [(p1[0] + p2[0]) / 2, (p1[1] + p2[1]) / 2, (p1[2] + p2[2]) / 2];
-                const pIdx = parsed.positions.length / 3;
-                parsed.positions.push(...p);
-
-                let nIdx = -1;
-                if (c1.n >= 0 && c2.n >= 0) {
-                    const n1 = [
-                        parsed.normals[c1.n * 3],
-                        parsed.normals[c1.n * 3 + 1],
-                        parsed.normals[c1.n * 3 + 2]
-                    ];
-                    const n2 = [
-                        parsed.normals[c2.n * 3],
-                        parsed.normals[c2.n * 3 + 1],
-                        parsed.normals[c2.n * 3 + 2]
-                    ];
-                    let n = [
-                        (n1[0] + n2[0]) / 2,
-                        (n1[1] + n2[1]) / 2,
-                        (n1[2] + n2[2]) / 2
-                    ];
-                    const length = Math.hypot(n[0], n[1], n[2]);
-                    n = length > 0
-                        ? [n[0] / length, n[1] / length, n[2] / length]
-                        : [0, 1, 0];
-                    nIdx = parsed.normals.length / 3;
-                    parsed.normals.push(...n);
-                }
-
-                let tIdx = -1;
-                if (c1.t >= 0 && c2.t >= 0) {
-                    const t = [
-                        (parsed.uvs[c1.t * 2] + parsed.uvs[c2.t * 2]) / 2,
-                        (parsed.uvs[c1.t * 2 + 1] + parsed.uvs[c2.t * 2 + 1]) / 2
-                    ];
-                    tIdx = parsed.uvs.length / 2;
-                    parsed.uvs.push(...t);
-                }
-
-                const c1Colors = [
-                    parsed.vertexColors[c1.p * 4],
-                    parsed.vertexColors[c1.p * 4 + 1],
-                    parsed.vertexColors[c1.p * 4 + 2],
-                    parsed.vertexColors[c1.p * 4 + 3]
-                ];
-                const c2Colors = [
-                    parsed.vertexColors[c2.p * 4],
-                    parsed.vertexColors[c2.p * 4 + 1],
-                    parsed.vertexColors[c2.p * 4 + 2],
-                    parsed.vertexColors[c2.p * 4 + 3]
-                ];
-                parsed.vertexColors.push(
-                    (c1Colors[0] + c2Colors[0]) / 2,
-                    (c1Colors[1] + c2Colors[1]) / 2,
-                    (c1Colors[2] + c2Colors[2]) / 2,
-                    (c1Colors[3] + c2Colors[3]) / 2
-                );
-
-                return { p: pIdx, n: nIdx, t: tIdx };
-            };
 
             const c0 = corner(0);
             const c1 = corner(1);
@@ -1160,8 +1246,9 @@ function buildDocument(parsed, partMapping, joints, offsetX, offsetY, offsetZ, r
         const matName = g.material;
         if (materialMap[matName]) continue;
 
-        const mtl = parsed._mtls[matName] || { Kd: [0.8, 0.8, 0.8], map_Kd: null };
+        const mtl = parsed._mtls[matName] || { Kd: [0.8, 0.8, 0.8], map_Kd: null, opacity: 1 };
         const mat = doc.createMaterial(matName);
+        const opacity = Number.isFinite(mtl.opacity) ? mtl.opacity : 1;
 
         if (mtl.map_Kd) {
             const texPath = resolveAssetTexture(parsed._assetDir, mtl.map_Kd);
@@ -1173,10 +1260,16 @@ function buildDocument(parsed, partMapping, joints, offsetX, offsetY, offsetZ, r
                 mat.setBaseColorTexture(tex);
             }
             // White baseColorFactor so texture colors show unmodified (Kd would tint).
-            mat.setBaseColorFactor([1, 1, 1, 1]);
+            mat.setBaseColorFactor([1, 1, 1, opacity]);
         } else {
-            mat.setBaseColorFactor([...mtl.Kd, 1.0]);
+            mat.setBaseColorFactor([...mtl.Kd, opacity]);
         }
+
+        if (opacity < 1) {
+            mat.setAlphaMode(Material.AlphaMode.BLEND);
+        }
+        // Roblox exports some accessories with inverted winding.
+        mat.setDoubleSided(true);
         materialMap[matName] = mat;
     }
     const jointNodeMap = {};
@@ -1383,13 +1476,6 @@ function buildDocument(parsed, partMapping, joints, offsetX, offsetY, offsetZ, r
 
     const { limbSkinFor, limbWeightsFor } = createSkinner(joints, boneNameToIdx);
 
-    const allPos = [];
-    const allNor = [];
-    const allUv = [];
-    const allCol = [];
-    const allJoints = [];
-    const allWeights = [];
-    const primInfos = [];
     const groupBuilds = [];
 
     let globalIndexOffset = 0;
@@ -1432,6 +1518,7 @@ function buildDocument(parsed, partMapping, joints, offsetX, offsetY, offsetZ, r
         const groupLocalCol = [];
         const groupLocalJoints = [];
         const groupLocalWeights = [];
+        const groupIndices = [];
 
         for (const fi of faceIndices) {
             const f = faces[fi];
@@ -1440,18 +1527,13 @@ function buildDocument(parsed, partMapping, joints, offsetX, offsetY, offsetZ, r
                 const uIdx = f.uvs[ci] !== undefined ? f.uvs[ci] : -1;
                 const nIdx = f.norms[ci] !== undefined ? f.norms[ci] : -1;
 
-                // Dedup by recentered position + UV (merges duplicate vertices)
-                const px = (positions[vIdx * 3] - offsetX).toFixed(4);
-                const py = (positions[vIdx * 3 + 1] - offsetY).toFixed(4);
-                const pz = (positions[vIdx * 3 + 2] - offsetZ).toFixed(4);
-                const u = uIdx >= 0 && uvs.length > uIdx * 2 ? uvs[uIdx * 2].toFixed(4) : '0';
-                const v = uIdx >= 0 && uvs.length > uIdx * 2 ? (1.0 - uvs[uIdx * 2 + 1]).toFixed(4) : '0';
-                const key = `${px}|${py}|${pz}|${u}|${v}|${nIdx}`;
+                // Dedup by source vertex/UV/normal indices. This is equivalent
+                // to comparing the resulting attributes, without formatting
+                // floating-point strings for every corner.
+                const key = `${vIdx}|${uIdx}|${nIdx}`;
 
-                let localIdx;
-                if (cornerMap[key] !== undefined) {
-                    localIdx = cornerMap[key];
-                } else {
+                let localIdx = cornerMap[key];
+                if (localIdx === undefined) {
                     localIdx = groupLocalPos.length / 3;
                     cornerMap[key] = localIdx;
 
@@ -1519,34 +1601,9 @@ function buildDocument(parsed, partMapping, joints, offsetX, offsetY, offsetZ, r
                         }
                     }
                 }
+
+                groupIndices.push(globalIndexOffset + localIdx);
             }
-        }
-
-        const groupIndices = [];
-        for (const fi of faceIndices) {
-            const f = faces[fi];
-            for (let ci = 0; ci < f.verts.length; ci++) {
-                const vIdx = f.verts[ci];
-                const uIdx = f.uvs[ci] !== undefined ? f.uvs[ci] : -1;
-                const nIdx = f.norms[ci] !== undefined ? f.norms[ci] : -1;
-
-                const px = (positions[vIdx * 3] - offsetX).toFixed(4);
-                const py = (positions[vIdx * 3 + 1] - offsetY).toFixed(4);
-                const pz = (positions[vIdx * 3 + 2] - offsetZ).toFixed(4);
-                const u = uIdx >= 0 && uvs.length > uIdx * 2 ? uvs[uIdx * 2].toFixed(4) : '0';
-                const v = uIdx >= 0 && uvs.length > uIdx * 2 ? (1.0 - uvs[uIdx * 2 + 1]).toFixed(4) : '0';
-                const key = `${px}|${py}|${pz}|${u}|${v}|${nIdx}`;
-                groupIndices.push(globalIndexOffset + cornerMap[key]);
-            }
-        }
-
-        pushAll(allPos, groupLocalPos);
-        pushAll(allNor, groupLocalNor);
-        pushAll(allUv, groupLocalUv);
-        pushAll(allCol, groupLocalCol);
-        if (rigged) {
-            pushAll(allJoints, groupLocalJoints);
-            pushAll(allWeights, groupLocalWeights);
         }
 
         groupBuilds.push({
@@ -1564,13 +1621,6 @@ function buildDocument(parsed, partMapping, joints, offsetX, offsetY, offsetZ, r
             isClothing,
             handleCenter,
             boneName: isHandle ? assignedBone : null
-        });
-
-        primInfos.push({
-            material: g.material,
-            startIndex: globalIndexOffset,
-            indexCount: groupIndices.length,
-            indices: groupIndices
         });
 
         globalIndexOffset += groupLocalPos.length / 3;
@@ -1719,6 +1769,26 @@ function buildDocument(parsed, partMapping, joints, offsetX, offsetY, offsetZ, r
         return { doc, root, scene, buffer };
     }
 
+    // Merge every group into one mesh only for the non-split path. The split
+    // path above uses the per-group buffers directly, so avoid copying them.
+    const allPos = [];
+    const allNor = [];
+    const allUv = [];
+    const allCol = [];
+    const allJoints = [];
+    const allWeights = [];
+
+    for (const build of groupBuilds) {
+        pushAll(allPos, build.positions);
+        pushAll(allNor, build.normals);
+        pushAll(allUv, build.uvs);
+        pushAll(allCol, build.colors);
+        if (rigged) {
+            pushAll(allJoints, build.joints);
+            pushAll(allWeights, build.weights);
+        }
+    }
+
     const mesh = doc.createMesh("character_mesh");
 
     // Convert float colors (0-1) to Uint8 (0-255) for UNSIGNED_BYTE normalized accessor.
@@ -1727,12 +1797,13 @@ function buildDocument(parsed, partMapping, joints, offsetX, offsetY, offsetZ, r
         colorBytes[i] = Math.max(0, Math.min(255, Math.round(allCol[i] * 255)));
     }
 
-    const materialsUsed = [...new Set(primInfos.map(p => p.material))];
+    const materialsUsed = [...new Set(groupBuilds.map((build) => build.material))];
     for (const matName of materialsUsed) {
-        const matPrims = primInfos.filter(p => p.material === matName);
         const primIndices = [];
-        for (const p of matPrims) {
-            pushAll(primIndices, p.indices);
+        for (const build of groupBuilds) {
+            if (build.material === matName) {
+                pushAll(primIndices, build.indices);
+            }
         }
 
         const prim = doc.createPrimitive()
@@ -2050,6 +2121,10 @@ async function convertAvatar(assetDir, {
 
     const mtl = parseMtl(path.join(assetDir, "avatar.mtl"));
     const parsed = parseObj(objPath);
+
+    if (!parsed.faces.length) {
+        throw new Error("avatar.obj contains no faces");
+    }
 
     if (subdivision > 0) {
         // Mesh quality refines the body only: accessories (Handle* groups) and

@@ -8,6 +8,7 @@ const path = require("path");
 
 const {
     parseObj,
+    parseObjString,
     parseMtl,
     detectRigType,
     detectNamedRigType,
@@ -791,4 +792,126 @@ test("subdivision quadruples faces and keeps groups and UVs", () => {
     } finally {
         fs.rmSync(dir, { recursive: true, force: true });
     }
+});
+
+test("parseMtl reads opacity from d and Tr", () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "aae-test-"));
+    const mtlPath = path.join(dir, "avatar.mtl");
+
+    try {
+        fs.writeFileSync(mtlPath, [
+            "newmtl opaque",
+            "Kd 1 1 1",
+            "d 0.25",
+            "newmtl inverted",
+            "Kd 1 1 1",
+            "Tr 0.4",
+            ""
+        ].join("\n"));
+
+        const materials = parseMtl(mtlPath);
+        assert.equal(materials.opaque.opacity, 0.25);
+        assert.equal(materials.inverted.opacity, 0.6);
+    } finally {
+        fs.rmSync(dir, { recursive: true, force: true });
+    }
+});
+
+test("parseObj supports object groups, ungrouped faces, and negative indices", () => {
+    const ungrouped = parseObjString([
+        "v 0 0 0",
+        "v 1 0 0",
+        "v 0 1 0",
+        "f -3 -2 -1",
+        ""
+    ].join("\n"));
+
+    assert.equal(ungrouped.faces.length, 1);
+    assert.deepEqual(ungrouped.faces[0].verts, [0, 1, 2]);
+    assert.equal(ungrouped.groups[0].name, "Avatar");
+
+    const objectGroup = parseObjString([
+        "o Body",
+        "v 0 0 0",
+        "v 1 0 0",
+        "v 0 1 0",
+        "f 1 2 3",
+        ""
+    ].join("\n"));
+
+    assert.equal(objectGroup.groups[0].name, "Body");
+});
+
+test("parseObj rejects invalid face indices", () => {
+    assert.throws(
+        () => parseObjString("v 0 0 0\nv 1 0 0\nv 0 1 0\nf 1 2 4\n"),
+        /invalid vertex index/
+    );
+    assert.throws(
+        () => parseObjString("v 0 0 0\nv 1 0 0\nv 0 1 0\nf 1/9 2/9 3/9\n"),
+        /invalid UV index/
+    );
+});
+
+test("convertAvatar rejects an OBJ without faces", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "aae-test-"));
+
+    try {
+        fs.writeFileSync(path.join(dir, "avatar.obj"), "# no faces\n");
+        await assert.rejects(
+            () => convertAvatar(dir),
+            /contains no faces/
+        );
+    } finally {
+        fs.rmSync(dir, { recursive: true, force: true });
+    }
+});
+
+test("GLTF materials honour opacity and are double-sided", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "aae-test-"));
+    const obj = [
+        "g Torso",
+        "v 0 0 0",
+        "v 1 0 0",
+        "v 0 1 0",
+        "usemtl cloth",
+        "f 1 2 3",
+        ""
+    ].join("\n");
+    const mtl = "newmtl cloth\nKd 0.2 0.3 0.4\nd 0.5\n";
+
+    try {
+        fs.writeFileSync(path.join(dir, "avatar.obj"), obj);
+        fs.writeFileSync(path.join(dir, "avatar.mtl"), mtl);
+
+        const conversion = await convertAvatar(dir, { splitParts: true });
+        const material = conversion.doc.getRoot().listMaterials()[0];
+
+        assert.equal(material.getDoubleSided(), true);
+        assert.equal(material.getAlphaMode(), "BLEND");
+        assert.equal(material.getBaseColorFactor()[3], 0.5);
+    } finally {
+        fs.rmSync(dir, { recursive: true, force: true });
+    }
+});
+
+test("subdivision shares midpoints across adjacent faces", () => {
+    const parsed = parseObjString([
+        "g Torso",
+        "v 0 0 0",
+        "v 1 0 0",
+        "v 0 1 0",
+        "v 1 1 0",
+        "f 1 2 3",
+        "f 2 4 3",
+        ""
+    ].join("\n"));
+
+    assert.equal(parsed.faces.length, 2);
+
+    const refined = subdivideParsed(parsed, 1);
+
+    assert.equal(refined.faces.length, 8);
+    // 4 original vertices + 5 unique edge midpoints (one edge is shared).
+    assert.equal(refined.positions.length / 3, 9);
 });
