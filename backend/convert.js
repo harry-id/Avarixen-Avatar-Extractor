@@ -215,7 +215,8 @@ module.exports = function (app) {
                 robloxType: info.robloxType,
                 compatibility: info.compatibility,
                 groups: info.groups,
-                bones: info.bones
+                bones: info.bones,
+                segmentation: info.segmentation
             });
         } catch (err) {
             console.error("Part info error:", err);

@@ -1185,12 +1185,336 @@ function weldedComponents(group, parsed, epsilon = 1e-4) {
     }));
 }
 
+function boxGap(a, b) {
+    const dx = Math.max(a.xmin - b.xmax, 0, b.xmin - a.xmax);
+    const dy = Math.max(a.ymin - b.ymax, 0, b.ymin - a.ymax);
+    const dz = Math.max(a.zmin - b.zmax, 0, b.zmin - a.zmax);
+    return Math.hypot(dx, dy, dz);
+}
+
+function buildFaceGraph(group, parsed) {
+    const epsilon = 1e-4;
+    const keyFor = (vertexIndex) => {
+        const x = parsed.positions[vertexIndex * 3];
+        const y = parsed.positions[vertexIndex * 3 + 1];
+        const z = parsed.positions[vertexIndex * 3 + 2];
+        return `${Math.round(x / epsilon)}|${Math.round(y / epsilon)}|${Math.round(z / epsilon)}`;
+    };
+
+    const entries = [];
+    const edgeFaces = new Map();
+
+    for (const faceIndex of group.faceIndices) {
+        const face = parsed.faces[faceIndex];
+        const keys = face.verts.map(keyFor);
+        let cx = 0;
+        let cy = 0;
+        let cz = 0;
+
+        for (const vertex of face.verts) {
+            cx += parsed.positions[vertex * 3];
+            cy += parsed.positions[vertex * 3 + 1];
+            cz += parsed.positions[vertex * 3 + 2];
+        }
+
+        const count = face.verts.length || 1;
+        entries.push({
+            faceIndex,
+            vertices: face.verts,
+            centroid: { x: cx / count, y: cy / count, z: cz / count }
+        });
+
+        for (let i = 0; i < keys.length; i++) {
+            const a = keys[i];
+            const b = keys[(i + 1) % keys.length];
+            const edge = a < b ? `${a}|${b}` : `${b}|${a}`;
+            if (!edgeFaces.has(edge)) edgeFaces.set(edge, []);
+            edgeFaces.get(edge).push(entries.length - 1);
+        }
+    }
+
+    const adjacency = entries.map(() => new Set());
+    for (const faces of edgeFaces.values()) {
+        for (let i = 0; i < faces.length; i++) {
+            for (let j = i + 1; j < faces.length; j++) {
+                adjacency[faces[i]].add(faces[j]);
+                adjacency[faces[j]].add(faces[i]);
+            }
+        }
+    }
+
+    return { entries, adjacency };
+}
+
+function labelComponents(entries, adjacency, labels) {
+    const seen = new Uint8Array(entries.length);
+    const components = [];
+
+    for (let start = 0; start < entries.length; start++) {
+        if (seen[start]) continue;
+        const label = labels[start];
+        const stack = [start];
+        const faces = [];
+        seen[start] = 1;
+
+        while (stack.length) {
+            const index = stack.pop();
+            faces.push(index);
+            for (const neighbor of adjacency[index]) {
+                if (!seen[neighbor] && labels[neighbor] === label) {
+                    seen[neighbor] = 1;
+                    stack.push(neighbor);
+                }
+            }
+        }
+
+        components.push({ label, faces });
+    }
+
+    return components;
+}
+
+function mergeSmallComponents(entries, adjacency, labels, minFaces) {
+    let changed = false;
+
+    for (let pass = 0; pass < 2; pass++) {
+        const components = labelComponents(entries, adjacency, labels);
+        let passChanged = false;
+
+        for (const component of components) {
+            if (component.faces.length >= minFaces) continue;
+
+            const members = new Set(component.faces);
+            const neighborCounts = new Map();
+
+            for (const index of component.faces) {
+                for (const neighbor of adjacency[index]) {
+                    if (members.has(neighbor)) continue;
+                    const label = labels[neighbor];
+                    neighborCounts.set(label, (neighborCounts.get(label) || 0) + 1);
+                }
+            }
+
+            let replacement = null;
+            let best = 0;
+            for (const [label, count] of neighborCounts) {
+                if (count > best) {
+                    best = count;
+                    replacement = label;
+                }
+            }
+
+            if (replacement !== null) {
+                for (const index of component.faces) {
+                    labels[index] = replacement;
+                }
+                passChanged = true;
+            }
+        }
+
+        changed = changed || passChanged;
+        if (!passChanged) break;
+    }
+
+    return changed;
+}
+
+// Segment one connected surface by body-part proximity. This is intentionally
+// conservative: low confidence or tiny regions preserve the original group.
+function segmentConnectedGroup(group, parsed, playerBoxes) {
+    if (group.faceCount < 8) {
+        return null;
+    }
+
+    const { entries, adjacency } = buildFaceGraph(group, parsed);
+    if (entries.length < 8) {
+        return null;
+    }
+
+    const groupBox = computeBox(group.vertexIndices, parsed.positions);
+    if (!Number.isFinite(groupBox.cx)) {
+        return null;
+    }
+
+    const groupSize = Math.max(groupBox.sx, groupBox.sy, groupBox.sz);
+    const gapLimit = Math.max(0.05, groupSize * 0.05);
+    const candidates = Object.entries(playerBoxes)
+        .filter(([, box]) => box && Number.isFinite(box.cx))
+        .filter(([, box]) => boxGap(groupBox, box) <= gapLimit)
+        .map(([part, box]) => ({ part, box }));
+
+    if (candidates.length < 2) {
+        return null;
+    }
+
+    const labels = new Array(entries.length);
+    const margins = new Array(entries.length);
+    let ambiguous = 0;
+    const ambiguityThreshold = Math.max(0.01, groupSize * 0.015);
+
+    for (let i = 0; i < entries.length; i++) {
+        const point = entries[i].centroid;
+        const scores = candidates.map((candidate) => ({
+            part: candidate.part,
+            distance: distanceToBox(point, candidate.box)
+                + Math.hypot(
+                    point.x - candidate.box.cx,
+                    point.y - candidate.box.cy,
+                    point.z - candidate.box.cz
+                ) * 0.01
+        }));
+        scores.sort((a, b) => a.distance - b.distance);
+        labels[i] = scores[0].part;
+        margins[i] = scores.length > 1
+            ? scores[1].distance - scores[0].distance
+            : Infinity;
+        if (margins[i] <= ambiguityThreshold) {
+            ambiguous += 1;
+        }
+    }
+
+    // Smooth ambiguous faces toward their neighbours without moving strongly
+    // classified faces.
+    for (let pass = 0; pass < 4; pass++) {
+        const next = labels.slice();
+
+        for (let i = 0; i < entries.length; i++) {
+            if (margins[i] > ambiguityThreshold) continue;
+
+            const counts = new Map();
+            for (const neighbor of adjacency[i]) {
+                counts.set(labels[neighbor], (counts.get(labels[neighbor]) || 0) + 1);
+            }
+
+            let bestLabel = labels[i];
+            let bestCount = counts.get(labels[i]) || 0;
+            for (const [label, count] of counts) {
+                if (count > bestCount) {
+                    bestLabel = label;
+                    bestCount = count;
+                }
+            }
+            next[i] = bestLabel;
+        }
+
+        labels.splice(0, labels.length, ...next);
+    }
+
+    const totalFaces = entries.length;
+    const minFaces = Math.max(6, Math.floor(totalFaces * 0.03));
+    mergeSmallComponents(entries, adjacency, labels, minFaces);
+
+    const byPart = new Map();
+    for (let i = 0; i < entries.length; i++) {
+        const label = labels[i];
+        if (!byPart.has(label)) byPart.set(label, []);
+        byPart.get(label).push(entries[i].faceIndex);
+    }
+
+    const significant = [...byPart.entries()]
+        .filter(([, faceIndices]) => faceIndices.length >= minFaces);
+
+    if (significant.length < 2) {
+        return null;
+    }
+
+    // Any remaining tiny label is folded into the nearest significant part.
+    const significantParts = new Set(significant.map(([part]) => part));
+    for (const [part, faceIndices] of byPart) {
+        if (significantParts.has(part)) continue;
+        const target = significant[0][0];
+        for (const faceIndex of faceIndices) {
+            byPart.get(target).push(faceIndex);
+        }
+        byPart.delete(part);
+    }
+
+    const confidence = totalFaces > 0
+        ? Math.max(0, Math.min(1, 1 - ambiguous / totalFaces))
+        : 0;
+
+    if (confidence < 0.35) {
+        return null;
+    }
+
+    // Re-label each region by its aggregate geometry. A region is only trusted
+    // when it is actually localized on the body part it was assigned to; a
+    // stray patch (a long hair strand reaching the torso, for example) is not
+    // a real region boundary and must not fragment the accessory.
+    const partBoxes = new Map(candidates.map((candidate) => [candidate.part, candidate.box]));
+    const relabeled = new Map();
+
+    for (const [label, faceIndices] of byPart) {
+        const vertexSet = new Set();
+        for (const faceIndex of faceIndices) {
+            const face = parsed.faces[faceIndex];
+            for (const vertex of face.verts) vertexSet.add(vertex);
+        }
+
+        const segmentBox = computeBox(Array.from(vertexSet), parsed.positions);
+        if (!Number.isFinite(segmentBox.cx)) {
+            return null;
+        }
+
+        let assigned = label;
+        let bestScore = Infinity;
+        for (const candidate of candidates) {
+            const center = {
+                x: segmentBox.cx,
+                y: segmentBox.cy,
+                z: segmentBox.cz
+            };
+            const score = distanceToBox(center, candidate.box)
+                + Math.hypot(
+                    segmentBox.cx - candidate.box.cx,
+                    segmentBox.cy - candidate.box.cy,
+                    segmentBox.cz - candidate.box.cz
+                ) * 0.01;
+            if (score < bestScore) {
+                bestScore = score;
+                assigned = candidate.part;
+            }
+        }
+
+        const targetBox = partBoxes.get(assigned);
+        const partSize = Math.max(targetBox.sx, targetBox.sy, targetBox.sz);
+        const gap = boxGap(segmentBox, targetBox);
+        const gapLimitForPart = Math.max(partSize * 0.25, groupSize * 0.05);
+
+        if (gap > gapLimitForPart) {
+            return null;
+        }
+
+        if (!relabeled.has(assigned)) relabeled.set(assigned, []);
+        const bucket = relabeled.get(assigned);
+        for (const faceIndex of faceIndices) bucket.push(faceIndex);
+    }
+
+    if (relabeled.size < 2) {
+        return null;
+    }
+
+    return {
+        confidence,
+        groups: [...relabeled.entries()].map(([part, faceIndices]) => ({
+            part,
+            faceIndices
+        }))
+    };
+}
+
 // Split a merged handle into one virtual group per attached body part. Groups
 // whose components all belong to the same part are kept intact.
 function splitHandleGroups(parsed, playerBoxes) {
+    // The parsed mesh may be handed to rigging more than once (conversion plus
+    // part discovery); splitting must remain idempotent.
+    if (parsed._handleSplitDone) {
+        return false;
+    }
+    parsed._handleSplitDone = true;
+
     let changed = false;
     const groups = [];
-    const splits = {};
 
     for (const group of parsed.groups) {
         if (!/^Handle/i.test(group.name) || group.faceCount < 2) {
@@ -1199,6 +1523,7 @@ function splitHandleGroups(parsed, playerBoxes) {
         }
 
         const components = weldedComponents(group, parsed);
+        group.weldedComponentCount = components.length;
         if (components.length < 2) {
             groups.push(group);
             continue;
@@ -1224,8 +1549,6 @@ function splitHandleGroups(parsed, playerBoxes) {
             continue;
         }
 
-        const splitGroups = [];
-
         for (const [part, partComponents] of byPart) {
             const faceIndices = [];
             const vertexSet = new Set();
@@ -1246,22 +1569,116 @@ function splitHandleGroups(parsed, playerBoxes) {
                 splitPart: part,
                 faceIndices,
                 vertexIndices: Array.from(vertexSet).sort((a, b) => a - b),
-                faceCount: faceIndices.length
+                faceCount: faceIndices.length,
+                weldedComponentCount: partComponents.length
             };
-            splitGroups.push(splitGroup);
             groups.push(splitGroup);
             changed = true;
         }
-
-        splits[group.name] = splitGroups;
     }
 
     if (changed) {
         parsed.groups = groups;
-        parsed._handleSplits = splits;
     }
 
-    return changed;
+    // Second stage: one connected surface may still span multiple body regions
+    // (a jacket or trousers). Disconnected islands are already single-region
+    // pieces and must not be segmented again.
+    const finalGroups = [];
+    let connectedChanged = false;
+
+    for (const group of parsed.groups) {
+        if (
+            !/^Handle/i.test(group.name) ||
+            group.faceCount < 8 ||
+            (group.weldedComponentCount || 1) > 1
+        ) {
+            finalGroups.push(group);
+            continue;
+        }
+
+        const segmented = segmentConnectedGroup(group, parsed, playerBoxes);
+        if (!segmented || segmented.groups.length < 2) {
+            finalGroups.push(group);
+            continue;
+        }
+
+        const baseName = group.baseName || group.name;
+        for (const segment of segmented.groups) {
+            const vertexSet = new Set();
+            for (const faceIndex of segment.faceIndices) {
+                const face = parsed.faces[faceIndex];
+                for (const vertex of face.verts) {
+                    vertexSet.add(vertex);
+                }
+            }
+
+            finalGroups.push({
+                ...group,
+                name: `${baseName}_${segment.part.replace(/\s+/g, "")}`,
+                baseName,
+                splitPart: segment.part,
+                faceIndices: segment.faceIndices,
+                vertexIndices: Array.from(vertexSet).sort((a, b) => a - b),
+                faceCount: segment.faceIndices.length,
+                segmentationConfidence: segmented.confidence
+            });
+            connectedChanged = true;
+        }
+    }
+
+    if (changed || connectedChanged) {
+        // Connected segmentation can return a region that a disconnected split
+        // already produced. Merge equal names so exports never contain two
+        // nodes with the same identity.
+        const mergedGroups = [];
+        const byName = new Map();
+
+        for (const group of finalGroups) {
+            const existing = byName.get(group.name);
+
+            if (!existing) {
+                byName.set(group.name, group);
+                mergedGroups.push(group);
+                continue;
+            }
+
+            const seenFaces = new Set(existing.faceIndices);
+            for (const faceIndex of group.faceIndices) {
+                if (!seenFaces.has(faceIndex)) {
+                    seenFaces.add(faceIndex);
+                    existing.faceIndices.push(faceIndex);
+                }
+            }
+
+            const vertexSet = new Set(existing.vertexIndices);
+            for (const vertex of group.vertexIndices) vertexSet.add(vertex);
+            existing.vertexIndices = Array.from(vertexSet).sort((a, b) => a - b);
+            existing.faceCount = existing.faceIndices.length;
+
+            if (Number.isFinite(group.segmentationConfidence)) {
+                existing.segmentationConfidence = Number.isFinite(existing.segmentationConfidence)
+                    ? Math.min(existing.segmentationConfidence, group.segmentationConfidence)
+                    : group.segmentationConfidence;
+            }
+        }
+
+        parsed.groups = mergedGroups;
+        const finalSplits = {};
+
+        for (const group of mergedGroups) {
+            if (!/^Handle/i.test(group.name)) continue;
+            const baseName = group.baseName || group.name;
+            if (baseName !== group.name || group.splitPart) {
+                if (!finalSplits[baseName]) finalSplits[baseName] = [];
+                finalSplits[baseName].push(group);
+            }
+        }
+
+        parsed._handleSplits = finalSplits;
+    }
+
+    return changed || connectedChanged;
 }
 
 function createAccessor(doc, buffer, array, typeStr, componentType, normalized = false) {
@@ -2643,7 +3060,10 @@ function getPartInfo(assetDir, { moreJoints = false, hint = undefined } = {}) {
                 faces: g.faceCount,
                 type,
                 part,
-                extraPart
+                extraPart,
+                segmentationConfidence: Number.isFinite(g.segmentationConfidence)
+                    ? g.segmentationConfidence
+                    : null
             };
         });
 
@@ -2659,8 +3079,21 @@ function getPartInfo(assetDir, { moreJoints = false, hint = undefined } = {}) {
     }
 
     const compatibility = computeCompatibility(rigType, partMapping);
+    const segmentedGroups = groups.filter((group) => group.segmentationConfidence !== null);
 
-    return { rigType, robloxType, compatibility, groups, bones };
+    return {
+        rigType,
+        robloxType,
+        compatibility,
+        groups,
+        bones,
+        segmentation: {
+            groups: segmentedGroups.length,
+            minConfidence: segmentedGroups.length
+                ? Math.min(...segmentedGroups.map((group) => group.segmentationConfidence))
+                : null
+        }
+    };
 }
 
 module.exports = {
