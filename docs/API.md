@@ -68,7 +68,7 @@ Service info.
 
 **200**
 ```json
-{ "status": "online", "name": "Avarixen Avatar Extractor", "version": "1.2.1-beta" }
+{ "status": "online", "name": "Avarixen Avatar Extractor", "version": "1.3.0-beta" }
 ```
 
 ---
@@ -78,7 +78,7 @@ Lightweight health probe.
 
 **200**
 ```json
-{ "status": "online" }
+{ "status": "online", "version": "1.3.0-beta" }
 ```
 
 ---
@@ -180,7 +180,7 @@ Part/group metadata for the model explorer sidebar.
   "success": true,
   "rigType": "R6",
   "groups": [
-    { "name": "Torso", "vertices": 44, "faces": 12, "type": "body", "part": "Torso" }
+    { "name": "Torso", "vertices": 44, "faces": 12, "type": "player", "part": "Torso" }
   ]
 }
 ```
