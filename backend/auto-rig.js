@@ -3,9 +3,64 @@
 const fs = require("fs");
 const path = require("path");
 const { Document, Accessor, Material } = require("@gltf-transform/core");
+const { parsePositiveNumber } = require("./config");
+
+const DEFAULT_MAX_OBJ_BYTES = 64 * 1024 * 1024;
+const DEFAULT_MAX_OBJ_VERTICES = 1_500_000;
+const DEFAULT_MAX_OBJ_FACES = 1_000_000;
+
+function readObjLimits(overrides = {}) {
+    return {
+        maxBytes: overrides.maxBytes !== undefined
+            ? overrides.maxBytes
+            : parsePositiveNumber(process.env.MAX_OBJ_BYTES, DEFAULT_MAX_OBJ_BYTES),
+        maxVertices: overrides.maxVertices !== undefined
+            ? overrides.maxVertices
+            : parsePositiveNumber(process.env.MAX_OBJ_VERTICES, DEFAULT_MAX_OBJ_VERTICES),
+        maxFaces: overrides.maxFaces !== undefined
+            ? overrides.maxFaces
+            : parsePositiveNumber(process.env.MAX_OBJ_FACES, DEFAULT_MAX_OBJ_FACES)
+    };
+}
+
+function objLimitError(kind, limit) {
+    const error = new Error(`OBJ exceeds the configured ${kind} limit (${limit})`);
+    error.name = "ObjLimitError";
+    error.code = "EOBJTOOLARGE";
+    error.status = 413;
+    error.limitKind = kind;
+    return error;
+}
+
+function assertObjTextLimits(text, limits = readObjLimits()) {
+    if (Buffer.byteLength(text) > limits.maxBytes) {
+        throw objLimitError("byte", limits.maxBytes);
+    }
+
+    let vertices = 0;
+    let faces = 0;
+
+    for (const line of text.split(/\r?\n/)) {
+        const trimmed = line.trimStart();
+        const tag = trimmed.split(/\s+/, 1)[0];
+
+        if (tag === "v") {
+            vertices += 1;
+            if (vertices > limits.maxVertices) {
+                throw objLimitError("vertex", limits.maxVertices);
+            }
+        } else if (tag === "f") {
+            faces += 1;
+            if (faces > limits.maxFaces) {
+                throw objLimitError("face", limits.maxFaces);
+            }
+        }
+    }
+}
+
 
 function parseMtl(mtlPath) {
-    const materials = {};
+    const materials = Object.create(null);
     if (!fs.existsSync(mtlPath)) {
         return materials;
     }
@@ -58,17 +113,27 @@ function resolveAssetTexture(assetDir, filename) {
     return resolved;
 }
 
-function parseObj(objPath) {
-    return parseObjString(fs.readFileSync(objPath, "utf8"));
+function parseObj(objPath, limits = readObjLimits()) {
+    const stat = fs.statSync(objPath);
+    if (stat.size > limits.maxBytes) {
+        throw objLimitError("byte", limits.maxBytes);
+    }
+
+    return parseObjString(fs.readFileSync(objPath, "utf8"), limits);
 }
 
-function parseObjString(text) {
+function parseObjString(text, limits = readObjLimits()) {
+    if (Buffer.byteLength(text) > limits.maxBytes) {
+        throw objLimitError("byte", limits.maxBytes);
+    }
+
     const positions = [];
     const normals = [];
     const uvs = [];
     const vertexColors = [];
     const faces = [];
-
+    let vertexCount = 0;
+    let faceCount = 0;
     let currentMaterial = "default";
     let currentGroup = null;
     let currentObject = null;
@@ -104,6 +169,10 @@ function parseObjString(text) {
             const y = finite(parts[2], "vertex");
             const z = finite(parts[3], "vertex");
             positions.push(x, y, z);
+            vertexCount += 1;
+            if (vertexCount > limits.maxVertices) {
+                throw objLimitError("vertex", limits.maxVertices);
+            }
             if (parts.length >= 7) {
                 vertexColors.push(
                     finite(parts[4], "vertex color"),
@@ -166,6 +235,11 @@ function parseObjString(text) {
             }
 
             const group = currentGroup || currentObject || "Avatar";
+            faceCount += 1;
+            if (faceCount > limits.maxFaces) {
+                throw objLimitError("face", limits.maxFaces);
+            }
+
             for (let i = 1; i < vertIdx.length - 1; i++) {
                 faces.push({
                     verts: [vertIdx[0], vertIdx[i], vertIdx[i + 1]],
@@ -2181,7 +2255,7 @@ function buildDocument(parsed, partMapping, joints, offsetX, offsetY, offsetZ, r
     const root = doc.getRoot();
     const scene = doc.createScene("Scene");
     const buffer = doc.createBuffer();
-    const materialMap = {};
+    const materialMap = Object.create(null);
     const materialOrientation = new Map();
 
     for (const g of groups) {
@@ -3364,6 +3438,9 @@ module.exports = {
     parseObj,
     parseObjString,
     parseMtl,
+    readObjLimits,
+    assertObjTextLimits,
+    objLimitError,
     subdivideParsed,
     computeBox,
     detectRigType,

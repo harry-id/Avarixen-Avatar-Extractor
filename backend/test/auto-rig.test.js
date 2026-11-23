@@ -1546,3 +1546,27 @@ test("inverted-normal accessories keep single-sided materials in export", async 
         fs.rmSync(dir, { recursive: true, force: true });
     }
 });
+
+test("OBJ byte, vertex, and face limits are enforced", () => {
+    const { assertObjTextLimits } = require("../auto-rig");
+
+    const text = "v 0 0 0\nv 1 0 0\nv 0 1 0\nf 1 2 3\n";
+
+    assert.throws(
+        () => assertObjTextLimits(text, { maxBytes: 4, maxVertices: 10, maxFaces: 10 }),
+        (error) => error.code === "EOBJTOOLARGE"
+    );
+    assert.throws(
+        () => assertObjTextLimits(text, { maxBytes: 1000, maxVertices: 2, maxFaces: 10 }),
+        (error) => error.code === "EOBJTOOLARGE"
+    );
+    assert.throws(
+        () => assertObjTextLimits(text, { maxBytes: 1000, maxVertices: 10, maxFaces: 0 }),
+        (error) => error.code === "EOBJTOOLARGE"
+    );
+    assert.doesNotThrow(() => assertObjTextLimits(text, {
+        maxBytes: 1000,
+        maxVertices: 10,
+        maxFaces: 10
+    }));
+});

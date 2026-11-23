@@ -20,11 +20,21 @@ const { isUserLocked } = require("./user-lock");
 const {
     parseNonNegativeNumber,
     parsePositiveNumber,
-    parseTrustProxy
+    resolveTrustProxy,
+    resolveHost,
+    resolveCorsOrigins
 } = require("./config");
+const { getClientIp } = require("./client-identity");
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+const HOST = resolveHost(process.env.HOST);
+const isProduction = process.env.NODE_ENV === "production";
+
+// Safe defaults: the cache is finite even when the environment forgets to set
+// a quota, and downloads stop before the filesystem becomes critically full.
+const DEFAULT_DOWNLOADS_MAX_BYTES = 5 * 1024 * 1024 * 1024;
+const DEFAULT_MIN_FREE_DISK_BYTES = 512 * 1024 * 1024;
 
 // Keep Express's default error handler from exposing stack traces when the
 // deployment does not set NODE_ENV explicitly.
@@ -34,14 +44,13 @@ if (!process.env.NODE_ENV) {
 
 app.disable("x-powered-by");
 
-const corsOrigins = (process.env.CORS_ORIGINS || "")
-    .split(",")
-    .map((origin) => origin.trim())
-    .filter(Boolean);
+const corsOrigins = resolveCorsOrigins(process.env.CORS_ORIGINS, {
+    production: isProduction
+});
 
 if (!corsOrigins.length) {
     console.warn(
-        "[cors] CORS_ORIGINS is not set; allowing any origin. " +
+        "[cors] CORS_ORIGINS is not set; allowing any origin in development. " +
         "Set explicit origins in production to limit API consumption."
     );
 }
@@ -56,23 +65,37 @@ app.use(
 app.use((req, res, next) => {
     res.setHeader("X-Content-Type-Options", "nosniff");
     res.setHeader("Referrer-Policy", "no-referrer");
+    res.setHeader("X-Frame-Options", "DENY");
+    res.setHeader("Content-Security-Policy", "frame-ancestors 'none'");
     next();
 });
 
 app.use(express.json({ limit: "16kb" }));
 
-// Set TRUST_PROXY (e.g. "1", "true", or a proxy CIDR list) when the API runs
-// behind a reverse proxy so per-client rate limiting sees the real client IP.
-// Explicit "false"/"0" disables proxy trust instead of crashing Express.
-const trustProxy = parseTrustProxy(process.env.TRUST_PROXY);
-if (trustProxy !== undefined) {
-    app.set("trust proxy", trustProxy);
+// Set TRUST_PROXY (e.g. "1", a proxy CIDR list, or "cloudflare") when the API
+// runs behind a reverse proxy. TRUST_PROXY=true is rejected in production and
+// downgraded to socket addresses elsewhere; it trusts arbitrary forwarding
+// headers and therefore cannot be used for rate limiting.
+const clientIdentity = resolveTrustProxy(process.env.TRUST_PROXY, {
+    production: isProduction
+});
+
+if (clientIdentity.warning) {
+    console.warn(`[proxy] ${clientIdentity.warning}`);
+}
+
+if (clientIdentity.apply) {
+    try {
+        app.set("trust proxy", clientIdentity.value);
+    } catch (error) {
+        throw new Error(`Invalid TRUST_PROXY configuration: ${error.message}`);
+    }
 }
 
 // Request logging: colored, fixed-width lines. Set LOG_REQUESTS=false to
 // disable, or LOG_REQUESTS=verbose to also log request bodies and user agents.
 const logRequests = process.env.LOG_REQUESTS !== "false";
-const logVerbose = process.env.LOG_REQUESTS === "verbose";
+const logVerbose = process.env.LOG_REQUESTS === "verbose" && !isProduction;
 
 const LOG_RESET = "\x1b[0m";
 const LOG_DIM = "\x1b[2m";
@@ -108,7 +131,7 @@ function logMethodColor(method) {
 if (logRequests) {
     app.use((req, res, next) => {
         const start = process.hrtime.bigint();
-        const ip = req.ip || req.socket.remoteAddress || "-";
+        const ip = getClientIp(req, clientIdentity.mode) || "-";
 
         if (logVerbose) {
             const ua = req.get("user-agent") || "-";
@@ -174,7 +197,11 @@ app.use(
 const downloadsTtlHours = parsePositiveNumber(process.env.DOWNLOADS_TTL_HOURS, 24);
 const downloadsMaxBytes = parseNonNegativeNumber(
     process.env.DOWNLOADS_MAX_BYTES,
-    0
+    DEFAULT_DOWNLOADS_MAX_BYTES
+);
+const minFreeDiskBytes = parseNonNegativeNumber(
+    process.env.MIN_FREE_DISK_BYTES,
+    DEFAULT_MIN_FREE_DISK_BYTES
 );
 const downloadsCleanup = startDownloadsCleanup({
     dir: downloadsDir,
@@ -225,7 +252,7 @@ app.use("/api", (req, res, next) => {
 
     const lang = getLang(req);
     const now = Date.now();
-    const ip = req.ip || req.socket.remoteAddress || "unknown";
+    const ip = getClientIp(req, clientIdentity.mode) || "unknown";
     const bucket = rateBuckets.get(ip);
 
     if (!bucket || now > bucket.resetAt) {
@@ -254,7 +281,12 @@ function getApiKey() {
     return apiKey;
 }
 
-require("./avatar-downloader")(app, { fetchWithTimeout, getApiKey });
+require("./avatar-downloader")(app, {
+    fetchWithTimeout,
+    getApiKey,
+    downloadsMaxBytes,
+    minFreeDiskBytes
+});
 require("./convert")(app);
 
 app.get("/", (req, res) => {
@@ -464,7 +496,7 @@ app.use((error, req, res, next) => {
     });
 });
 
-const server = app.listen(PORT);
+const server = app.listen(PORT, HOST);
 
 // Bound slow/incomplete clients so a few stalled connections cannot hold
 // resources indefinitely. Outbound Roblox/CDN requests have their own limits.
@@ -482,7 +514,7 @@ server.keepAliveTimeout = parsePositiveNumber(
 );
 
 server.on("listening", () => {
-    console.log(`AAE Server running on port ${PORT}`);
+    console.log(`AAE Server running at http://${HOST}:${PORT}`);
 });
 
 server.on("error", (error) => {

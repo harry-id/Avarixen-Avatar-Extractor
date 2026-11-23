@@ -44,6 +44,88 @@ function parseTrustProxy(value) {
 }
 
 /**
+ * Resolve TRUST_PROXY into a safe runtime mode.
+ *
+ * `true` trusts every forwarding header from every peer, so it is never safe
+ * for a public deployment. In production it fails startup; outside production
+ * it is downgraded to no proxy trust with a warning.
+ *
+ * `cloudflare` is the safe Cloudflare Tunnel mode: CF-Connecting-IP is only
+ * accepted when the direct TCP peer is loopback (the local cloudflared
+ * process), otherwise the socket address is used.
+ */
+function resolveTrustProxy(value, { production = false } = {}) {
+    const parsed = parseTrustProxy(value);
+
+    if (parsed === true) {
+        if (production) {
+            throw new Error(
+                "TRUST_PROXY=true trusts arbitrary X-Forwarded-For headers and is not allowed in production. " +
+                "Use TRUST_PROXY=cloudflare for Cloudflare Tunnel, a trusted hop count, or a proxy CIDR list."
+            );
+        }
+
+        return {
+            mode: "cloudflare",
+            value: false,
+            apply: true,
+            warning:
+                "TRUST_PROXY=true is unsafe as a general setting; treating it as Cloudflare mode. " +
+                "Use TRUST_PROXY=cloudflare explicitly and set NODE_ENV=production."
+        };
+    }
+
+    if (typeof parsed === "string" && ["cloudflare", "cf", "cf-tunnel"].includes(parsed.toLowerCase())) {
+        return { mode: "cloudflare", value: false, apply: true, warning: null };
+    }
+
+    if (parsed === undefined) {
+        return { mode: "none", value: undefined, apply: false, warning: null };
+    }
+
+    return { mode: "express", value: parsed, apply: true, warning: null };
+}
+
+/**
+ * Bind address. Defaults to loopback so a bare `node server.js` does not
+ * accidentally expose the API on every interface. Set HOST=0.0.0.0 explicitly
+ * when direct public binding is intended.
+ */
+function resolveHost(value, fallback = "127.0.0.1") {
+    if (value === undefined || value === null || String(value).trim() === "") {
+        return fallback;
+    }
+
+    const host = String(value).trim();
+
+    if (/[\s/]/.test(host)) {
+        throw new Error("HOST must be an address or hostname without spaces or slashes");
+    }
+
+    return host;
+}
+
+function resolveCorsOrigins(value, { production = false } = {}) {
+    const origins = String(value || "")
+        .split(",")
+        .map((origin) => origin.trim())
+        .filter(Boolean);
+
+    if (!origins.length && production) {
+        throw new Error(
+            "CORS_ORIGINS must be set in production. Wildcard CORS is not allowed for a public deployment."
+        );
+    }
+
+    if (production && origins.includes("*")) {
+        throw new Error("CORS_ORIGINS must not contain '*' in production.");
+    }
+
+    return origins;
+}
+
+
+/**
  * Parse a strictly positive number, falling back when the value is missing,
  * non-numeric, or <= 0. Used for TTL-style settings where a negative value
  * would otherwise make the cleanup sweep delete every cached avatar at once.
@@ -74,5 +156,8 @@ function parseNonNegativeNumber(value, fallback) {
 module.exports = {
     parsePositiveNumber,
     parseNonNegativeNumber,
-    parseTrustProxy
+    parseTrustProxy,
+    resolveTrustProxy,
+    resolveHost,
+    resolveCorsOrigins
 };

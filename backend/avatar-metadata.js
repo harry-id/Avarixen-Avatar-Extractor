@@ -40,7 +40,7 @@ async function fetchPlayerAvatar(fetchWithTimeout, apiKey, userId, options = {})
         try {
             const response = await fetchWithTimeout(
                 avatarInfoUrl(userId),
-                { headers: { "x-api-key": apiKey } },
+                { headers: { "x-api-key": apiKey }, signal: options.signal },
                 15000
             );
 
@@ -63,6 +63,9 @@ async function fetchPlayerAvatar(fetchWithTimeout, apiKey, userId, options = {})
             return last;
         } catch (error) {
             last = { ok: false, playerAvatarType: null, assets: [] };
+            if (options.signal && options.signal.aborted) {
+                throw error;
+            }
             if (attempt < attempts) {
                 console.warn(
                     `Avatar info request failed (attempt ${attempt}/${attempts}): ${error.message}. Retrying...`
@@ -126,9 +129,16 @@ async function fetchAvatar3D(fetchWithTimeout, apiKey, userId, options = {}) {
         try {
             response = await fetchWithTimeout(
                 avatar3dUrl(userId),
-                { headers: { "x-api-key": apiKey } }
+                { headers: { "x-api-key": apiKey }, signal: options.signal }
             );
         } catch (error) {
+            // Network / timeout errors are retried like retryable HTTP statuses,
+            // but a caller abort (client disconnect or download deadline) must
+            // terminate immediately.
+            if (options.signal && options.signal.aborted) {
+                throw error;
+            }
+
             // Network / timeout errors are retried like retryable HTTP statuses.
             last = {
                 ok: false,
@@ -189,13 +199,59 @@ async function fetchAvatar3D(fetchWithTimeout, apiKey, userId, options = {}) {
     return last;
 }
 
-function decodeMetadata(buffer) {
+function decodeMetadata(buffer, maxBytes = 8 * 1024 * 1024) {
+    if (buffer.length > maxBytes) {
+        throw new Error("Metadata exceeds the configured size limit");
+    }
+
     const isGzip = buffer.length >= 2 && buffer[0] === 0x1f && buffer[1] === 0x8b;
-    const text = isGzip
-        ? zlib.gunzipSync(buffer).toString("utf8")
-        : buffer.toString("utf8");
+    let text;
+
+    try {
+        text = isGzip
+            ? zlib.gunzipSync(buffer, { maxOutputLength: maxBytes }).toString("utf8")
+            : buffer.toString("utf8");
+    } catch {
+        throw new Error("Metadata exceeds the configured size limit");
+    }
+
+    if (Buffer.byteLength(text) > maxBytes) {
+        throw new Error("Metadata exceeds the configured size limit");
+    }
 
     return JSON.parse(text);
+}
+
+async function readBodyLimited(response, maxBytes) {
+    if (!response.body || typeof response.body.getReader !== "function") {
+        const buffer = Buffer.from(await response.arrayBuffer());
+        if (buffer.length > maxBytes) {
+            throw new Error("Metadata exceeds the configured size limit");
+        }
+        return buffer;
+    }
+
+    const reader = response.body.getReader();
+    const chunks = [];
+    let total = 0;
+
+    try {
+        while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            const chunk = Buffer.from(value);
+            total += chunk.length;
+            if (total > maxBytes) {
+                throw new Error("Metadata exceeds the configured size limit");
+            }
+            chunks.push(chunk);
+        }
+    } catch (error) {
+        await reader.cancel().catch(() => {});
+        throw error;
+    }
+
+    return Buffer.concat(chunks, total);
 }
 
 const REDIRECT_STATUS = new Set([301, 302, 303, 307, 308]);
@@ -206,7 +262,7 @@ const MAX_METADATA_REDIRECTS = 3;
  * same allowlist. `fetch()` follows redirects by default, which would let an
  * allowed URL redirect to localhost/private addresses and bypass the check.
  */
-async function fetchMetadataWithRedirects(fetchWithTimeout, imageUrl) {
+async function fetchMetadataWithRedirects(fetchWithTimeout, imageUrl, options = {}) {
     let current = imageUrl;
 
     for (let hop = 0; hop <= MAX_METADATA_REDIRECTS; hop++) {
@@ -216,7 +272,10 @@ async function fetchMetadataWithRedirects(fetchWithTimeout, imageUrl) {
 
         const response = await fetchWithTimeout(
             current,
-            { redirect: "manual" },
+            {
+                redirect: "manual",
+                signal: options.signal
+            },
             20000
         );
 
@@ -250,6 +309,9 @@ async function fetchAvatarMetadataJson(fetchWithTimeout, imageUrl, options = {})
     const delayMs = options.delayMs !== undefined ? options.delayMs : DEFAULT_DELAY_MS;
 
     let last = { ok: false, status: null, reason: "network", metadata: null, attempts: 0 };
+    const maxBytes = Number.isFinite(options.maxBytes) && options.maxBytes > 0
+        ? options.maxBytes
+        : 8 * 1024 * 1024;
 
     if (!isAllowedMetadataUrl(imageUrl)) {
         return {
@@ -265,7 +327,8 @@ async function fetchAvatarMetadataJson(fetchWithTimeout, imageUrl, options = {})
         try {
             const fetched = await fetchMetadataWithRedirects(
                 fetchWithTimeout,
-                imageUrl
+                imageUrl,
+                { signal: options.signal }
             );
 
             if (fetched.blocked) {
@@ -281,14 +344,13 @@ async function fetchAvatarMetadataJson(fetchWithTimeout, imageUrl, options = {})
             const response = fetched.response;
 
             if (response.ok) {
-                const buffer = Buffer.from(await response.arrayBuffer());
-
                 try {
+                    const buffer = await readBodyLimited(response, maxBytes);
                     return {
                         ok: true,
                         status: response.status,
                         reason: null,
-                        metadata: decodeMetadata(buffer),
+                        metadata: decodeMetadata(buffer, maxBytes),
                         attempts: attempt
                     };
                 } catch {
@@ -314,6 +376,10 @@ async function fetchAvatarMetadataJson(fetchWithTimeout, imageUrl, options = {})
                 }
             }
         } catch (error) {
+            if (options.signal && options.signal.aborted) {
+                throw error;
+            }
+
             last = {
                 ok: false,
                 status: null,
@@ -337,6 +403,7 @@ async function fetchAvatarMetadataJson(fetchWithTimeout, imageUrl, options = {})
 
 module.exports = {
     DEFAULT_ATTEMPTS,
+    decodeMetadata,
     fetchAvatar3D,
     fetchAvatarMetadataJson,
     fetchMetadataWithRedirects,

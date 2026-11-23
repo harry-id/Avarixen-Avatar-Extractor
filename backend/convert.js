@@ -1,12 +1,14 @@
 const fs = require("fs/promises");
 const path = require("path");
 const os = require("os");
+const crypto = require("crypto");
 const { NodeIO } = require("@gltf-transform/core");
 const JSZip = require("jszip");
 const { getLang, t } = require("./i18n");
 const { buildFbx } = require("./fbx-exporter");
 const { convertAvatar, getPartInfo } = require("./auto-rig");
 const { createConversionLimiter } = require("./conversion-limiter");
+const { createAdmissionLimiter } = require("./admission-limiter");
 const { parseNonNegativeNumber, parsePositiveNumber } = require("./config");
 const { withUserLock } = require("./user-lock");
 
@@ -18,6 +20,16 @@ const conversionLimiter = createConversionLimiter({
     maxConcurrent: parsePositiveNumber(process.env.MAX_CONCURRENT_CONVERSIONS, 2),
     maxQueue: parseNonNegativeNumber(process.env.MAX_CONVERSION_QUEUE, 8)
 });
+
+// The explorer route parses/segments an OBJ on the event loop. It needs its
+// own admission control so it cannot bypass the conversion queue.
+const defaultPartsLimiter = createAdmissionLimiter({
+    maxConcurrent: parsePositiveNumber(process.env.MAX_CONCURRENT_PARTS, 2),
+    maxQueue: parseNonNegativeNumber(process.env.MAX_PARTS_QUEUE, 8),
+    code: "EPARTSBUSY",
+    message: "Part analysis queue is full"
+});
+
 
 /**
  * Parse a boolean query param that may be "1", "true", "yes", etc.
@@ -182,7 +194,9 @@ function sendGeneratedFile(res, filePath, filename, contentType) {
     });
 }
 
-module.exports = function (app) {
+module.exports = function (app, options = {}) {
+    const partsLimiter = options.partsLimiter || defaultPartsLimiter;
+
     // Lightweight part-mapping lookup for the model explorer sidebar.
     app.get("/api/roblox/parts/:userId", async (req, res) => {
         const lang = getLang(req);
@@ -206,6 +220,20 @@ module.exports = function (app) {
             });
         }
 
+        let release;
+        try {
+            release = await partsLimiter.acquire();
+        } catch (error) {
+            if (error && error.code === "EPARTSBUSY") {
+                res.set("Retry-After", "5");
+                return res.status(503).json({
+                    success: false,
+                    message: t(lang, "parts.busy")
+                });
+            }
+            throw error;
+        }
+
         try {
             const moreJoints = parseBool(req.query.moreJoints);
             const info = getPartInfo(assetDir, { moreJoints });
@@ -220,10 +248,15 @@ module.exports = function (app) {
             });
         } catch (err) {
             console.error("Part info error:", err);
-            res.status(500).json({
-                success: false,
-                message: t(lang, "convert.failed")
-            });
+            if (!res.headersSent) {
+                const tooLarge = err && err.code === "EOBJTOOLARGE";
+                res.status(tooLarge ? 413 : 500).json({
+                    success: false,
+                    message: t(lang, tooLarge ? "convert.too_large" : "convert.failed")
+                });
+            }
+        } finally {
+            release();
         }
     });
 
@@ -349,7 +382,15 @@ module.exports = function (app) {
                         bendAccessories
                     });
                 } catch (fbxError) {
-                    console.error("FBX conversion failed:", fbxError);
+                    const errorId = crypto.randomUUID();
+                    console.error(`FBX conversion failed [${errorId}]:`, fbxError);
+
+                    if (fbxError && fbxError.code === "EOBJTOOLARGE") {
+                        return res.status(413).json({
+                            success: false,
+                            message: t(lang, "convert.too_large")
+                        });
+                    }
 
                     // A rig failure is a client-visible 422; other failures
                     // (I/O, parser, memory) remain a 500.
@@ -359,9 +400,7 @@ module.exports = function (app) {
 
                     return res.status(422).json({
                         success: false,
-                        message: t(lang, "convert.rig_failed", {
-                            message: fbxError.message
-                        })
+                        message: t(lang, "convert.rig_failed_generic")
                     });
                 }
 
@@ -400,7 +439,15 @@ module.exports = function (app) {
                     bendAccessories
                 }));
             } catch (conversionError) {
-                console.error("Avatar conversion failed:", conversionError);
+                const errorId = crypto.randomUUID();
+                console.error(`Avatar conversion failed [${errorId}]:`, conversionError);
+
+                if (conversionError && conversionError.code === "EOBJTOOLARGE") {
+                    return res.status(413).json({
+                        success: false,
+                        message: t(lang, "convert.too_large")
+                    });
+                }
 
                 // Only a requested rig can fail with a "rig" error; plain
                 // GLB/GLTF failures must stay a 500.
@@ -410,9 +457,7 @@ module.exports = function (app) {
 
                 return res.status(422).json({
                     success: false,
-                    message: t(lang, "convert.rig_failed", {
-                        message: conversionError.message
-                    })
+                    message: t(lang, "convert.rig_failed_generic")
                 });
             }
 

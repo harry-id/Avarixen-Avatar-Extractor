@@ -13,9 +13,9 @@ const USER_ID = String(9_910_000_000 + Math.floor(Math.random() * 100000));
 const DOWNLOADS_DIR = path.join(__dirname, "../../downloads");
 const USER_DIR = path.join(DOWNLOADS_DIR, USER_ID);
 
-async function withServer(run) {
+async function withServer(run, options = {}) {
     const app = express();
-    registerConvertRoutes(app);
+    registerConvertRoutes(app, options);
     const server = app.listen(0, "127.0.0.1");
     await new Promise((resolve) => server.once("listening", resolve));
 
@@ -94,6 +94,69 @@ test("conversion streams GLB and separate GLTF ZIP responses", async () => {
             assert.ok(archive.file("model.bin"));
         });
     } finally {
+        await fs.rm(USER_DIR, { recursive: true, force: true });
+    }
+});
+
+test("parts queue overflow returns 503", async () => {
+    const { createAdmissionLimiter } = require("../admission-limiter");
+    const limiter = createAdmissionLimiter({
+        maxConcurrent: 1,
+        maxQueue: 0,
+        code: "EPARTSBUSY"
+    });
+    const release = await limiter.acquire();
+
+    await fs.mkdir(USER_DIR, { recursive: true });
+    await fs.writeFile(path.join(USER_DIR, "avatar.obj"), [
+        "v 0 0 0",
+        "v 1 0 0",
+        "v 0 1 0",
+        "f 1 2 3",
+        ""
+    ].join("\n"));
+
+    try {
+        await withServer(async (base) => {
+            const response = await fetch(
+                `${base}/api/roblox/parts/${USER_ID}`
+            );
+            assert.equal(response.status, 503);
+            assert.equal(response.headers.get("retry-after"), "5");
+        }, { partsLimiter: limiter });
+    } finally {
+        release();
+        await fs.rm(USER_DIR, { recursive: true, force: true });
+    }
+});
+
+test("oversized OBJ is rejected with 413 by parts and convert", async () => {
+    await fs.mkdir(USER_DIR, { recursive: true });
+    await fs.writeFile(path.join(USER_DIR, "avatar.obj"), [
+        "v 0 0 0",
+        "v 1 0 0",
+        "v 0 1 0",
+        "f 1 2 3",
+        ""
+    ].join("\n"));
+    await fs.writeFile(path.join(USER_DIR, "avatar.mtl"), "");
+
+    const previous = process.env.MAX_OBJ_BYTES;
+    process.env.MAX_OBJ_BYTES = "8";
+
+    try {
+        await withServer(async (base) => {
+            const parts = await fetch(`${base}/api/roblox/parts/${USER_ID}`);
+            assert.equal(parts.status, 413);
+
+            const convert = await fetch(
+                `${base}/api/roblox/convert/${USER_ID}/glb`
+            );
+            assert.equal(convert.status, 413);
+        });
+    } finally {
+        if (previous === undefined) delete process.env.MAX_OBJ_BYTES;
+        else process.env.MAX_OBJ_BYTES = previous;
         await fs.rm(USER_DIR, { recursive: true, force: true });
     }
 });

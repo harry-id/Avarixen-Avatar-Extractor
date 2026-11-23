@@ -2,22 +2,85 @@ const fs = require("fs/promises");
 const path = require("path");
 const zlib = require("zlib");
 const { getLang, t } = require("./i18n");
-const { fetchAvatar3D, fetchPlayerAvatar, fetchAvatarMetadataJson } = require("./avatar-metadata");
+const { fetchAvatar3D, fetchPlayerAvatar, fetchAvatarMetadataJson, isAllowedMetadataUrl } = require("./avatar-metadata");
 const { normalizeObjForExport, renameObjGroups } = require("./obj-utils");
 const { getPartInfo } = require("./auto-rig");
 const {
     fetchWithTimeout: defaultFetchWithTimeout,
     isTimeoutError
 } = require("./fetch-utils");
-const { withUserLock } = require("./user-lock");
+const { withUserLock, isUserLocked } = require("./user-lock");
+const { createAdmissionLimiter } = require("./admission-limiter");
+const { parseNonNegativeNumber, parsePositiveNumber } = require("./config");
+const { sweepDownloads, entrySize, getAvailableBytes } = require("./downloads-cleanup");
 const { version: APP_VERSION } = require("./package.json");
+
+const DEFAULT_MAX_CONCURRENT_DOWNLOADS = 2;
+const DEFAULT_MAX_DOWNLOAD_QUEUE = 8;
+const DEFAULT_MAX_ASSET_BYTES = 64 * 1024 * 1024;
+const DEFAULT_MAX_AVATAR_BYTES = 256 * 1024 * 1024;
+const DEFAULT_DOWNLOAD_TIMEOUT_MS = 120_000;
+const DEFAULT_MAX_METADATA_BYTES = 8 * 1024 * 1024;
+const MAX_REDIRECTS = 3;
+const REDIRECT_STATUS = new Set([301, 302, 303, 307, 308]);
+
+class DownloadTooLargeError extends Error {
+    constructor(message = "Avatar asset exceeds the configured size limit") {
+        super(message);
+        this.name = "DownloadTooLargeError";
+        this.code = "EASSETTOOLARGE";
+        this.status = 413;
+    }
+}
+
+class CacheQuotaError extends Error {
+    constructor(message = "Avatar cache quota exceeded") {
+        super(message);
+        this.name = "CacheQuotaError";
+        this.code = "ECACHEQUOTA";
+        this.status = 507;
+    }
+}
+
+class InsufficientStorageError extends Error {
+    constructor(message = "Not enough free disk space for the avatar cache") {
+        super(message);
+        this.name = "InsufficientStorageError";
+        this.code = "ENOSPC";
+        this.status = 507;
+    }
+}
+
+function isAssetTooLarge(error) {
+    return Boolean(
+        error &&
+        (error.code === "EASSETTOOLARGE" || error.code === "ERR_BUFFER_TOO_LARGE")
+    );
+}
+
+function checkLimitError(error) {
+    if (!error) return error;
+    if (error.code === "ERR_BUFFER_TOO_LARGE") {
+        return new DownloadTooLargeError("Decompressed avatar data exceeds the configured size limit");
+    }
+    return error;
+}
+
 
 // Per-file asset download chatter is noisy; enable with LOG_ASSETS=1.
 const logAssets = process.env.LOG_ASSETS === "1";
 
-function decompress(buffer) {
+function decompress(buffer, maxBytes = DEFAULT_MAX_AVATAR_BYTES) {
+    if (buffer.length > maxBytes) {
+        throw new DownloadTooLargeError();
+    }
+
     if (buffer.length >= 2 && buffer[0] === 0x1f && buffer[1] === 0x8b) {
-        return zlib.gunzipSync(buffer);
+        try {
+            return zlib.gunzipSync(buffer, { maxOutputLength: maxBytes });
+        } catch (error) {
+            throw checkLimitError(error);
+        }
     }
 
     return buffer;
@@ -118,7 +181,7 @@ function planTextures(hashes, buffers, mtlText) {
 function applyBodyPartNames(assetDir, objText, hint = null) {
     try {
         const info = getPartInfo(assetDir, { hint });
-        const renames = {};
+        const renames = Object.create(null);
 
         for (const group of info.groups) {
             if (group.name.startsWith("Player") && group.part) {
@@ -138,12 +201,124 @@ function applyBodyPartNames(assetDir, objText, hint = null) {
     }
 }
 
-async function tryDownloadUrl(url, fetchWithTimeout, headers) {
-    const response = await fetchWithTimeout(url, { headers }, 20000);
+function contentLength(response) {
+    const value = response.headers && typeof response.headers.get === "function"
+        ? response.headers.get("content-length")
+        : null;
+    const number = Number(value);
+    return Number.isFinite(number) && number >= 0 ? number : null;
+}
+
+/**
+ * Read a response body without ever buffering more than the configured limits.
+ * The optional shared budget carries a per-avatar total across concurrent asset
+ * downloads.
+ */
+async function readResponseLimited(response, { maxBytes, budget } = {}) {
+    const limit = Number.isFinite(maxBytes) && maxBytes > 0
+        ? maxBytes
+        : DEFAULT_MAX_ASSET_BYTES;
+    const declared = contentLength(response);
+
+    if (declared !== null && declared > limit) {
+        throw new DownloadTooLargeError();
+    }
+
+    const remainingBudget = budget && Number.isFinite(budget.max)
+        ? budget.max - budget.used
+        : Infinity;
+
+    if (declared !== null && declared > remainingBudget) {
+        throw new DownloadTooLargeError("Avatar exceeds the configured total size limit");
+    }
+
+    if (!response.body || typeof response.body.getReader !== "function") {
+        const buffer = Buffer.from(await response.arrayBuffer());
+        if (buffer.length > limit || buffer.length > remainingBudget) {
+            throw new DownloadTooLargeError();
+        }
+        if (budget) budget.used += buffer.length;
+        return buffer;
+    }
+
+    const reader = response.body.getReader();
+    const chunks = [];
+    let total = 0;
+
+    try {
+        while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+
+            const chunk = Buffer.from(value);
+            total += chunk.length;
+
+            if (total > limit) {
+                throw new DownloadTooLargeError();
+            }
+
+            if (budget) {
+                budget.used += chunk.length;
+                if (budget.used > budget.max) {
+                    throw new DownloadTooLargeError("Avatar exceeds the configured total size limit");
+                }
+            }
+
+            chunks.push(chunk);
+        }
+    } catch (error) {
+        await reader.cancel().catch(() => {});
+        throw checkLimitError(error);
+    }
+
+    return Buffer.concat(chunks, total);
+}
+
+async function fetchAssetResponse(url, fetchWithTimeout, headers, signal) {
+    let current = url;
+
+    for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
+        if (!isAllowedMetadataUrl(current)) {
+            throw new Error("Asset download blocked: destination is not an approved Roblox CDN host");
+        }
+
+        const response = await fetchWithTimeout(
+            current,
+            { headers, signal, redirect: "manual" },
+            20000
+        );
+
+        if (REDIRECT_STATUS.has(response.status)) {
+            const location = response.headers &&
+                typeof response.headers.get === "function"
+                ? response.headers.get("location")
+                : null;
+
+            if (!location) {
+                throw new Error("Asset download blocked: redirect without a Location header");
+            }
+
+            current = new URL(location, current).toString();
+            continue;
+        }
+
+        return response;
+    }
+
+    throw new Error("Asset download blocked: too many redirects");
+}
+
+async function tryDownloadUrl(url, fetchWithTimeout, headers, options = {}) {
+    const response = await fetchAssetResponse(url, fetchWithTimeout, headers, options.signal);
+
     if (!response.ok) {
         throw new Error(`HTTP ${response.status}`);
     }
-    return Buffer.from(await response.arrayBuffer());
+
+    return readResponseLimited(response, {
+        maxBytes: options.maxBytes,
+        budget: options.budget
+    });
 }
 
 async function downloadAsset(hash, fetchWithTimeout, options = {}) {
@@ -163,17 +338,28 @@ async function downloadAsset(hash, fetchWithTimeout, options = {}) {
             return await tryDownloadUrl(
                 url,
                 fetchWithTimeout,
-                { ...ASSET_HEADERS, ...options.headers }
+                { ...ASSET_HEADERS, ...options.headers },
+                {
+                    signal: options.signal,
+                    maxBytes: options.maxBytes,
+                    budget: options.budget
+                }
             );
         } catch (err) {
             lastError.push(`${host}: ${err.message}`);
+
+            // Size limits and cancellation are request-wide failures; never
+            // mask them by trying the next CDN host or skipping a texture.
+            if (isAssetTooLarge(err) || isTimeoutError(err) || err.name === "AbortError") {
+                throw err;
+            }
+
             if (options.allowFailure) {
                 if (logAssets) {
                     console.warn(`Asset download failed for ${url}, skipping`);
                 }
                 continue;
             }
-            // For required assets (obj/mtl), try next host before giving up
             continue;
         }
     }
@@ -190,6 +376,47 @@ async function downloadAsset(hash, fetchWithTimeout, options = {}) {
     );
 }
 
+let cacheQuotaTail = Promise.resolve();
+
+function withCacheQuotaLock(task) {
+    const run = cacheQuotaTail.catch(() => {}).then(task);
+    cacheQuotaTail = run.catch(() => {});
+    return run;
+}
+
+/**
+ * Enforce the cache byte quota immediately before committing a staged avatar.
+ * The check is serialized so concurrent downloads cannot all observe an
+ * under-quota cache and then commit past the limit.
+ */
+async function enforceCacheQuota(downloadsRoot, outputDir, maxBytes) {
+    if (!(maxBytes > 0)) {
+        return;
+    }
+
+    return withCacheQuotaLock(async () => {
+        const oldSize = entrySize(outputDir);
+
+        // Evict unlocked old entries first; the current user is locked by
+        // withUserLock, so its old output and staging directory are preserved.
+        sweepDownloads(downloadsRoot, Number.POSITIVE_INFINITY, Date.now(), {
+            maxBytes,
+            shouldSkip: (fullPath, name) => {
+                if (isUserLocked(name)) return true;
+                const match = /^\.(?:stage|old)-(\d+)-/.exec(name);
+                return match ? isUserLocked(match[1]) : false;
+            }
+        });
+
+        const total = entrySize(downloadsRoot);
+        const committed = total - oldSize;
+
+        if (committed > maxBytes) {
+            throw new CacheQuotaError();
+        }
+    });
+}
+
 module.exports = function (app, options = {}) {
     const fetchWithTimeout =
         options.fetchWithTimeout || defaultFetchWithTimeout;
@@ -200,6 +427,33 @@ module.exports = function (app, options = {}) {
             const apiKey = process.env.ROBLOX_API_KEY;
             return apiKey && apiKey !== "your_roblox_api_key_here" ? apiKey : null;
         });
+
+    const maxAssetBytes = options.maxAssetBytes !== undefined
+        ? options.maxAssetBytes
+        : parsePositiveNumber(process.env.MAX_ASSET_BYTES, DEFAULT_MAX_ASSET_BYTES);
+    const maxAvatarBytes = options.maxAvatarBytes !== undefined
+        ? options.maxAvatarBytes
+        : parsePositiveNumber(process.env.MAX_AVATAR_BYTES, DEFAULT_MAX_AVATAR_BYTES);
+    const maxMetadataBytes = options.maxMetadataBytes !== undefined
+        ? options.maxMetadataBytes
+        : parsePositiveNumber(process.env.MAX_METADATA_BYTES, DEFAULT_MAX_METADATA_BYTES);
+    const downloadTimeoutMs = options.downloadTimeoutMs !== undefined
+        ? options.downloadTimeoutMs
+        : parsePositiveNumber(process.env.DOWNLOAD_TIMEOUT_MS, DEFAULT_DOWNLOAD_TIMEOUT_MS);
+    const downloadsMaxBytes = options.downloadsMaxBytes !== undefined
+        ? options.downloadsMaxBytes
+        : parseNonNegativeNumber(process.env.DOWNLOADS_MAX_BYTES, 5 * 1024 * 1024 * 1024);
+    const minFreeDiskBytes = options.minFreeDiskBytes !== undefined
+        ? options.minFreeDiskBytes
+        : parseNonNegativeNumber(process.env.MIN_FREE_DISK_BYTES, 512 * 1024 * 1024);
+    const getFreeDiskBytes = options.getFreeDiskBytes || getAvailableBytes;
+    const downloadsRoot = options.downloadsRoot || path.join(__dirname, "../downloads");
+    const downloadLimiter = options.downloadLimiter || createAdmissionLimiter({
+        maxConcurrent: parsePositiveNumber(process.env.MAX_CONCURRENT_DOWNLOADS, DEFAULT_MAX_CONCURRENT_DOWNLOADS),
+        maxQueue: parseNonNegativeNumber(process.env.MAX_DOWNLOAD_QUEUE, DEFAULT_MAX_DOWNLOAD_QUEUE),
+        code: "EDOWNLOADBUSY",
+        message: "Download queue is full"
+    });
 
     // Downloads mutate the cache and can be expensive. HEAD requests must not
     // run the GET handler (Express would otherwise route HEAD to it).
@@ -229,6 +483,68 @@ module.exports = function (app, options = {}) {
                 });
             }
 
+            const outputDir = path.join(downloadsRoot, userId);
+
+            try {
+                await fs.mkdir(downloadsRoot, { recursive: true });
+                if (minFreeDiskBytes > 0) {
+                    const freeBytes = await getFreeDiskBytes(downloadsRoot);
+                    if (Number.isFinite(freeBytes) && freeBytes < minFreeDiskBytes) {
+                        console.warn(
+                            `[download] free-space guard: ${freeBytes} bytes available, ` +
+                            `${minFreeDiskBytes} required`
+                        );
+                        return res.status(507).json({
+                            success: false,
+                            message: t(lang, "download.no_space")
+                        });
+                    }
+                }
+            } catch (error) {
+                console.error("Download storage check failed:", error);
+                return res.status(500).json({
+                    success: false,
+                    message: t(lang, "download.write_failed")
+                });
+            }
+
+            let release;
+            try {
+                release = await downloadLimiter.acquire();
+            } catch (error) {
+                if (error && error.code === "EDOWNLOADBUSY") {
+                    res.set("Retry-After", "5");
+                    return res.status(503).json({
+                        success: false,
+                        message: t(lang, "download.busy")
+                    });
+                }
+                throw error;
+            }
+
+            const controller = new AbortController();
+            let deadlineExceeded = false;
+            const deadline = setTimeout(() => {
+                deadlineExceeded = true;
+                const error = new Error("Download deadline exceeded");
+                error.name = "AbortError";
+                error.code = "EDOWNLOADTIMEOUT";
+                controller.abort(error);
+            }, downloadTimeoutMs);
+            if (typeof deadline.unref === "function") deadline.unref();
+
+            const abortOnDisconnect = () => {
+                if (!res.writableEnded) {
+                    const error = new Error("Client disconnected");
+                    error.name = "AbortError";
+                    error.code = "ECLIENTABORT";
+                    controller.abort(error);
+                }
+            };
+            res.on("close", abortOnDisconnect);
+
+            try {
+
             // Serialize same-user downloads. Two concurrent requests used to
             // overwrite the same files, and a conversion could read a partially
             // replaced cache.
@@ -237,7 +553,8 @@ module.exports = function (app, options = {}) {
             const avatar = await fetchAvatar3D(
                 fetchWithTimeout,
                 apiKey,
-                userId
+                userId,
+                { signal: controller.signal }
             );
 
             if (!avatar.ok) {
@@ -259,10 +576,14 @@ module.exports = function (app, options = {}) {
             // JSON so it adds no serial latency. Best-effort: it never fails the
             // download.
             const [metadataResult, playerAvatar] = await Promise.all([
-                fetchAvatarMetadataJson(fetchWithTimeout, imageUrl),
+                fetchAvatarMetadataJson(fetchWithTimeout, imageUrl, {
+                    signal: controller.signal,
+                    maxBytes: maxMetadataBytes
+                }),
                 fetchPlayerAvatar(fetchWithTimeout, apiKey, userId, {
                     attempts: 2,
-                    delayMs: 500
+                    delayMs: 500,
+                    signal: controller.signal
                 })
             ]);
 
@@ -313,17 +634,37 @@ module.exports = function (app, options = {}) {
                 });
             }
 
+            const byteBudget = { used: 0, max: maxAvatarBytes };
             const [objRaw, mtlRaw, ...textureRawBuffers] =
                 await Promise.all([
-                    downloadAsset(metadata.obj, fetchWithTimeout),
-                    downloadAsset(metadata.mtl, fetchWithTimeout),
+                    downloadAsset(metadata.obj, fetchWithTimeout, {
+                        signal: controller.signal,
+                        maxBytes: maxAssetBytes,
+                        budget: byteBudget
+                    }),
+                    downloadAsset(metadata.mtl, fetchWithTimeout, {
+                        signal: controller.signal,
+                        maxBytes: maxAssetBytes,
+                        budget: byteBudget
+                    }),
                     ...metadata.textures.map((hash) =>
-                        downloadAsset(hash, fetchWithTimeout, { allowFailure: true })
+                        downloadAsset(hash, fetchWithTimeout, {
+                            allowFailure: true,
+                            signal: controller.signal,
+                            maxBytes: maxAssetBytes,
+                            budget: byteBudget
+                        })
                     )
                 ]);
 
-            let obj = decompress(objRaw).toString("utf8");
-            let mtl = decompress(mtlRaw).toString("utf8");
+            let obj = decompress(objRaw, maxAvatarBytes).toString("utf8");
+            let mtl = decompress(mtlRaw, maxAvatarBytes).toString("utf8");
+
+            if (
+                Buffer.byteLength(obj) + Buffer.byteLength(mtl) > maxAvatarBytes
+            ) {
+                throw new DownloadTooLargeError();
+            }
 
             // Pair textures with their buffers, skipping any that failed to download.
             // Names stay contiguous so the frontend ZIP probe sees every texture.
@@ -342,6 +683,14 @@ module.exports = function (app, options = {}) {
             const textureFiles = texturePlan.textures;
             mtl = texturePlan.mtl;
 
+            const plannedBytes =
+                Buffer.byteLength(obj) +
+                Buffer.byteLength(mtl) +
+                textureFiles.reduce((sum, texture) => sum + texture.buffer.length, 0);
+            if (plannedBytes > maxAvatarBytes) {
+                throw new DownloadTooLargeError();
+            }
+
             if (/^mtllib\s+/m.test(obj)) {
                 obj = obj.replace(/^mtllib.*$/gm, "mtllib avatar.mtl");
             } else {
@@ -351,11 +700,6 @@ module.exports = function (app, options = {}) {
             // Ground the model (Roblox keeps it ~100 units up) and mirror
             // group names as objects so Blender imports every body part.
             obj = normalizeObjForExport(obj);
-
-            const downloadsRoot = path.join(__dirname, "../downloads");
-            const outputDir = path.join(downloadsRoot, userId);
-
-            await fs.mkdir(downloadsRoot, { recursive: true });
 
             // Build the complete avatar in a staging directory first, then
             // swap it into place. This avoids both partial files visible via
@@ -400,6 +744,8 @@ module.exports = function (app, options = {}) {
                         fs.writeFile(path.join(stagingDir, texture.filename), texture.buffer)
                     )
                 );
+
+                await enforceCacheQuota(downloadsRoot, outputDir, downloadsMaxBytes);
 
                 const backupDir = path.join(
                     downloadsRoot,
@@ -466,22 +812,49 @@ module.exports = function (app, options = {}) {
 
             });
 
+            } finally {
+                clearTimeout(deadline);
+                res.off("close", abortOnDisconnect);
+                release();
+            }
+
         } catch (error) {
+            if (res.headersSent || res.writableEnded) {
+                return;
+            }
+
             console.error("Avatar Downloader:", error);
             const isTimeout = isTimeoutError(error);
             const isPermissionError =
                 error && ["EACCES", "EPERM", "EROFS"].includes(error.code);
+            const isTooLarge = isAssetTooLarge(error) || error.code === "EOBJTOOLARGE";
+            const isStorage = error && (
+                error.code === "ECACHEQUOTA" ||
+                error.code === "ENOSPC" ||
+                error.code === "EDQUOT"
+            );
 
-            res.status(isTimeout ? 504 : 500).json({
+            let status = 500;
+            let key = "download.failed";
+
+            if (error && error.name === "AbortError" && error.code === "ECLIENTABORT") {
+                return;
+            } else if (isTooLarge) {
+                status = 413;
+                key = "download.too_large";
+            } else if (isStorage) {
+                status = 507;
+                key = "download.no_space";
+            } else if (isTimeout) {
+                status = 504;
+                key = "download.timeout";
+            } else if (isPermissionError) {
+                key = "download.write_failed";
+            }
+
+            res.status(status).json({
                 success: false,
-                message: t(
-                    lang,
-                    isTimeout
-                        ? "download.timeout"
-                        : isPermissionError
-                            ? "download.write_failed"
-                            : "download.failed"
-                )
+                message: t(lang, key)
             });
         }
     });
@@ -489,3 +862,7 @@ module.exports = function (app, options = {}) {
 
 // Exported for unit tests (pure helper, no Express dependency).
 module.exports.planTextures = planTextures;
+module.exports.readResponseLimited = readResponseLimited;
+module.exports.fetchAssetResponse = fetchAssetResponse;
+module.exports.decompress = decompress;
+module.exports.DownloadTooLargeError = DownloadTooLargeError;

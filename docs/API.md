@@ -41,21 +41,23 @@ All JSON endpoints return:
 | `200` | OK |
 | `400` | Bad request (invalid ID, empty username, unsupported format) |
 | `404` | Not found (unknown user, OBJ not cached) |
+| `413` | Input or asset exceeds a configured size limit |
 | `422` | Conversion failed (e.g. auto-rig failed) |
 | `429` | Rate limited (`Retry-After` header) |
 | `500` | Server/config error (missing API key, write failure) |
 | `502` | Upstream Roblox failure |
-| `503` | Conversion queue full (retry later) |
+| `503` | Conversion/download/parts queue full (retry later) |
 | `504` | Upstream timeout |
+| `507` | Cache quota or free-disk threshold reached |
 
 ### Rate limiting
-`/api/*` is limited to **60 requests/minute per IP**. Exceeding it returns `429` with a `Retry-After` header (seconds). `/assets/*` and `/` are not rate-limited.
+`/api/*` is limited to **60 requests/minute per IP**. Exceeding it returns `429` with a `Retry-After` header (seconds). `/assets/*` and `/` are not rate-limited. In production, configure `TRUST_PROXY=cloudflare` behind Cloudflare Tunnel or a trusted hop/CIDR list; `TRUST_PROXY=true` is rejected.
+
+### Resource limits
+Downloads are admitted by `MAX_CONCURRENT_DOWNLOADS` / `MAX_DOWNLOAD_QUEUE` and bounded by `MAX_ASSET_BYTES`, `MAX_AVATAR_BYTES`, and `DOWNLOAD_TIMEOUT_MS`. Conversion and explorer parsing are admitted by `MAX_CONCURRENT_CONVERSIONS` / `MAX_CONVERSION_QUEUE` and `MAX_CONCURRENT_PARTS` / `MAX_PARTS_QUEUE`. OBJ inputs are limited by `MAX_OBJ_BYTES`, `MAX_OBJ_VERTICES`, and `MAX_OBJ_FACES`. Oversized inputs return `413`; exhausted queues return `503`.
 
 ### CORS
-Controlled by `CORS_ORIGINS` (comma-separated). If unset, CORS is permissive. Production should set:
-```
-CORS_ORIGINS=https://harry-id.github.io
-```
+Controlled by `CORS_ORIGINS` (comma-separated). If unset in development, CORS is permissive with a warning. Production requires explicit origins.
 
 ---
 
@@ -153,9 +155,12 @@ Download the avatar's OBJ/MTL/textures and cache them under `downloads/<userId>/
 | Status | Message key |
 |---|---|
 | `400` | `download.invalid_user_id` |
+| `413` | `download.too_large` |
 | `500` | `download.not_configured`, `download.write_failed`, `download.failed` |
 | `502` | `download.upstream_avatar_failed`, `download.metadata_failed`, `download.metadata_invalid`, `download.metadata_incomplete` |
+| `503` | `download.busy` (`Retry-After`) |
 | `504` | `download.timeout` |
+| `507` | `download.no_space` |
 
 ---
 
@@ -186,7 +191,9 @@ Part/group metadata for the model explorer sidebar.
 |---|---|
 | `400` | `convert.invalid_user_id` |
 | `404` | `convert.no_obj` |
+| `413` | `convert.too_large` |
 | `500` | `convert.failed` |
+| `503` | `parts.busy` (analysis queue full; `Retry-After`) |
 
 ---
 
@@ -249,7 +256,7 @@ wait
 
 ## Notes
 - `/convert` requires a prior `/download` for that user (files cached under `downloads/<id>/`).
-- Cached downloads are deleted after `DOWNLOADS_TTL_HOURS` (default **24h**) or when `DOWNLOADS_MAX_BYTES` is exceeded; re-download to refresh.
+- Cached downloads are deleted after `DOWNLOADS_TTL_HOURS` (default **24h**) or when `DOWNLOADS_MAX_BYTES` is exceeded (default **5 GiB**; `0` explicitly means unlimited). `MIN_FREE_DISK_BYTES` blocks new downloads when free space is low.
 - Conversion is CPU-bound and bounded by `MAX_CONCURRENT_CONVERSIONS` / `MAX_CONVERSION_QUEUE`; parallel requests share the same process/cores.
 - `subdivision` refines the **body only** (Head + `Handle*` accessories excluded). Capped at ~3.5M faces.
 - `rig`/`moreJoints` apply to GLB/GLTF/FBX; OBJ is always the original geometry.

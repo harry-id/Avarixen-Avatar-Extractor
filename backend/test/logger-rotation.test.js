@@ -59,3 +59,10 @@ test("parseLogLimit accepts zero and rejects invalid/negative values", () => {
     assert.equal(parseLogLimit("junk", 10), 10);
     assert.equal(parseLogLimit(undefined, 10), 10);
 });
+
+test("sanitizeLogMessage strips ANSI and escapes CR/LF", () => {
+    const { sanitizeLogMessage } = require("../logger");
+    const value = "one\r\ntwo\nthree\u001b[31m";
+
+    assert.equal(sanitizeLogMessage(value), "one\\r\\ntwo\\nthree");
+});

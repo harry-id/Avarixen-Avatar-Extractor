@@ -202,8 +202,28 @@ function startDownloadsCleanup(options = {}) {
     };
 }
 
+/**
+ * Return bytes available to the current process on the filesystem holding
+ * `dir`. Falls back to Infinity when statfs is unavailable so callers can
+ * decide whether to treat that as a hard failure.
+ */
+async function getAvailableBytes(dir) {
+    if (typeof fs.promises.statfs !== "function") {
+        return Infinity;
+    }
+
+    try {
+        const stats = await fs.promises.statfs(dir);
+        return Number(stats.bavail) * Number(stats.bsize);
+    } catch {
+        return 0;
+    }
+}
+
 module.exports = {
     DEFAULTS,
+    entrySize,
+    getAvailableBytes,
     sweepDownloads,
     startDownloadsCleanup
 };

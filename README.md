@@ -49,7 +49,9 @@ cp backend/.env.example backend/.env
 ```env
 ROBLOX_API_KEY=your_roblox_api_key_here
 # PORT=3000
+# HOST=127.0.0.1
 # CORS_ORIGINS=http://localhost:3001
+# TRUST_PROXY=cloudflare
 ```
 
 ### Create a Roblox API key
@@ -65,12 +67,16 @@ ROBLOX_API_KEY=your_roblox_api_key_here
 
 Notes:
 - `ROBLOX_API_KEY` is required for avatar metadata and downloads.
-- `CORS_ORIGINS` (comma-separated) — unset keeps CORS permissive (the server logs a warning); set explicit origins in production.
-- `DOWNLOADS_TTL_HOURS` (default `24`) expires cached avatars; `DOWNLOADS_MAX_BYTES` adds an optional total cache quota (`0` = unlimited).
-- `MAX_CONCURRENT_CONVERSIONS` (default `2`) and `MAX_CONVERSION_QUEUE` (default `8`) bound CPU-heavy GLB/GLTF/FBX work.
-- Request logging is on by default. `LOG_REQUESTS=false` disables it; `LOG_REQUESTS=verbose` adds bodies/user agents; `LOG_ASSETS=1` adds per-file CDN logs (noisy).
+- `NODE_ENV=production` is recommended. In production, `CORS_ORIGINS` is required; the server refuses to start with wildcard CORS.
+- `HOST` defaults to `127.0.0.1`. Set `HOST=0.0.0.0` only when direct public binding is intentional; keep the origin behind Cloudflare Tunnel or a firewall otherwise.
+- `TRUST_PROXY=cloudflare` is the safe Cloudflare Tunnel mode: `CF-Connecting-IP` is trusted only when the direct peer is loopback. `TRUST_PROXY=1` or a CIDR list can be used when the origin is protected. `TRUST_PROXY=true` is rejected in production and downgraded elsewhere.
+- `DOWNLOADS_TTL_HOURS` (default `24`) expires cached avatars. `DOWNLOADS_MAX_BYTES` defaults to **5 GiB**; set `0` only for an explicitly unlimited cache. `MIN_FREE_DISK_BYTES` (default 512 MiB) blocks downloads when free space is low.
+- `MAX_CONCURRENT_CONVERSIONS` (default `2`) and `MAX_CONVERSION_QUEUE` (default `8`) bound CPU-heavy GLB/GLTF/FBX work. `MAX_CONCURRENT_PARTS`/`MAX_PARTS_QUEUE` (default `2`/`8`) bound explorer parsing.
+- `MAX_OBJ_BYTES`, `MAX_OBJ_VERTICES`, and `MAX_OBJ_FACES` reject oversized OBJ inputs before conversion (defaults: 64 MiB, 1.5M vertices, 1M faces).
+- `MAX_CONCURRENT_DOWNLOADS`/`MAX_DOWNLOAD_QUEUE` (default `2`/`8`), `MAX_ASSET_BYTES` (64 MiB), `MAX_AVATAR_BYTES` (256 MiB), and `DOWNLOAD_TIMEOUT_MS` (120s) bound upstream downloads.
+- Request logging is on by default. `LOG_REQUESTS=false` disables it; `LOG_REQUESTS=verbose` adds bodies/user agents (forced off in production); `LOG_ASSETS=1` adds per-file CDN logs (noisy).
 - File logging is on by default: a clean (ANSI-stripped) copy of every console line is written to `backend/aae.log`. Set `AAE_LOG_FILE=false` to disable, `AAE_LOG_FILE=<path>` to change the location, or `AAE_LOG_LEVEL=debug|info|warn|error` (default `info`) to filter.
-- Logs rotate at `AAE_LOG_MAX_BYTES` (default 10 MiB) and keep `AAE_LOG_MAX_FILES` files (default 3). Logs contain client IPs and user IDs; treat them as operational data and restrict access.
+- Logs rotate at `AAE_LOG_MAX_BYTES` (default 10 MiB) and keep `AAE_LOG_MAX_FILES` files (default 3). Log files are created/restored with mode `0600`. Logs contain client IPs and user IDs; treat them as operational data and restrict access.
 
 ### 3. Run (single command)
 
@@ -92,6 +98,15 @@ Press `Ctrl+C` to stop both servers.
 > Tip: you still need to create `backend/.env` from `backend/.env.example` and set your `ROBLOX_API_KEY` before starting.
 
 Open `http://localhost:3001`, enter a Roblox username, and load/export the avatar.
+
+### Security and resource-limit regression tests
+
+```bash
+cd backend
+npm test
+```
+
+The suite uses local stub servers only. It covers trusted-proxy identity, spoofed forwarding headers, download queue/byte/deadline limits, redirect allowlisting, OBJ limits, `/parts` admission control, cache quota/free-space guards, bounded decompression, and log escaping.
 
 ## Languages
 
@@ -135,7 +150,7 @@ Exports are tested with **Blender 3.6** and **Prisma3D 3.3.5** — covering OBJ,
 - Avatars are cached in `downloads/<userId>/`; the Reload button re-downloads and reloads with a cache-busting query.
 - Avatar metadata is retried up to 5× (1.5 s apart) while pending; auth errors fail immediately.
 - Keep real API keys in `backend/.env` (never commit) and restrict its permissions (`chmod 600`).
-- Rate limiting is in-memory per process. Set `TRUST_PROXY` (e.g. `1`) behind a reverse proxy so the real client IP is used; `TRUST_PROXY=false` explicitly disables proxy trust. Use a shared store/gateway for multi-instance.
+- Rate limiting is in-memory per process. Set `TRUST_PROXY=cloudflare` behind Cloudflare Tunnel, or `1`/a CIDR list behind a protected reverse proxy, so the real client IP is used. `TRUST_PROXY=true` is refused in production. Use a shared store/gateway for multi-instance.
 - Downloads for the same user are serialized and written through a staging directory, so concurrent requests cannot interleave cache files.
 - `HEAD` requests to the download/conversion endpoints return `405`; those endpoints are GET-only and have side effects.
 

@@ -23,3 +23,17 @@ test("metadata URLs reject non-Roblox hosts, protocols, and malformed input", ()
     assert.equal(isAllowedMetadataUrl(null), false);
     assert.equal(isAllowedMetadataUrl("not a url"), false);
 });
+
+test("metadata decompression is bounded", () => {
+    const zlib = require("zlib");
+    const { decodeMetadata } = require("../avatar-metadata");
+
+    const compressed = zlib.gzipSync(Buffer.from(JSON.stringify({
+        obj: "x".repeat(2048)
+    })));
+
+    assert.throws(
+        () => decodeMetadata(compressed, 64),
+        /size limit/
+    );
+});

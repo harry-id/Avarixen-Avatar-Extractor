@@ -42,7 +42,7 @@ test("fetchWithTimeout aborts while the response body is still streaming", async
     const base = await listen(server);
 
     try {
-        const response = await fetchWithTimeout(`${base}/stall`, {}, 100);
+        const response = await fetchWithTimeout(`${base}/stall`, {}, 500);
         const started = Date.now();
 
         await assert.rejects(

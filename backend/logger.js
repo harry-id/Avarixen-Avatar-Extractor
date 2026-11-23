@@ -106,6 +106,8 @@ function openStream() {
     // even before the write stream's asynchronous open completes.
     try {
         fs.closeSync(fs.openSync(filePath, "a", 0o600));
+        // Existing files keep their old mode unless explicitly corrected.
+        fs.chmodSync(filePath, 0o600);
     } catch {
         // createWriteStream below will surface the real error.
     }
@@ -198,6 +200,12 @@ function levelFor(method) {
     }
 }
 
+function sanitizeLogMessage(value) {
+    return stripAnsi(value)
+        .replace(/\r/g, "\\r")
+        .replace(/\n/g, "\\n");
+}
+
 function writeLine(level, args) {
     if (!stream) {
         return;
@@ -208,7 +216,7 @@ function writeLine(level, args) {
     }
 
     const message = args.map(formatArg).join(" ");
-    const line = `[${timestamp()}] [${level.toUpperCase()}] ${stripAnsi(message)}\n`;
+    const line = `[${timestamp()}] [${level.toUpperCase()}] ${sanitizeLogMessage(message)}\n`;
     const lineBytes = Buffer.byteLength(line);
 
     rotateIfNeeded(lineBytes);
@@ -302,5 +310,6 @@ module.exports = {
     initLogger,
     parseLogLimit,
     rotateLogFile,
-    stripAnsi
+    stripAnsi,
+    sanitizeLogMessage
 };

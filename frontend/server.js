@@ -3,6 +3,14 @@ const path = require("path");
 
 const app = express();
 const PORT = process.env.PORT || 3001;
+const HOST = process.env.HOST || "127.0.0.1";
+
+app.use((req, res, next) => {
+    res.setHeader("X-Content-Type-Options", "nosniff");
+    res.setHeader("Referrer-Policy", "no-referrer");
+    res.setHeader("X-Frame-Options", "DENY");
+    next();
+});
 
 app.use("/assets", express.static(
 path.join(__dirname, "../downloads")
@@ -14,10 +22,10 @@ app.get(["/", "/index.html"], (req, res) => {
     res.sendFile(path.join(__dirname, "index.html"));
 });
 
-const server = app.listen(PORT);
+const server = app.listen(PORT, HOST);
 
 server.on("listening", () => {
-    console.log(`AAE Frontend running on port ${PORT}`);
+    console.log(`AAE Frontend running at http://${HOST}:${PORT}`);
 });
 
 server.on("error", (error) => {

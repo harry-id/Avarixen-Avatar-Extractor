@@ -9,7 +9,7 @@ const fs = require("fs");
 const path = require("path");
 const { PNG } = require("pngjs");
 const { isBodyGroup } = require("./obj-utils");
-const { computeRig, parseObjString, readCachedRobloxType } = require("./auto-rig");
+const { computeRig, parseObjString, readCachedRobloxType, assertObjTextLimits } = require("./auto-rig");
 
 let THREE = null;
 let FBXExporter = null;
@@ -249,6 +249,8 @@ async function buildFbx({
     moreJoints = false,
     bendAccessories = false
 }) {
+    assertObjTextLimits(objText);
+
     const { THREE: T, FBXExporter } = await ensureModules();
 
     const obj = parseObj(objText);
