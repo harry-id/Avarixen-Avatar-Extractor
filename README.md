@@ -22,6 +22,7 @@ The live demo is hosted on GitHub Pages, with the API running on a server in Eur
 - `backend/` – Express API server (Roblox lookup, avatar metadata/download)
 - `frontend/` – Express static server + Three.js viewer UI
 - `downloads/` – generated avatar assets served by the frontend at `/assets/...`
+- `docs/` – API reference and test matrix
 
 ## Setup
 
@@ -126,7 +127,7 @@ Download the avatar first (files live in `downloads/<userId>/`).
 
 ## Compatibility
 
-Exports are tested with **Blender 3.6** and **Prisma3D 3.3.5** — covering OBJ, GLB, GLTF, and FBX in standard, separate-assets, and rigged modes. See [tests.md](tests.md) for the full test matrix and per-format notes.
+Exports are tested with **Blender 3.6** and **Prisma3D 3.3.5** — covering OBJ, GLB, GLTF, and FBX in standard, separate-assets, and rigged modes. See [docs/APP_TESTS.md](docs/APP_TESTS.md) for the full test matrix and per-format notes.
 
 ## Notes
 

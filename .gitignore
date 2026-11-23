@@ -32,8 +32,5 @@ temp/
 # Host deployment script (lives on the server, not in git)
 start.sh
 
-# Local API documentation (not published yet)
-API.md
-
 # Build artifacts
 backend/backend.tar.gz
