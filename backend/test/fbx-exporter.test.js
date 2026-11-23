@@ -50,6 +50,21 @@ test("buildFbx produces a binary FBX buffer", async () => {
         assert.ok(Buffer.isBuffer(fbx));
         assert.ok(fbx.length > 0);
         assert.equal(fbx.subarray(0, 20).toString("ascii").startsWith("Kaydara FBX Binary"), true);
+
+        // Deep artifact validation: the binary must decode into a scene that
+        // contains mesh geometry with non-empty vertex data and a material.
+        const group = await loadFbx(fbx);
+        const meshes = [];
+        group.traverse((object) => {
+            if (object.isMesh) {
+                meshes.push(object);
+            }
+        });
+        assert.ok(meshes.length > 0, "FBX export should contain at least one mesh");
+        const mesh = meshes[0];
+        assert.ok(mesh.geometry.attributes.position);
+        assert.ok(mesh.geometry.attributes.position.count > 0, "FBX geometry must have non-empty vertex data");
+        assert.ok(mesh.material);
     } finally {
         fs.rmSync(dir, { recursive: true, force: true });
     }
