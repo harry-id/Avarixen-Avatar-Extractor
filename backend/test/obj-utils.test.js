@@ -104,3 +104,70 @@ test("renameObjGroups renames g and o declarations but not handles", () => {
     assert.match(out, /^o Handle1$/m);
     assert.doesNotMatch(out, /^[go] Player1$/m);
 });
+
+test("final normalized and renamed OBJ artifact is structurally consistent", () => {
+    const finalArtifact = renameObjGroups(
+        normalizeObjForExport([
+            "mtllib avatar.mtl",
+            "newmtl cloth",
+            "map_Kd texture1.png",
+            "g Player1",
+            "v -1 101 0 0 0 0 0",
+            "v 1 101 0 0 0 0 0",
+            "v 0 102 2 0 0 0 0",
+            "vt 0 0",
+            "vt 1 0",
+            "vt 0 1",
+            "vn 0 0 1",
+            "usemtl cloth",
+            "f 1/1/1 2/2/1 3/3/1",
+            ""
+        ].join("\n")),
+        { Player1: "Torso" }
+    );
+
+    const lines = finalArtifact.split("\n");
+    const vertexLines = lines.filter((line) => line.startsWith("v "));
+    const faces = lines.filter((line) => line.startsWith("f "));
+    const objects = lines.filter((line) => line.startsWith("o "));
+    const mtllibLine = lines.find((line) => line.startsWith("mtllib "));
+    const newmtlLine = lines.find((line) => line.startsWith("newmtl "));
+    const mapKdLine = lines.find((line) => line.startsWith("map_Kd "));
+    const usemtlLine = lines.find((line) => line.startsWith("usemtl "));
+
+    // 1. Vertex records are valid, parseable numeric records.
+    assert.equal(vertexLines.length, 3);
+    for (const line of vertexLines) {
+        const parts = line.trim().split(/\s+/);
+        assert.ok(parts.length >= 4, "vertex record must carry position plus optional values");
+        for (const coord of parts.slice(1, 4)) {
+            assert.ok(Number.isFinite(Number(coord)), `vertex coordinate must be numeric: ${coord}`);
+        }
+    }
+
+    // 2-3. Face vertex, UV, and normal indices resolve to existing records.
+    assert.equal(faces.length, 1);
+    const refs = faces[0].trim().split(/\s+/).slice(1);
+    const vertexCount = vertexLines.length;
+    const uvCount = lines.filter((line) => line.startsWith("vt ")).length;
+    const normalCount = lines.filter((line) => line.startsWith("vn ")).length;
+
+    for (const ref of refs) {
+        const [vertexIndex, uvIndex, normalIndex] = ref.split("/").map(Number);
+        assert.ok(vertexIndex >= 1 && vertexIndex <= vertexCount, `face vertex index resolves: ${vertexIndex}`);
+        assert.ok(uvIndex >= 1 && uvIndex <= uvCount, `face uv index resolves: ${uvIndex}`);
+        assert.ok(normalIndex >= 1 && normalIndex <= normalCount, `face normal index resolves: ${normalIndex}`);
+    }
+
+    // 5. Face indices remain valid after normalization and renaming.
+    assert.deepEqual(refs, ["1/1/1", "2/2/1", "3/3/1"]);
+
+    // 6. Object/group names remain consistent after renaming.
+    assert.deepEqual(objects, ["o Torso"]);
+
+    // 7-8. MTL references and texture paths remain consistent.
+    assert.equal(mtllibLine, "mtllib avatar.mtl");
+    assert.equal(newmtlLine, "newmtl cloth");
+    assert.equal(mapKdLine, "map_Kd texture1.png");
+    assert.equal(usemtlLine, "usemtl cloth");
+});
