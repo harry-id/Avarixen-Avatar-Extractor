@@ -1242,6 +1242,38 @@ function spatialComponentClusters(components, parsed, groupBox) {
     return Array.from(clusters.values());
 }
 
+// A full-body outfit is exported as islands for both the upper and lower body
+// (torso/sleeves plus trouser legs). Only those should follow individual bones.
+// A skirt occupies the lower body only and must stay one object on the hips;
+// sleeves occupy the arms only and are handled as separate islands.
+function accessoryIsFullBodyOutfit(components, parsed, playerBoxes) {
+    let upperFaces = 0;
+    let lowerFaces = 0;
+    let totalFaces = 0;
+
+    for (const component of components) {
+        totalFaces += component.faceIndices.length;
+        const part = assignHandleBone(
+            { vertexIndices: component.vertexIndices },
+            playerBoxes,
+            parsed.positions,
+            { allowLegs: true }
+        );
+
+        if (!part) continue;
+
+        if (/UpperTorso|Head|UpperArm|LowerArm/.test(part)) {
+            upperFaces += component.faceIndices.length;
+        } else if (/LowerTorso|Leg|Foot/.test(part)) {
+            lowerFaces += component.faceIndices.length;
+        }
+    }
+
+    return totalFaces > 0 &&
+        upperFaces / totalFaces >= 0.1 &&
+        lowerFaces / totalFaces >= 0.1;
+}
+
 function buildFaceGraph(group, parsed) {
     const epsilon = 1e-4;
     const keyFor = (vertexIndex) => {
@@ -1579,44 +1611,65 @@ function splitHandleGroups(parsed, playerBoxes, { segmentConnected = false } = {
             continue;
         }
 
-        // Only islands that are spatially separate become separate objects.
-        // Overlapping panels stay together and are attached as one accessory.
-        const clusters = spatialComponentClusters(
-            components,
-            parsed,
-            computeBox(group.vertexIndices, parsed.positions)
-        );
-        group.spatialClusterCount = clusters.length;
-
-        if (clusters.length < 2) {
-            groups.push(group);
-            continue;
-        }
+        const fullBody = accessoryIsFullBodyOutfit(components, parsed, playerBoxes);
+        group.spansUpperBody = fullBody;
 
         const byPart = new Map();
-        for (const cluster of clusters) {
-            const vertexIndices = [];
-            const seen = new Set();
 
-            for (const component of cluster) {
-                for (const vertex of component.vertexIndices) {
-                    if (!seen.has(vertex)) {
-                        seen.add(vertex);
-                        vertexIndices.push(vertex);
+        if (fullBody) {
+            // Full-body outfit: each island belongs to the body part it covers,
+            // including legs and feet.
+            for (const component of components) {
+                const part = assignHandleBone(
+                    { vertexIndices: component.vertexIndices },
+                    playerBoxes,
+                    parsed.positions,
+                    { allowLegs: true }
+                ) || "Other";
+
+                if (!byPart.has(part)) {
+                    byPart.set(part, []);
+                }
+                byPart.get(part).push([component]);
+            }
+        } else {
+            // Lower-body garment or limb accessory: merge overlapping panels.
+            const clusters = spatialComponentClusters(
+                components,
+                parsed,
+                computeBox(group.vertexIndices, parsed.positions)
+            );
+            group.spatialClusterCount = clusters.length;
+
+            if (clusters.length < 2) {
+                groups.push(group);
+                continue;
+            }
+
+            for (const cluster of clusters) {
+                const vertexIndices = [];
+                const seen = new Set();
+
+                for (const component of cluster) {
+                    for (const vertex of component.vertexIndices) {
+                        if (!seen.has(vertex)) {
+                            seen.add(vertex);
+                            vertexIndices.push(vertex);
+                        }
                     }
                 }
-            }
 
-            const part = assignHandleBone(
-                { vertexIndices },
-                playerBoxes,
-                parsed.positions
-            ) || "Other";
+                const part = assignHandleBone(
+                    { vertexIndices },
+                    playerBoxes,
+                    parsed.positions
+                ) || "Other";
 
-            if (!byPart.has(part)) {
-                byPart.set(part, []);
+                if (!byPart.has(part)) {
+                    byPart.set(part, []);
+                }
+                byPart.get(part).push(cluster);
             }
-            byPart.get(part).push(cluster);
         }
 
         if (byPart.size < 2) {
@@ -2023,6 +2076,100 @@ function qFromUnitVectors(from, to) {
     ]);
 }
 
+// Identify accessories authored with inverted winding/normals. Roblox uses
+// this for outline effects; those materials must stay single-sided so the
+// culling effect survives the GLB/GLTF export instead of being flattened by
+// double-sided rendering.
+function orientationStatsForGroup(group, parsed) {
+    const { positions, faces } = parsed;
+    let cx = 0;
+    let cy = 0;
+    let cz = 0;
+    let count = 0;
+
+    for (const vertexIndex of group.vertexIndices) {
+        cx += positions[vertexIndex * 3];
+        cy += positions[vertexIndex * 3 + 1];
+        cz += positions[vertexIndex * 3 + 2];
+        count += 1;
+    }
+
+    if (!count) {
+        return null;
+    }
+
+    cx /= count;
+    cy /= count;
+    cz /= count;
+
+    let volume = 0;
+    let outward = 0;
+    let inward = 0;
+
+    for (const faceIndex of group.faceIndices) {
+        const face = faces[faceIndex];
+        const verts = face.verts;
+        if (!verts || verts.length < 3) continue;
+
+        const point = (index) => [
+            positions[verts[index] * 3],
+            positions[verts[index] * 3 + 1],
+            positions[verts[index] * 3 + 2]
+        ];
+
+        const a = point(0);
+
+        for (let i = 1; i + 1 < verts.length; i++) {
+            const b = point(i);
+            const c = point(i + 1);
+            volume += (
+                a[0] * (b[1] * c[2] - b[2] * c[1]) +
+                a[1] * (b[2] * c[0] - b[0] * c[2]) +
+                a[2] * (b[0] * c[1] - b[1] * c[0])
+            ) / 6;
+        }
+
+        let nx;
+        let ny;
+        let nz;
+
+        if (face.norms && face.norms[0] >= 0 && parsed.normals.length > face.norms[0] * 3 + 2) {
+            nx = parsed.normals[face.norms[0] * 3];
+            ny = parsed.normals[face.norms[0] * 3 + 1];
+            nz = parsed.normals[face.norms[0] * 3 + 2];
+        } else {
+            const b = point(1);
+            const c = point(2);
+            const ab = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
+            const ac = [c[0] - a[0], c[1] - a[1], c[2] - a[2]];
+            nx = ab[1] * ac[2] - ab[2] * ac[1];
+            ny = ab[2] * ac[0] - ab[0] * ac[2];
+            nz = ab[0] * ac[1] - ab[1] * ac[0];
+        }
+
+        const length = Math.hypot(nx, ny, nz);
+        if (length < 1e-9) continue;
+
+        let fx = 0;
+        let fy = 0;
+        let fz = 0;
+        for (const vertexIndex of verts) {
+            fx += positions[vertexIndex * 3];
+            fy += positions[vertexIndex * 3 + 1];
+            fz += positions[vertexIndex * 3 + 2];
+        }
+        fx = fx / verts.length - cx;
+        fy = fy / verts.length - cy;
+        fz = fz / verts.length - cz;
+
+        const direction = nx * fx + ny * fy + nz * fz;
+        if (direction > 0) outward += 1;
+        else if (direction < 0) inward += 1;
+    }
+
+    return { volume, outward, inward };
+}
+
 function buildDocument(parsed, partMapping, joints, offsetX, offsetY, offsetZ, rigType, handleBoneMap, options = {}) {
     const splitParts = !!options.splitParts;
     const groupName = options.groupName || "Avatar";
@@ -2035,6 +2182,22 @@ function buildDocument(parsed, partMapping, joints, offsetX, offsetY, offsetZ, r
     const scene = doc.createScene("Scene");
     const buffer = doc.createBuffer();
     const materialMap = {};
+    const materialOrientation = new Map();
+
+    for (const g of groups) {
+        const stats = orientationStatsForGroup(g, parsed);
+        if (!stats) continue;
+        const current = materialOrientation.get(g.material) || {
+            volume: 0,
+            outward: 0,
+            inward: 0
+        };
+        current.volume += stats.volume;
+        current.outward += stats.outward;
+        current.inward += stats.inward;
+        materialOrientation.set(g.material, current);
+    }
+
     for (const g of groups) {
         const matName = g.material;
         if (materialMap[matName]) continue;
@@ -2061,8 +2224,20 @@ function buildDocument(parsed, partMapping, joints, offsetX, offsetY, offsetZ, r
         if (opacity < 1) {
             mat.setAlphaMode(Material.AlphaMode.BLEND);
         }
-        // Roblox exports some accessories with inverted winding.
-        mat.setDoubleSided(true);
+        // Roblox exports some accessories with inverted winding. Keep those
+        // single-sided so the intended outline/flipped-normal effect survives
+        // export; ordinary accessories stay double-sided.
+        const orientation = materialOrientation.get(matName);
+        const orientedFaces = orientation
+            ? orientation.outward + orientation.inward
+            : 0;
+        const inwardRatio = orientedFaces > 0
+            ? orientation.inward / orientedFaces
+            : 0;
+        const invertedEffect = !!orientation &&
+            orientation.volume < 0 &&
+            inwardRatio >= 0.7;
+        mat.setDoubleSided(!invertedEffect);
         materialMap[matName] = mat;
     }
     const jointNodeMap = {};

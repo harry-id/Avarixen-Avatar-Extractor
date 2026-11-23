@@ -1445,3 +1445,104 @@ test("irregular connected geometry is preserved without fragmentation", () => {
         fs.rmSync(dir, { recursive: true, force: true });
     }
 });
+
+test("a full-body outfit splits into per-body-part objects", () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "aae-test-"));
+
+    try {
+        const body = r15Body();
+        const pieces = [
+            makeBox(-0.90, 0.90, 3.10, 4.90, -0.55, 0.55),
+            makeBox(-1.90, -0.95, 3.50, 4.80, -0.52, 0.52),
+            makeBox(0.95, 1.90, 3.50, 4.80, -0.52, 0.52),
+            makeBox(-0.95, -0.05, 1.20, 2.85, -0.50, 0.50),
+            makeBox(0.05, 0.95, 1.20, 2.85, -0.50, 0.50)
+        ];
+
+        let offset = Object.keys(body).length * 8 + 1;
+        const chunks = [objFromBoxes(body)];
+
+        for (const piece of pieces) {
+            chunks.push(objFromBoxes({ Handle1: piece }, offset));
+            offset += 8;
+        }
+
+        fs.writeFileSync(path.join(dir, "avatar.obj"), chunks.join("\n"));
+
+        const info = getPartInfo(dir);
+        const handles = info.groups.filter((group) => group.type === "handle");
+        const parts = handles.map((group) => group.part).sort();
+
+        assert.deepEqual(parts, [
+            "LeftUpperArm",
+            "LeftUpperLeg",
+            "RightUpperArm",
+            "RightUpperLeg",
+            "UpperTorso"
+        ]);
+        assert.equal(handles.length, 5);
+        assert.equal(
+            handles.reduce((sum, group) => sum + group.faces, 0),
+            pieces.length * 12
+        );
+    } finally {
+        fs.rmSync(dir, { recursive: true, force: true });
+    }
+});
+
+function objBoxWithMaterial(name, box, startIndex, flipped) {
+    const lines = [`usemtl ${name}Mtl`, `g ${name}`];
+    const corners = [
+        [box.xmin, box.ymin, box.zmin], [box.xmax, box.ymin, box.zmin],
+        [box.xmax, box.ymax, box.zmin], [box.xmin, box.ymax, box.zmin],
+        [box.xmin, box.ymin, box.zmax], [box.xmax, box.ymin, box.zmax],
+        [box.xmax, box.ymax, box.zmax], [box.xmin, box.ymax, box.zmax]
+    ];
+    for (const corner of corners) lines.push(`v ${corner.join(" ")}`);
+
+    const faces = [
+        [1, 2, 3], [1, 3, 4], [5, 6, 7], [5, 7, 8],
+        [1, 2, 6], [1, 6, 5], [2, 3, 7], [2, 7, 6],
+        [3, 4, 8], [3, 8, 7], [4, 1, 5], [4, 5, 8]
+    ];
+
+    for (const face of faces) {
+        const order = flipped ? face.slice().reverse() : face;
+        lines.push(`f ${order.map((index) => index + startIndex - 1).join(" ")}`);
+    }
+
+    return lines.join("\n");
+}
+
+test("inverted-normal accessories keep single-sided materials in export", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "aae-test-"));
+
+    try {
+        const body = r15Body();
+        const bodyVertCount = Object.keys(body).length * 8;
+        const hat = makeBox(-0.4, 0.4, 5.5, 5.9, -0.4, 0.4);
+        const outline = makeBox(-0.9, 0.9, 3.1, 4.8, -0.55, 0.55);
+
+        fs.writeFileSync(
+            path.join(dir, "avatar.obj"),
+            [
+                objFromBoxes(body),
+                objBoxWithMaterial("Handle1", hat, bodyVertCount + 1, false),
+                objBoxWithMaterial("Handle2", outline, bodyVertCount + 9, true)
+            ].join("\n")
+        );
+        fs.writeFileSync(
+            path.join(dir, "avatar.mtl"),
+            "newmtl Handle1Mtl\nKd 1 1 1\nnewmtl Handle2Mtl\nKd 1 1 1\n"
+        );
+
+        const conversion = await convertAvatar(dir, { rig: true, splitParts: true });
+        const materials = conversion.doc.getRoot().listMaterials();
+        const byName = (name) => materials.find((material) => material.getName() === name);
+
+        assert.equal(byName("Handle1Mtl").getDoubleSided(), true);
+        assert.equal(byName("Handle2Mtl").getDoubleSided(), false);
+    } finally {
+        fs.rmSync(dir, { recursive: true, force: true });
+    }
+});
