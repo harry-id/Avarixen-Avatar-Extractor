@@ -1570,3 +1570,120 @@ test("OBJ byte, vertex, and face limits are enforced", () => {
         maxFaces: 10
     }));
 });
+
+test("generated GLB rig produces valid skin weights and intact bone hierarchy", async () => {
+    const body = {
+        Head: makeBox(-0.53, 0.53, 4.85, 5.5, -0.55, 0.55),
+        UpperTorso: makeBox(-0.91, 0.91, 3.04, 4.97, -0.51, 0.51),
+        LowerTorso: makeBox(-0.99, 0.99, 2.64, 3.04, -0.51, 0.51),
+        LeftUpperArm: makeBox(-1.91, -0.91, 3.50, 4.91, -0.50, 0.50),
+        LeftLowerArm: makeBox(-1.91, -0.91, 2.86, 4.13, -0.50, 0.50),
+        LeftHand: makeBox(-1.88, -0.93, 2.56, 2.92, -0.55, 0.55),
+        RightUpperArm: makeBox(0.91, 1.91, 3.50, 4.91, -0.50, 0.50),
+        RightLowerArm: makeBox(0.91, 1.91, 2.86, 4.13, -0.50, 0.50),
+        RightHand: makeBox(0.93, 1.88, 2.56, 2.92, -0.55, 0.55),
+        LeftUpperLeg: makeBox(-0.98, 0.00, 1.20, 2.90, -0.45, 0.46),
+        LeftLowerLeg: makeBox(-0.98, 0.00, 0.22, 1.77, -0.45, 0.46),
+        LeftFoot: makeBox(-1.01, 0.02, 0.00, 0.34, -0.50, 0.50),
+        RightUpperLeg: makeBox(0.00, 0.98, 1.20, 2.90, -0.45, 0.46),
+        RightLowerLeg: makeBox(0.00, 0.98, 0.22, 1.77, -0.45, 0.46),
+        RightFoot: makeBox(0.00, 0.98, 1.20, 2.90, -0.45, 0.46)
+    };
+    const jacket = makeBox(-1.5, 1.5, 3.0, 5.0, -0.6, 0.6);
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "aae-test-"));
+
+    try {
+        const obj = [
+            objFromBoxes(body),
+            objFromBoxes({ Handle1: jacket }, Object.keys(body).length * 8 + 1)
+        ].join("\n");
+        fs.writeFileSync(path.join(dir, "avatar.obj"), obj);
+
+        const conversion = await convertAvatar(dir, {
+            rig: true,
+            splitParts: true,
+            bendAccessories: true
+        });
+        const root = conversion.doc.getRoot();
+        const scene = root.listScenes()[0];
+        assert.ok(scene, "rigged export should have a scene");
+
+        const nodes = [];
+        scene.traverse((node) => nodes.push(node));
+
+        for (const node of nodes) {
+            const parent = node.getParentNode();
+            assert.ok(!(parent && parent === node), "no node should be its own parent");
+
+            const chain = new Set();
+            let current = parent;
+            let hops = 0;
+            while (current) {
+                assert.ok(!chain.has(current), "bone parent chain must not contain a cycle");
+                chain.add(current);
+                current = current.getParentNode();
+                hops += 1;
+                if (hops > nodes.length + 1) {
+                    break;
+                }
+            }
+        }
+
+        const skinned = [];
+        for (const node of nodes) {
+            const skin = node.getSkin ? node.getSkin() : null;
+            if (skin) {
+                skinned.push({ node, skin });
+            }
+        }
+        assert.ok(skinned.length > 0, "rigged export should contain skinned geometry");
+
+        for (const { node, skin } of skinned) {
+            const joints = skin.listJoints();
+            assert.ok(joints.length > 0, "skin should list at least one joint");
+            const inverseBindMatrices = skin.getInverseBindMatrices();
+            assert.ok(inverseBindMatrices, "skin should have inverse bind matrices");
+
+            const mesh = node.getMesh();
+            assert.ok(mesh, "skinned node should own a mesh");
+            const prim = mesh.listPrimitives()[0];
+            const jointsAccessor = prim.getAttribute("JOINTS_0");
+            const weightsAccessor = prim.getAttribute("WEIGHTS_0");
+            const positionsAccessor = prim.getAttribute("POSITION");
+            assert.ok(jointsAccessor, "skinned primitive should have JOINTS_0");
+            assert.ok(weightsAccessor, "skinned primitive should have WEIGHTS_0");
+            assert.ok(positionsAccessor, "skinned primitive should have POSITION");
+            assert.equal(jointsAccessor.getCount(), weightsAccessor.getCount());
+            assert.equal(jointsAccessor.getCount(), positionsAccessor.getCount());
+
+            const jointValues = jointsAccessor.getArray();
+            const weightValues = weightsAccessor.getArray();
+            const vertexCount = positionsAccessor.getCount();
+
+            for (let i = 0; i < vertexCount; i += 1) {
+                const base = i * 4;
+                for (let j = 0; j < 4; j += 1) {
+                    const jointIndex = Number(jointValues[base + j]);
+                    assert.ok(
+                        Number.isInteger(jointIndex) && jointIndex >= 0 && jointIndex < joints.length,
+                        `skin joint index resolves: ${jointIndex}`
+                    );
+                }
+            }
+
+            for (let i = 0; i < vertexCount; i += 1) {
+                const base = i * 4;
+                let sum = 0;
+                for (let j = 0; j < 4; j += 1) {
+                    const weight = Number(weightValues[base + j]);
+                    assert.ok(Number.isFinite(weight), "skin weight must be finite");
+                    assert.ok(weight >= 0, "skin weight must be non-negative");
+                    sum += weight;
+                }
+                assert.ok(Math.abs(sum - 1) <= 1e-3, `skin weights should sum to 1: ${sum}`);
+            }
+        }
+    } finally {
+        fs.rmSync(dir, { recursive: true, force: true });
+    }
+});
