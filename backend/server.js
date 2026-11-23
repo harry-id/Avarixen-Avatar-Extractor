@@ -146,6 +146,18 @@ if (logRequests) {
         }
 
         res.on("finish", () => {
+            // Routine access logs stay quiet for successful health probes
+            // (uptime monitors); failed health checks are still logged.
+            const isSuccessfulHealth =
+                req.method === "GET" &&
+                req.originalUrl === "/api/health" &&
+                res.statusCode >= 200 &&
+                res.statusCode < 300;
+
+            if (isSuccessfulHealth) {
+                return;
+            }
+
             const ms = Number(process.hrtime.bigint() - start) / 1e6;
             const statusColor =
                 res.statusCode >= 500 ? "\x1b[31m" :
