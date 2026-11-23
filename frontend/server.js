@@ -22,6 +22,23 @@ app.get(["/", "/index.html"], (req, res) => {
     res.sendFile(path.join(__dirname, "index.html"));
 });
 
+// Serve the extracted frontend ES modules added during the testability
+// extraction (status.mjs, format-support.mjs, naming.mjs, convert-params.mjs)
+// so the browser can resolve their relative module imports. Only these exact
+// module paths are exposed; no general static-file directory serving.
+const FRONTEND_MODULES = [
+    "status",
+    "format-support",
+    "naming",
+    "convert-params"
+];
+
+for (const moduleName of FRONTEND_MODULES) {
+    app.get(`/${moduleName}.mjs`, (req, res) => {
+        res.type("text/javascript").sendFile(path.join(__dirname, `${moduleName}.mjs`));
+    });
+}
+
 const server = app.listen(PORT, HOST);
 
 server.on("listening", () => {

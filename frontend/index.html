@@ -1109,6 +1109,11 @@ import { MTLLoader } from
 import { OBJLoader } from
     "https://cdn.jsdelivr.net/npm/three@0.180.0/examples/jsm/loaders/OBJLoader.js";
 
+import { FORMAT_OPTION_SUPPORT } from "./format-support.mjs";
+import { sanitizeExportName, resolveAssetFiles, objMtlFileNames, zipEntryName } from "./naming.mjs";
+import { buildConversionParams } from "./convert-params.mjs";
+import { isStatusBusyKey, isStatusErrorKey } from "./status.mjs";
+
 if (window.__AAE_WEBGL_UNAVAILABLE__) {
     // The inline pre-check already displayed a message; stop before creating
     // a renderer (which would throw and abort the rest of the module).
@@ -1431,31 +1436,6 @@ const STATUS_SPINNER_FRAMES = ["|", "/", "-", "\\"];
 let statusSpinnerIndex = 0;
 let statusRafId = null;
 
-function isStatusBusyKey(key) {
-    // Keys that represent an in-progress operation (not a final/error state).
-    return key === "statusLoadingMaterial" ||
-        key === "statusLoadingModel" ||
-        key === "statusSearching" ||
-        key === "statusFetchMetadata" ||
-        key === "statusDownloadAssets" ||
-        key === "statusConverting" ||
-        key === "statusRigging";
-}
-
-function isStatusErrorKey(key) {
-    return key === "statusLoadObjFailed" ||
-        key === "statusLoadMtlFailed" ||
-        key === "statusNoLocalModel" ||
-        key === "errorEmptyUsername" ||
-        key === "errorNotFound" ||
-        key === "errorFetchMetadata" ||
-        key === "errorDownloadAssets" ||
-        key === "errorOccurred" ||
-        key === "errorConvertFailed" ||
-        key === "errorZipFetch" ||
-        key === "apiOffline";
-}
-
 function stopStatusSpinner() {
     if (statusRafId !== null) {
         cancelAnimationFrame(statusRafId);
@@ -1728,13 +1708,6 @@ function setSelectedFormat(format) {
     setDownloadButtonLabel();
     updateOptionVisibility();
 }
-
-const FORMAT_OPTION_SUPPORT = {
-    obj: { separate: false, rig: false },
-    glb: { separate: false, rig: true },
-    gltf: { separate: true, rig: true },
-    fbx: { separate: true, rig: true }
-};
 
 let meshQualityBeforeForce = null;
 
@@ -3332,22 +3305,19 @@ async function downloadZip() {
     const assetPath =
         `${BACKEND_URL}/assets/${encodeURIComponent(currentUserId)}/`;
 
-    const safeName = String(currentDisplayName || "Avarixen").replace(/[\\/:*?"<>|]/g, "_").trim().replace(/[. ]+$/g, "") || "Avarixen";
+    const safeName = sanitizeExportName(currentDisplayName, "Avarixen");
     const baseName = safeName.toLowerCase();
     // Download filename uses the Roblox username: {username}_{user_id}.zip
-    const safeUsername = String(currentUsername || currentDisplayName || "Avarixen").replace(/[\\/:*?"<>|]/g, "_").trim().replace(/[. ]+$/g, "") || "Avarixen";
+    const safeUsername = sanitizeExportName(currentUsername || currentDisplayName, "Avarixen");
 
     // Prefer the exact file list the download endpoint reported. The old HEAD
     // probe stopped at the first gap and silently dropped later textures.
     let files = [];
 
     if (currentAssetFiles && currentAssetFiles.length) {
-        files = currentAssetFiles.map((file) => String(file).split("/").pop());
+        files = resolveAssetFiles(currentAssetFiles);
     } else {
-        files = [
-            "avatar.obj",
-            "avatar.mtl"
-        ];
+        files = resolveAssetFiles(currentAssetFiles);
 
         let textureIndex = 1;
 
@@ -3399,12 +3369,12 @@ async function downloadZip() {
         }
 
         const zipFileName =
-            file === "avatar.obj" ? `${baseName}.obj` :
-            file === "avatar.mtl" ? `${baseName}.mtl` :
+            file === "avatar.obj" ? objMtlFileNames(safeName).obj :
+            file === "avatar.mtl" ? objMtlFileNames(safeName).mtl :
             file;
 
         zip.file(
-            `${safeName}/${zipFileName}`,
+            zipEntryName(safeName, zipFileName),
             content
         );
 
@@ -3455,13 +3425,14 @@ async function downloadConverted(format) {
 
     const convertUrl = `${BACKEND_URL}/api/roblox/convert/${encodeURIComponent(currentUserId)}/${format}`;
 
-    const params = new URLSearchParams();
-    if (rig) params.set("rig", "1");
-    if (separate) params.set("separate", "1");
-    if (subdivision > 0) params.set("subdivision", String(subdivision));
-    if (moreJoints) params.set("moreJoints", "1");
-    if (rig) params.set("bendAccessories", bendAccessories ? "1" : "0");
-    if (currentDisplayName) params.set("name", currentDisplayName);
+    const params = buildConversionParams({
+        rig,
+        separate,
+        subdivision,
+        moreJoints,
+        bendAccessories,
+        name: currentDisplayName
+    });
     const qs = params.toString();
     const url = qs ? `${convertUrl}?${qs}` : convertUrl;
 
@@ -3493,10 +3464,7 @@ async function downloadConverted(format) {
     const objUrl = URL.createObjectURL(blob);
 
     // Download filename uses the Roblox username: {username}_{user_id}.{ext}
-    const safeUsername = String(currentUsername || currentDisplayName || "Avarixen").replace(
-        /[\\/:*?"<>|]/g,
-        "_"
-    ).trim().replace(/[. ]+$/g, "") || "Avarixen";
+    const safeUsername = sanitizeExportName(currentUsername || currentDisplayName, "Avarixen");
 
     // Separate mode returns a ZIP instead of a bare model file.
     let ext = format;
