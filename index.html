@@ -242,6 +242,71 @@
             color: #f87171;
         }
 
+        .viewer-tools {
+            position: absolute;
+            top: 12px;
+            right: 12px;
+            z-index: 10;
+            display: flex;
+            flex-direction: column;
+            align-items: flex-end;
+            gap: 8px;
+        }
+
+        .viewer-toggle {
+            display: flex;
+            align-items: center;
+            gap: 7px;
+            padding: 6px 10px;
+            border: 1px solid #39445c;
+            border-radius: 8px;
+            background: rgba(25, 30, 43, 0.72);
+            color: #d0d8e8;
+            font-size: 12px;
+            user-select: none;
+            cursor: pointer;
+            backdrop-filter: blur(4px);
+            -webkit-backdrop-filter: blur(4px);
+        }
+
+        .viewer-toggle.disabled {
+            opacity: 0.45;
+            cursor: not-allowed;
+        }
+
+        .viewer-toggle input {
+            margin: 0;
+            accent-color: #4285f4;
+        }
+
+        .flip-warning {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            max-width: 230px;
+            padding: 6px 10px;
+            border: 1px solid rgba(234, 179, 8, 0.4);
+            border-radius: 8px;
+            background: rgba(234, 179, 8, 0.12);
+            color: #facc15;
+            font-size: 12px;
+            font-family: inherit;
+            line-height: 1.35;
+            text-align: left;
+            cursor: pointer;
+            backdrop-filter: blur(4px);
+            -webkit-backdrop-filter: blur(4px);
+        }
+
+        .flip-warning[hidden] {
+            display: none;
+        }
+
+        .flip-warning-icon {
+            font-size: 14px;
+            line-height: 1;
+        }
+
         #viewer {
             width: 100%;
             height: 500px;
@@ -364,6 +429,10 @@
             background: #6c7a94;
         }
 
+        .explorer-node .node-icon.extra {
+            background: #3fb6a8;
+        }
+
         .explorer-node .node-name {
             flex: 1;
             overflow: hidden;
@@ -374,6 +443,13 @@
             color: #6c7a94;
             font-size: 11px;
             flex-shrink: 0;
+        }
+
+        .explorer-node .node-warning {
+            color: #facc15;
+            font-size: 11px;
+            flex-shrink: 0;
+            cursor: help;
         }
 
         .explorer-section-label {
@@ -736,6 +812,22 @@
                 height: 380px;
             }
 
+            .viewer-tools {
+                top: 8px;
+                right: 8px;
+                gap: 6px;
+            }
+
+            .viewer-toggle,
+            .flip-warning {
+                padding: 5px 8px;
+                font-size: 11px;
+            }
+
+            .flip-warning {
+                max-width: 180px;
+            }
+
             .brand-desc {
                 font-size: 12px;
             }
@@ -799,6 +891,20 @@
     <div class="viewer-layout">
         <div id="viewer">
             <div id="accountInfo"></div>
+            <div class="viewer-tools">
+                <label class="viewer-toggle disabled" id="backfaceCullingToggle"
+                       data-i18n-title="viewerBackfaceCullingHint"
+                       title="Show front faces only. Accessories with flipped normals may disappear.">
+                    <input type="checkbox" id="backfaceCulling" checked disabled>
+                    <span data-i18n="viewerBackfaceCulling">Backface culling</span>
+                </label>
+                <button type="button" class="flip-warning" id="flipWarning" hidden
+                        data-i18n-title="viewerFlippedNormalsHint"
+                        title="The preview corrected normals that opposed their face winding. Click to toggle backface culling and see which meshes rely on double-sided rendering.">
+                    <span class="flip-warning-icon" aria-hidden="true">⚠</span>
+                    <span id="flipWarningText">Flipped normals: 0</span>
+                </button>
+            </div>
             <div class="status is-waiting" id="status" data-i18n="statusWaiting">Enter a Roblox username to load 3D preview.</div>
         </div>
         <aside id="explorer">
@@ -1003,252 +1109,20 @@ import { MTLLoader } from
 import { OBJLoader } from
     "https://cdn.jsdelivr.net/npm/three@0.180.0/examples/jsm/loaders/OBJLoader.js";
 
+import { FORMAT_OPTION_SUPPORT } from "./format-support.mjs";
+import { sanitizeExportName, resolveAssetFiles, objMtlFileNames, zipEntryName } from "./naming.mjs";
+import { buildConversionParams } from "./convert-params.mjs";
+import { isStatusBusyKey, isStatusErrorKey } from "./status.mjs";
+import { getCurrentLang, setLang, t } from "./i18n.mjs";
+
 if (window.__AAE_WEBGL_UNAVAILABLE__) {
     // The inline pre-check already displayed a message; stop before creating
     // a renderer (which would throw and abort the rest of the module).
     throw new Error("WebGL is unavailable; viewer initialization skipped.");
 }
 
-
-
-const LANG = {
-    id: {
-        appTitle: "Avarixen",
-        appSubtitle: "Pengunduh & Eksportir Avatar 3D Roblox",
-        appTagline: "Ambil, pratinjau, periksa, rig, dan ekspor avatar Roblox untuk alur kerja pemodelan dan animasi 3D.",
-        betaBadge: "Beta",
-        betaNotice: "Layanan ini masih dalam tahap beta. Beberapa model mungkin diproses secara tidak tepat atau gagal dikenali. Saya senang Anda menemukan situs web ini — jika Anda menyukainya, saya akan sangat menghargai masukan Anda. Anda dapat menghubungi saya di Discord @furehe atau membuat issue di fork. (Itu saja — semoga Anda menikmatinya!)",
-        aboutWebsite: "Tentang Website",
-        aboutTitle: "Tentang Avarixen",
-        aboutBody: "Avarixen adalah pengunduh dan eksportir avatar Roblox 3D gratis yang berbasis browser. Masukkan username Roblox untuk mengambil avatar, pratinjau dalam 3D interaktif, periksa hierarki mesh, lalu ekspor ke OBJ, FBX, GLB, atau glTF untuk alur kerja pemodelan dan animasi 3D.",
-        featuresTitle: "Fitur",
-        featRetrieve: "Ambil avatar Roblox mana pun melalui username dan lihat model 3D-nya.",
-        featPreview: "Pratinjau 3D interaktif dengan orbit, geser, dan zoom.",
-        featInspect: "Inspeksi hierarki model — jelajahi bagian tubuh dan aksesori.",
-        featSeparate: "Penanganan aset terpisah — ekspor tekstur dan buffer sebagai berkas eksternal dalam satu ZIP.",
-        featExport: "Ekspor ke format OBJ, FBX, GLB, dan glTF.",
-        featRig: "Auto-rig R6/R15 (eksperimental), dengan opsi sendi tambahan untuk R6.",
-        featMesh: "Preset kualitas subdivisi mesh dari Minimal hingga Extreme.",
-        workflowsTitle: "Alur kerja yang didukung",
-        workflowsBody: "Ekspor diuji dengan Blender 3.6 dan Prisma3D 3.3.5. Impor berkas OBJ, GLB, glTF, atau FBX yang diunduh ke aplikasi 3D pilihan Anda untuk pemodelan, rigging, dan animasi.",
-        faqTitle: "Pertanyaan yang Sering Diajukan",
-        faq1q: "Bagaimana cara mengunduh avatar Roblox saya sebagai model 3D?",
-        faq1a: "Masukkan username Roblox, tunggu pratinjau 3D dimuat, lalu gunakan tombol unduh. Tombol utama mengunduh bundel OBJ (ZIP); menu panah menawarkan GLB, glTF, dan FBX.",
-        faq2q: "Bisakah saya mengekspor avatar Roblox ke FBX?",
-        faq2a: "Bisa. Pilih FBX dari menu unduh. Avarixen menghasilkan berkas FBX 7.4 biner, opsional dengan rig dan tekstur terpisah dalam ZIP.",
-        faq3q: "Bisakah saya menggunakan Avarixen dengan Blender?",
-        faq3a: "Bisa. Blender dapat mengimpor OBJ, FBX, GLB, dan glTF secara langsung (File ▸ Import). Ekspor diuji dengan Blender 3.6.",
-        faq4q: "Bisakah saya mengimpor avatar yang diekspor ke Prisma3D?",
-        faq4a: "Bisa. Prisma3D dapat mengimpor ekspor OBJ, FBX, GLB, dan glTF. Diuji dengan Prisma3D 3.3.5.",
-        faq5q: "Apakah Avarixen mendukung R6 dan R15?",
-        faq5a: "Ya. Avarixen mendeteksi tipe avatar dan mendukung rig R6 maupun R15. R6 juga menawarkan mode \"More joints\" opsional untuk sendi tambahan.",
-        faq6q: "Apakah saya perlu memasang sesuatu?",
-        faq6a: "Tidak. Avarixen berjalan sepenuhnya di browser Anda. Demo yang dihosting tidak perlu instalasi — cukup buka situsnya.",
-        faq7q: "Bisakah saya menghosting Avarixen secara lokal?",
-        faq7a: "Bisa. Proyek ini berjalan di Node.js 18+. Klon repositori, pasang dependensi, konfigurasikan kunci API Roblox, lalu jalankan backend dan frontend. Lihat README untuk langkah setup.",
-        languageLabel: "Bahasa / Language:",
-        usernamePlaceholder: "Masukkan username atau ID pengguna Roblox...",
-        searchButton: "Cari Avatar",
-        searchButtonSearching: "Mencari...",
-        accountInfoTitle: "Informasi Akun",
-        userLabel: "Pengguna",
-        userIdLabel: "ID Pengguna",
-        avatarTypeLabel: "Tipe Avatar",
-        avatarTypeUnknown: "Tidak diketahui",
-        compatCompatible: "Kompatibel",
-        compatPartial: "Sebagian",
-        compatIncompatible: "Tidak kompatibel",
-        compatUnknown: "Tidak diketahui",
-        compatMissing: "Bagian yang hilang",
-        advancedSettings: "Pengaturan Lanjutan",
-        meshQualityLabel: "Kualitas Mesh",
-        meshQualityDefault: "Minimal (Default)",
-        meshQualityLow: "Low (Subdivisi 1)",
-        meshQualityMedium: "Medium (Subdivisi 2)",
-        meshQualityHigh: "High (Subdivisi 3)",
-        meshQualityExtreme: "Extreme (Subdivisi 4)",
-        moreJoints: "Lebih banyak sendi",
-        moreJointsHint: "R6 saja: tambahkan tangan, siku, lutut, pinggang (torso bisa menekuk), dan kaki.",
-        bendAccessories: "Tekuk aksesori",
-        bendAccessoriesHint: "Jika aktif, pakaian berlapis (jaket, celana) mengikuti gerakan tubuh; jika nonaktif, semua aksesori tetap kaku.",
-        statusWaiting: "Masukkan username Roblox untuk memuat pratinjau 3D.",
-        statusLoadingMaterial: "Memuat material dan tekstur...",
-        statusLoadingModel: "Memuat model 3D...",
-        statusLoaded: "Model 3D berhasil dimuat!",
-        statusLoadObjFailed: "Gagal memuat model OBJ.",
-        statusLoadMtlFailed: "Gagal memuat material MTL.",
-        statusNoLocalModel: "Belum ada model lokal. Cari avatar Roblox untuk memulai.",
-        statusSearching: "Mencari akun Roblox...",
-        statusFetchMetadata: "Mengambil metadata avatar...",
-        statusDownloadAssets: "Mengunduh aset avatar Roblox...",
-        statusDownloaded: "Aset berhasil diunduh! Memuat pratinjau 3D...",
-        errorEmptyUsername: "Masukkan username Roblox terlebih dahulu.",
-        errorNotFound: "Akun Roblox tidak ditemukan.",
-        errorFetchMetadata: "Gagal mengambil metadata avatar.",
-        errorDownloadAssets: "Gagal mengunduh aset avatar.",
-        errorOccurred: "Terjadi kesalahan: {{message}}",
-        reloadButton: "Muat Ulang Model",
-        reloadNoAvatar: "Cari avatar Roblox terlebih dahulu untuk memuat pratinjau.",
-        downloadObj: "Unduh OBJ",
-        downloadObjOption: "Unduh OBJ (OBJ + MTL + Texture)",
-        downloadFormatLabel: "Pilih format unduhan",
-        downloadCreating: "Membuat ZIP...",
-        errorNoAvatarZip: "Cari avatar Roblox terlebih dahulu.",
-        errorZipFetch: "Gagal mengambil {{file}}",
-        alertZipFailed: "Gagal membuat ZIP: {{message}}",
-        downloadGlb: "Unduh GLB",
-        downloadGltf: "Unduh GLTF",
-        downloadFbx: "Unduh FBX",
-        errorConvertFailed: "Konversi gagal: {{message}}",
-        statusConverting: "Mengonversi model ke {{format}}...",
-        explorerTitle: "Penjelajah Model",
-        explorerEmpty: "Muat avatar untuk melihat bagian-bagiannya.",
-        explorerSectionPlayer: "Player",
-        explorerSectionRig: "Rig",
-        explorerPlayers: "Player (Tubuh)",
-        explorerHandles: "Handle (Aksesori)",
-        explorerOther: "Lainnya",
-        optionSeparateAssets: "Pisahkan aset",
-        optionSeparateAssetsHint: "Ekspor aset terpisah (tekstur/bin) dalam satu ZIP.",
-        optionAutoRig: "Auto-rig (R6/R15)",
-        statusRigging: "Membuat rig otomatis...",
-        verticesLabel: "vertices",
-        apiOnline: "API Online",
-        apiOffline: "API Offline",
-        errorApiOffline: "API sedang offline. Coba lagi sesaat lagi.",
-        errorTimeout: "Permintaan melebihi batas waktu. Silakan coba lagi.",
-        apiChecking: "Checking..."
-    },
-    en: {
-        appTitle: "Avarixen",
-        appSubtitle: "Roblox Avatar Downloader & 3D Exporter",
-        appTagline: "Retrieve, preview, inspect, rig, and export Roblox avatars for 3D modeling and animation workflows.",
-        betaBadge: "Beta",
-        betaNotice: "This service is still in beta. Some models may be processed incorrectly or fail to be identified. I'm glad you found this website — if you like it, I'd really appreciate your feedback. You can reach me on Discord at @furehe or open an issue in the fork. (That's all — hope you're enjoying it!)",
-        aboutWebsite: "About Website",
-        aboutTitle: "About Avarixen",
-        aboutBody: "Avarixen is a free, browser-based Roblox avatar downloader and 3D exporter. Enter a Roblox username to retrieve the avatar, preview it in interactive 3D, inspect its mesh hierarchy, and export it to OBJ, FBX, GLB, or glTF for 3D modeling and animation workflows.",
-        featuresTitle: "Features",
-        featRetrieve: "Retrieve any Roblox avatar by username and view its 3D model.",
-        featPreview: "Interactive 3D preview with orbit, pan, and zoom.",
-        featInspect: "Model hierarchy inspection — browse body parts and accessories.",
-        featSeparate: "Separate asset handling — export textures and buffers as external files in a ZIP.",
-        featExport: "Export to OBJ, FBX, GLB, and glTF formats.",
-        featRig: "Experimental R6/R15 auto-rigging, with optional extra joints for R6.",
-        featMesh: "Mesh subdivision quality presets from Minimal to Extreme.",
-        workflowsTitle: "Supported workflows",
-        workflowsBody: "Exports are tested with Blender 3.6 and Prisma3D 3.3.5. Import the downloaded OBJ, GLB, glTF, or FBX file into your preferred 3D application for modeling, rigging, and animation.",
-        faqTitle: "Frequently Asked Questions",
-        faq1q: "How do I download my Roblox avatar as a 3D model?",
-        faq1a: "Enter your Roblox username, wait for the 3D preview to load, then use the download button. The main button downloads an OBJ (ZIP) bundle; the arrow menu offers GLB, glTF, and FBX.",
-        faq2q: "Can I export Roblox avatars to FBX?",
-        faq2a: "Yes. Choose FBX from the download menu. Avarixen produces a binary FBX 7.4 file, optionally rigged and with separate textures in a ZIP.",
-        faq3q: "Can I use Avarixen with Blender?",
-        faq3a: "Yes. Blender imports OBJ, FBX, GLB, and glTF directly (File ▸ Import). Exports are tested with Blender 3.6.",
-        faq4q: "Can I import exported avatars into Prisma3D?",
-        faq4a: "Yes. Prisma3D can import OBJ, FBX, GLB, and glTF exports. Tested with Prisma3D 3.3.5.",
-        faq5q: "Does Avarixen support R6 and R15?",
-        faq5a: "Yes. Avarixen detects the avatar type and supports both R6 and R15 rigs. R6 also offers an optional \"More joints\" mode for extra bones.",
-        faq6q: "Do I need to install anything?",
-        faq6a: "No. Avarixen runs entirely in your browser. The hosted demo needs no installation — just open the website.",
-        faq7q: "Can I host Avarixen locally?",
-        faq7a: "Yes. The project runs on Node.js 18+. Clone the repository, install dependencies, configure the Roblox API key, then start the backend and frontend. See the README for setup steps.",
-        languageLabel: "Language / Bahasa:",
-        usernamePlaceholder: "Enter Roblox username or user ID...",
-        searchButton: "Search Avatar",
-        searchButtonSearching: "Searching...",
-        accountInfoTitle: "Account Information",
-        userLabel: "User",
-        userIdLabel: "User ID",
-        avatarTypeLabel: "Avatar Type",
-        avatarTypeUnknown: "Unknown",
-        compatCompatible: "Compatible",
-        compatPartial: "Partial",
-        compatIncompatible: "Incompatible",
-        compatUnknown: "Unknown",
-        compatMissing: "Missing parts",
-        advancedSettings: "Advanced settings",
-        meshQualityLabel: "Mesh quality",
-        meshQualityDefault: "Minimal (Default)",
-        meshQualityLow: "Low (Subdivision 1)",
-        meshQualityMedium: "Medium (Subdivision 2)",
-        meshQualityHigh: "High (Subdivision 3)",
-        meshQualityExtreme: "Extreme (Subdivision 4)",
-        moreJoints: "More joints",
-        moreJointsHint: "R6 only: add hands, elbows, knees, waist (bendable torso), and feet.",
-        bendAccessories: "Bend accessories",
-        bendAccessoriesHint: "When on, multi-part clothing (jackets, trousers) deforms with the body; off keeps every accessory rigid.",
-        statusWaiting: "Enter a Roblox username to load 3D preview.",
-        statusLoadingMaterial: "Loading materials and textures...",
-        statusLoadingModel: "Loading 3D model...",
-        statusLoaded: "3D model loaded successfully!",
-        statusLoadObjFailed: "Failed to load OBJ model.",
-        statusLoadMtlFailed: "Failed to load MTL material.",
-        statusNoLocalModel: "No local model available. Search for a Roblox avatar to start.",
-        statusSearching: "Searching Roblox account...",
-        statusFetchMetadata: "Fetching avatar metadata...",
-        statusDownloadAssets: "Downloading Roblox avatar assets...",
-        statusDownloaded: "Assets downloaded! Loading 3D preview...",
-        errorEmptyUsername: "Please enter a Roblox username first.",
-        errorNotFound: "Roblox account not found.",
-        errorFetchMetadata: "Failed to fetch avatar metadata.",
-        errorDownloadAssets: "Failed to download avatar assets.",
-        errorOccurred: "An error occurred: {{message}}",
-        reloadButton: "Reload Model",
-        reloadNoAvatar: "Please search for a Roblox avatar first to load preview.",
-        downloadObj: "Download OBJ",
-        downloadObjOption: "Download OBJ (OBJ + MTL + Texture)",
-        downloadFormatLabel: "Choose download format",
-        downloadCreating: "Creating ZIP...",
-        errorNoAvatarZip: "Please search for a Roblox avatar first.",
-        errorZipFetch: "Failed to fetch {{file}}",
-        alertZipFailed: "Failed to create ZIP: {{message}}",
-        downloadGlb: "Download GLB",
-        downloadGltf: "Download GLTF",
-        downloadFbx: "Download FBX",
-        errorConvertFailed: "Conversion failed: {{message}}",
-        statusConverting: "Converting model to {{format}}...",
-        explorerTitle: "Model Explorer",
-        explorerEmpty: "Load an avatar to see its parts.",
-        explorerSectionPlayer: "Player",
-        explorerSectionRig: "Rig",
-        explorerPlayers: "Player (Body)",
-        explorerHandles: "Handle (Accessories)",
-        explorerOther: "Other",
-        optionSeparateAssets: "Separate assets",
-        optionSeparateAssetsHint: "Export separate asset files (textures/bin) in one ZIP.",
-        optionAutoRig: "Auto-rig (R6/R15)",
-        statusRigging: "Building auto-rig...",
-        verticesLabel: "vertices",
-        apiOnline: "API Online",
-        apiOffline: "API Offline",
-        errorApiOffline: "API is offline. Please try again shortly.",
-        errorTimeout: "The request timed out. Please try again.",
-        apiChecking: "Checking..."
-    }
-};
-
-let currentLang = (() => {
-    const stored = localStorage.getItem("aae_lang");
-    if (stored === "id" || stored === "en") {
-        return stored;
-    }
-    // English is the default; visitors can switch to Indonesian anytime.
-    return "en";
-})();
-
-function t(key, params = {}) {
-    const dict = LANG[currentLang] || LANG.en;
-    let text = dict[key] || LANG.en[key] || key;
-    return text.replace(/\{\{(\w+)\}\}/g, (match, name) => {
-        return params[name] !== undefined ? params[name] : match;
-    });
-}
-
-function setLang(lang) {
-    currentLang = lang;
-    localStorage.setItem("aae_lang", lang);
-    document.documentElement.lang = lang;
+function setLanguage(lang) {
+    setLang(lang);
 
     document.querySelectorAll("[data-i18n]").forEach((el) => {
         el.textContent = t(el.dataset.i18n);
@@ -1291,6 +1165,11 @@ function setLang(lang) {
         renderExplorer();
     }
 
+    // The flipped-normal badge is built dynamically too.
+    if (typeof updateViewerDiagnostics === "function") {
+        updateViewerDiagnostics();
+    }
+
     // The account panel is built dynamically, so it needs an explicit refresh.
     if (typeof renderAccountInfo === "function") {
         renderAccountInfo();
@@ -1307,31 +1186,6 @@ let currentStatusRaw = null;
 const STATUS_SPINNER_FRAMES = ["|", "/", "-", "\\"];
 let statusSpinnerIndex = 0;
 let statusRafId = null;
-
-function isStatusBusyKey(key) {
-    // Keys that represent an in-progress operation (not a final/error state).
-    return key === "statusLoadingMaterial" ||
-        key === "statusLoadingModel" ||
-        key === "statusSearching" ||
-        key === "statusFetchMetadata" ||
-        key === "statusDownloadAssets" ||
-        key === "statusConverting" ||
-        key === "statusRigging";
-}
-
-function isStatusErrorKey(key) {
-    return key === "statusLoadObjFailed" ||
-        key === "statusLoadMtlFailed" ||
-        key === "statusNoLocalModel" ||
-        key === "errorEmptyUsername" ||
-        key === "errorNotFound" ||
-        key === "errorFetchMetadata" ||
-        key === "errorDownloadAssets" ||
-        key === "errorOccurred" ||
-        key === "errorConvertFailed" ||
-        key === "errorZipFetch" ||
-        key === "apiOffline";
-}
 
 function stopStatusSpinner() {
     if (statusRafId !== null) {
@@ -1421,7 +1275,7 @@ function setStatusRaw(message, { isError = true } = {}) {
 function apiHeaders() {
     return {
         "Content-Type": "application/json",
-        "Accept-Language": currentLang
+        "Accept-Language": getCurrentLang()
     };
 }
 
@@ -1429,7 +1283,7 @@ function apiHeaders() {
 // CORS-safelisted, avoiding an OPTIONS preflight for every API read.
 function acceptLanguageHeaders() {
     return {
-        "Accept-Language": currentLang
+        "Accept-Language": getCurrentLang()
     };
 }
 
@@ -1460,7 +1314,7 @@ async function apiFetch(url, options = {}) {
 
 const langSelector = document.getElementById("langSelector");
 langSelector.addEventListener("change", () => {
-    setLang(langSelector.value);
+    setLanguage(langSelector.value);
 });
 
 
@@ -1605,13 +1459,6 @@ function setSelectedFormat(format) {
     setDownloadButtonLabel();
     updateOptionVisibility();
 }
-
-const FORMAT_OPTION_SUPPORT = {
-    obj: { separate: false, rig: false },
-    glb: { separate: false, rig: true },
-    gltf: { separate: true, rig: true },
-    fbx: { separate: true, rig: true }
-};
 
 let meshQualityBeforeForce = null;
 
@@ -1781,6 +1628,8 @@ let currentUsername = null;
 let currentRigType = null;
 let currentCompatibility = null;
 let currentAssetFiles = null;
+let currentFlippedNormals = new Set();
+let backfaceCullingEnabled = true;
 
 // Monotonic tokens invalidate late async callbacks after a newer search or a
 // preview reset, so an old model cannot overwrite the current one.
@@ -1794,6 +1643,70 @@ let operationToken = 0;
 
 
 
+function normalizePreviewName(name) {
+    return String(name || "").replace(/\s+/g, "").toLowerCase();
+}
+
+function updateViewerDiagnostics() {
+    const toggle = document.getElementById("backfaceCulling");
+    const toggleRow = document.getElementById("backfaceCullingToggle");
+    const warning = document.getElementById("flipWarning");
+    const warningText = document.getElementById("flipWarningText");
+    const hasModel = Boolean(currentModel);
+
+    if (toggle) {
+        toggle.disabled = !hasModel;
+        toggle.checked = backfaceCullingEnabled;
+    }
+    if (toggleRow) {
+        toggleRow.classList.toggle("disabled", !hasModel);
+    }
+    if (warning) {
+        warning.hidden = currentFlippedNormals.size === 0;
+    }
+    if (warningText) {
+        warningText.textContent = t("viewerFlippedNormals", {
+            count: currentFlippedNormals.size
+        });
+    }
+}
+
+function applyBackfaceCulling(enabled) {
+    backfaceCullingEnabled = Boolean(enabled);
+
+    const toggle = document.getElementById("backfaceCulling");
+    if (toggle) {
+        toggle.checked = backfaceCullingEnabled;
+    }
+
+    if (!currentModel) {
+        return;
+    }
+
+    currentModel.traverse((child) => {
+        if (!child.isMesh) {
+            return;
+        }
+
+        const materials = Array.isArray(child.material)
+            ? child.material
+            : [child.material];
+
+        for (const material of materials) {
+            if (!material) {
+                continue;
+            }
+            material.side = backfaceCullingEnabled
+                ? THREE.FrontSide
+                : THREE.DoubleSide;
+            material.shadowSide = backfaceCullingEnabled
+                ? THREE.FrontSide
+                : THREE.DoubleSide;
+            material.needsUpdate = true;
+        }
+    });
+}
+
 // Make a loaded model render correctly regardless of how its faces/normals are
 // wound. Roblox exports some accessories "inside-out" (inverted winding and/or
 // normals); with backface culling they'd be invisible or badly lit. We:
@@ -1801,8 +1714,10 @@ let operationToken = 0;
 //   2. If a mesh's vertex normals oppose its triangle winding, flip the normals
 //      so they agree with the winding. Combined with double-siding, three.js
 //      then lights whichever side faces the camera correctly.
+// Returns the normalized names of meshes whose normals were auto-corrected.
 function prepareModel(root) {
 
+    const flippedNames = new Set();
     const a = new THREE.Vector3();
     const b = new THREE.Vector3();
     const c = new THREE.Vector3();
@@ -1817,6 +1732,7 @@ function prepareModel(root) {
             return;
         }
 
+        child.userData.flippedNormals = false;
         const geometry = child.geometry;
 
         // 1. Double-sided materials (also covers materials OBJLoader created
@@ -1905,8 +1821,18 @@ function prepareModel(root) {
                 );
             }
             normal.needsUpdate = true;
+
+            child.userData.flippedNormals = true;
+            if (child.name) {
+                flippedNames.add(normalizePreviewName(child.name));
+            }
+            if (child.parent && child.parent.name) {
+                flippedNames.add(normalizePreviewName(child.parent.name));
+            }
         }
     });
+
+    return flippedNames;
 }
 
 // Release geometries, materials, and textures owned by a loaded model.
@@ -2057,11 +1983,16 @@ function loadModel(userId = null, bustCache = false) {
 
                     // Support inside-out / inverted accessories: double-side
                     // all materials and fix normals that oppose the winding.
-                    prepareModel(object);
+                    currentFlippedNormals = prepareModel(object);
 
                     currentModel = object;
 
                     scene.add(object);
+                    applyBackfaceCulling(backfaceCullingEnabled);
+                    updateViewerDiagnostics();
+                    if (currentGroups) {
+                        renderExplorer();
+                    }
 
                     const box = new THREE.Box3()
                         .setFromObject(object);
@@ -2157,6 +2088,8 @@ function clearPreview() {
 
     }
 
+    currentFlippedNormals = new Set();
+    updateViewerDiagnostics();
 
     camera.position.set(0, 0, 12);
 
@@ -2297,6 +2230,8 @@ if (new URLSearchParams(location.search).has("debug")) {
                 modelChildren: currentModel ? currentModel.children.length : 0,
                 rigType: currentRigType,
                 groupCount: Array.isArray(currentGroups) ? currentGroups.length : 0,
+                flippedNormalMeshes: currentFlippedNormals.size,
+                backfaceCulling: backfaceCullingEnabled,
                 sceneChildren: scene.children.length
             }),
             memory: () => ({
@@ -2363,14 +2298,18 @@ function buildRigTree(bones) {
     return lines;
 }
 
-function explorerNode(name, meta, cls, depth) {
+function explorerNode(name, meta, cls, depth, warning = null) {
     const pad = 12 + (depth || 0) * 14;
     const metaHtml = meta !== null && meta !== undefined
         ? `<span class="node-meta">${meta}</span>`
         : "";
+    const warningHtml = warning
+        ? `<span class="node-warning" title="${escapeHTML(warning)}">⚠</span>`
+        : "";
     return `<div class="explorer-node" style="padding-left:${pad}px" title="${escapeHTML(name)}">`
         + `<span class="node-icon ${cls}"></span>`
         + `<span class="node-name">${escapeHTML(name)}</span>`
+        + warningHtml
         + metaHtml
         + `</div>`;
 }
@@ -2390,6 +2329,18 @@ function renderExplorer() {
     const handleGroups = groups.filter((g) => g.type === "handle");
     const otherGroups = groups.filter((g) => g.type === "other");
 
+    const flippedWarning = (group) => {
+        if (!currentFlippedNormals.size) {
+            return null;
+        }
+        const names = [group.name, group.part]
+            .filter(Boolean)
+            .map(normalizePreviewName);
+        return names.some((name) => currentFlippedNormals.has(name))
+            ? t("explorerFlippedNormals")
+            : null;
+    };
+
     const handlesByPart = new Map();
     for (const h of handleGroups) {
         const key = h.part || "__none__";
@@ -2397,7 +2348,15 @@ function renderExplorer() {
         handlesByPart.get(key).push(h);
     }
 
-    const sortedPlayers = [...playerGroups].sort(
+    const primaryPlayers = playerGroups.filter((g) => !g.extraPart);
+    const extraPlayers = playerGroups.filter((g) => g.extraPart && !g.part);
+    const extrasByPart = new Map();
+    for (const g of extraPlayers) {
+        if (!extrasByPart.has(g.extraPart)) extrasByPart.set(g.extraPart, []);
+        extrasByPart.get(g.extraPart).push(g);
+    }
+
+    const sortedPlayers = [...primaryPlayers].sort(
         (a, b) => partOrderIndex(currentRigType, a.part || a.name)
             - partOrderIndex(currentRigType, b.part || b.name)
     );
@@ -2408,24 +2367,72 @@ function renderExplorer() {
     html += `<div class="explorer-section-label">${t("explorerSectionPlayer")} (${totalParts})</div>`;
 
     const usedHandles = new Set();
+    const usedExtras = new Set();
     for (const g of sortedPlayers) {
         const label = g.part || g.name;
-        html += explorerNode(label, `${simulatedVertices(g)} v`, "player", 0);
+        html += explorerNode(
+            label,
+            `${simulatedVertices(g)} v`,
+            "player",
+            0,
+            flippedWarning(g)
+        );
+
+        const extras = extrasByPart.get(g.part) || extrasByPart.get(g.name) || [];
+        for (const extra of extras) {
+            usedExtras.add(extra.name);
+            html += explorerNode(
+                extra.name,
+                `${extra.vertices} v · ${t("explorerExtra")}`,
+                "extra",
+                1,
+                flippedWarning(extra)
+            );
+        }
 
         const handles = handlesByPart.get(g.part) || handlesByPart.get(g.name) || [];
         for (const h of handles) {
             usedHandles.add(h.name);
-            html += explorerNode(h.name || "Handle", `${h.vertices} v`, "handle", 1);
+            html += explorerNode(
+                h.baseName || h.name || "Handle",
+                `${h.vertices} v`,
+                "handle",
+                1,
+                flippedWarning(h)
+            );
         }
     }
 
     for (const h of handleGroups) {
         if (usedHandles.has(h.name)) continue;
-        html += explorerNode(h.name || "Handle", `${h.vertices} v`, "handle", 0);
+        html += explorerNode(
+            h.baseName || h.name || "Handle",
+            `${h.vertices} v`,
+            "handle",
+            0,
+            flippedWarning(h)
+        );
+    }
+
+    for (const g of extraPlayers) {
+        if (usedExtras.has(g.name)) continue;
+        html += explorerNode(
+            g.name,
+            `${g.vertices} v · ${t("explorerExtra")}`,
+            "extra",
+            0,
+            flippedWarning(g)
+        );
     }
 
     for (const g of otherGroups) {
-        html += explorerNode(g.name, `${g.vertices} v`, "other", 0);
+        html += explorerNode(
+            g.name,
+            `${g.vertices} v`,
+            "other",
+            0,
+            flippedWarning(g)
+        );
     }
 
     const autoRigEl = document.getElementById("autoRig");
@@ -3049,22 +3056,19 @@ async function downloadZip() {
     const assetPath =
         `${BACKEND_URL}/assets/${encodeURIComponent(currentUserId)}/`;
 
-    const safeName = String(currentDisplayName || "Avarixen").replace(/[\\/:*?"<>|]/g, "_").trim().replace(/[. ]+$/g, "") || "Avarixen";
+    const safeName = sanitizeExportName(currentDisplayName, "Avarixen");
     const baseName = safeName.toLowerCase();
     // Download filename uses the Roblox username: {username}_{user_id}.zip
-    const safeUsername = String(currentUsername || currentDisplayName || "Avarixen").replace(/[\\/:*?"<>|]/g, "_").trim().replace(/[. ]+$/g, "") || "Avarixen";
+    const safeUsername = sanitizeExportName(currentUsername || currentDisplayName, "Avarixen");
 
     // Prefer the exact file list the download endpoint reported. The old HEAD
     // probe stopped at the first gap and silently dropped later textures.
     let files = [];
 
     if (currentAssetFiles && currentAssetFiles.length) {
-        files = currentAssetFiles.map((file) => String(file).split("/").pop());
+        files = resolveAssetFiles(currentAssetFiles);
     } else {
-        files = [
-            "avatar.obj",
-            "avatar.mtl"
-        ];
+        files = resolveAssetFiles(currentAssetFiles);
 
         let textureIndex = 1;
 
@@ -3116,12 +3120,12 @@ async function downloadZip() {
         }
 
         const zipFileName =
-            file === "avatar.obj" ? `${baseName}.obj` :
-            file === "avatar.mtl" ? `${baseName}.mtl` :
+            file === "avatar.obj" ? objMtlFileNames(safeName).obj :
+            file === "avatar.mtl" ? objMtlFileNames(safeName).mtl :
             file;
 
         zip.file(
-            `${safeName}/${zipFileName}`,
+            zipEntryName(safeName, zipFileName),
             content
         );
 
@@ -3172,13 +3176,14 @@ async function downloadConverted(format) {
 
     const convertUrl = `${BACKEND_URL}/api/roblox/convert/${encodeURIComponent(currentUserId)}/${format}`;
 
-    const params = new URLSearchParams();
-    if (rig) params.set("rig", "1");
-    if (separate) params.set("separate", "1");
-    if (subdivision > 0) params.set("subdivision", String(subdivision));
-    if (moreJoints) params.set("moreJoints", "1");
-    if (rig) params.set("bendAccessories", bendAccessories ? "1" : "0");
-    if (currentDisplayName) params.set("name", currentDisplayName);
+    const params = buildConversionParams({
+        rig,
+        separate,
+        subdivision,
+        moreJoints,
+        bendAccessories,
+        name: currentDisplayName
+    });
     const qs = params.toString();
     const url = qs ? `${convertUrl}?${qs}` : convertUrl;
 
@@ -3210,10 +3215,7 @@ async function downloadConverted(format) {
     const objUrl = URL.createObjectURL(blob);
 
     // Download filename uses the Roblox username: {username}_{user_id}.{ext}
-    const safeUsername = String(currentUsername || currentDisplayName || "Avarixen").replace(
-        /[\\/:*?"<>|]/g,
-        "_"
-    ).trim().replace(/[. ]+$/g, "") || "Avarixen";
+    const safeUsername = sanitizeExportName(currentUsername || currentDisplayName, "Avarixen");
 
     // Separate mode returns a ZIP instead of a bare model file.
     let ext = format;
@@ -3277,7 +3279,23 @@ animate();
 
 
 
-setLang(currentLang);
+const backfaceCullingInput = document.getElementById("backfaceCulling");
+if (backfaceCullingInput) {
+    backfaceCullingInput.addEventListener("change", () => {
+        applyBackfaceCulling(backfaceCullingInput.checked);
+    });
+}
+
+const flipWarningButton = document.getElementById("flipWarning");
+if (flipWarningButton) {
+    flipWarningButton.addEventListener("click", () => {
+        applyBackfaceCulling(!backfaceCullingEnabled);
+    });
+}
+
+updateViewerDiagnostics();
+
+setLanguage(getCurrentLang());
 
 // Reload starts disabled until an avatar is loaded; Download stays enabled so
 // a format can be chosen up front.
