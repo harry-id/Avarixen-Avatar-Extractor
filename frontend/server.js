@@ -30,7 +30,8 @@ const FRONTEND_MODULES = [
     "status",
     "format-support",
     "naming",
-    "convert-params"
+    "convert-params",
+    "i18n"
 ];
 
 for (const moduleName of FRONTEND_MODULES) {
