@@ -295,75 +295,83 @@ async function buildFbx({
         0
     );
 
-    while (
-        safeSubdivision > 0 &&
-        baseTriangleCount * Math.pow(4, safeSubdivision) > 3_500_000
-    ) {
-        safeSubdivision -= 1;
-    }
-
-    const all = createBounds();
-    const body = createBounds();
-
-    for (const poly of obj.polygons) {
-        const isBody = isBodyGroup(poly.group || "");
-
-        for (const corner of poly.corners) {
-            const pos = obj.positions[corner.p];
-
-            if (!pos) {
-                continue;
-            }
-
-            extendBounds(all, pos[0], pos[1], pos[2]);
-            if (isBody) {
-                extendBounds(body, pos[0], pos[1], pos[2]);
-            }
-        }
-    }
-
-    const src = body.found ? body : all;
-    const offsetX = (src.minX + src.maxX) / 2;
-    const offsetY = src.minY;
-    const offsetZ = (src.minZ + src.maxZ) / 2;
-
-    const matNames = [...new Set(obj.polygons.map((poly) => poly.material || "default"))];
-
-    const texMap = new Map();
-    for (const name of matNames) {
-        const material = mtl.get(name);
-
-        if (material?.map_Kd) {
-            const texture = await loadTexture(assetDir, material.map_Kd);
-
-            if (texture) {
-                texMap.set(name, texture);
-            }
-        }
-    }
-
-    const materialCache = new Map();
-    const materialFor = (name) => {
-        if (!materialCache.has(name)) {
-            const material = mtl.get(name) || { Kd: [0.8, 0.8, 0.8], opacity: 1 };
-            const texture = texMap.get(name);
-            const opacity = Number.isFinite(material.opacity) ? material.opacity : 1;
-            const color = texture
-                ? new T.Color(1, 1, 1)
-                : new T.Color(material.Kd[0], material.Kd[1], material.Kd[2]);
-
-            materialCache.set(name, new T.MeshPhongMaterial({
-                color,
-                map: texture || undefined,
-                vertexColors: true,
-                transparent: opacity < 1,
-                opacity,
-                side: T.DoubleSide
-            }));
+    const { src, offsetX, offsetY, offsetZ } = await profile.run("fbx_bounds", async () => {
+        while (
+            safeSubdivision > 0 &&
+            baseTriangleCount * Math.pow(4, safeSubdivision) > 3_500_000
+        ) {
+            safeSubdivision -= 1;
         }
 
-        return materialCache.get(name);
-    };
+        const all = createBounds();
+        const body = createBounds();
+
+        for (const poly of obj.polygons) {
+            const isBody = isBodyGroup(poly.group || "");
+
+            for (const corner of poly.corners) {
+                const pos = obj.positions[corner.p];
+
+                if (!pos) {
+                    continue;
+                }
+
+                extendBounds(all, pos[0], pos[1], pos[2]);
+                if (isBody) {
+                    extendBounds(body, pos[0], pos[1], pos[2]);
+                }
+            }
+        }
+
+        const src = body.found ? body : all;
+        const offsetX = (src.minX + src.maxX) / 2;
+        const offsetY = src.minY;
+        const offsetZ = (src.minZ + src.maxZ) / 2;
+
+        return { src, offsetX, offsetY, offsetZ };
+    });
+
+    const { matNames, texMap, materialCache, materialFor } = await profile.run("fbx_materials", async () => {
+        const matNames = [...new Set(obj.polygons.map((poly) => poly.material || "default"))];
+
+        const texMap = new Map();
+        for (const name of matNames) {
+            const material = mtl.get(name);
+
+            if (material?.map_Kd) {
+                const texture = await loadTexture(assetDir, material.map_Kd);
+
+                if (texture) {
+                    texMap.set(name, texture);
+                }
+            }
+        }
+
+        const materialCache = new Map();
+        const materialFor = (name) => {
+            if (!materialCache.has(name)) {
+                const material = mtl.get(name) || { Kd: [0.8, 0.8, 0.8], opacity: 1 };
+                const texture = texMap.get(name);
+                const opacity = Number.isFinite(material.opacity) ? material.opacity : 1;
+                const color = texture
+                    ? new T.Color(1, 1, 1)
+                    : new T.Color(material.Kd[0], material.Kd[1], material.Kd[2]);
+
+                materialCache.set(name, new T.MeshPhongMaterial({
+                    color,
+                    map: texture || undefined,
+                    vertexColors: true,
+                    transparent: opacity < 1,
+                    opacity,
+                    side: T.DoubleSide
+                }));
+            }
+
+            return materialCache.get(name);
+        };
+
+        return { matNames, texMap, materialCache, materialFor };
+    });
 
     const buildPart = (polys, fixedGroupName = null, recenter = null, skinFn = null) => {
         const usedNames = [...new Set(polys.map((poly) => poly.material || "default"))];
@@ -563,45 +571,49 @@ async function buildFbx({
 
     // Collect the parts to build (one entry per OBJ group in split mode, or a
     // single merged part otherwise).
-    const partList = [];
+    const partList = await profile.run("fbx_parts", async () => {
+        const partList = [];
 
-    if (splitParts) {
-        const splitMaps = new Map();
-        const handleSplits = (splitData && splitData.handleSplits) || {};
+        if (splitParts) {
+            const splitMaps = new Map();
+            const handleSplits = (splitData && splitData.handleSplits) || {};
 
-        for (const [originalName, groups] of Object.entries(handleSplits)) {
-            const vertexToSplit = new Map();
-            for (const group of groups) {
-                for (const vertex of group.vertexIndices) {
-                    vertexToSplit.set(vertex, group.name);
+            for (const [originalName, groups] of Object.entries(handleSplits)) {
+                const vertexToSplit = new Map();
+                for (const group of groups) {
+                    for (const vertex of group.vertexIndices) {
+                        vertexToSplit.set(vertex, group.name);
+                    }
                 }
-            }
-            splitMaps.set(originalName, vertexToSplit);
-        }
-
-        const byGroup = new Map();
-
-        for (const poly of obj.polygons) {
-            const originalName = poly.group || "Avatar";
-            const splitMap = splitMaps.get(originalName);
-            const splitName = splitMap && poly.corners.length
-                ? splitMap.get(poly.corners[0].p)
-                : null;
-            const key = splitName || originalName;
-
-            if (!byGroup.has(key)) {
-                byGroup.set(key, []);
+                splitMaps.set(originalName, vertexToSplit);
             }
 
-            byGroup.get(key).push(poly);
+            const byGroup = new Map();
+
+            for (const poly of obj.polygons) {
+                const originalName = poly.group || "Avatar";
+                const splitMap = splitMaps.get(originalName);
+                const splitName = splitMap && poly.corners.length
+                    ? splitMap.get(poly.corners[0].p)
+                    : null;
+                const key = splitName || originalName;
+
+                if (!byGroup.has(key)) {
+                    byGroup.set(key, []);
+                }
+
+                byGroup.get(key).push(poly);
+            }
+
+            for (const [name, polys] of byGroup) {
+                partList.push({ name, polys });
+            }
+        } else {
+            partList.push({ name: "character_mesh", polys: obj.polygons });
         }
 
-        for (const [name, polys] of byGroup) {
-            partList.push({ name, polys });
-        }
-    } else {
-        partList.push({ name: "character_mesh", polys: obj.polygons });
-    }
+        return partList;
+    });
 
     // A container holds the armature and the (skinned) meshes.
     const container = new T.Group();
@@ -612,172 +624,183 @@ async function buildFbx({
     const boneByName = {};
 
     if (rigData) {
-        const boneNames = Object.keys(rigData.joints);
-        const bones = [];
+        await profile.run("fbx_skeleton", async () => {
+            const boneNames = Object.keys(rigData.joints);
+            const bones = [];
 
-        for (const name of boneNames) {
-            const bone = new T.Bone();
-            bone.name = name;
-            boneByName[name] = bone;
-            bones.push(bone);
-        }
-
-        // World head positions in the same space as the geometry (Y-up,
-        // 180° around Y, body-centred, feet at 0).
-        const head = {};
-        for (const name of boneNames) {
-            const p = rigData.joints[name];
-            head[name] = new T.Vector3(
-                -(p[0] - offsetX),
-                p[1] - offsetY,
-                -(p[2] - offsetZ)
-            );
-        }
-
-        const childrenOf = {};
-        let rootName = null;
-
-        for (const name of boneNames) {
-            const parentName = rigData.parentOf[name];
-
-            if (parentName && boneByName[parentName]) {
-                boneByName[parentName].add(boneByName[name]);
-                (childrenOf[parentName] = childrenOf[parentName] || []).push(name);
-            } else {
-                rootName = name;
+            for (const name of boneNames) {
+                const bone = new T.Bone();
+                bone.name = name;
+                boneByName[name] = bone;
+                bones.push(bone);
             }
-        }
 
-        // Orient each bone's local +Y (head→tail) toward its first child so
-        // Blender draws the bones along the limbs instead of pointing them all
-        // up. Leaf bones continue the parent's direction. Parents are processed
-        // before children, and each child's local position is recomputed in the
-        // parent's rotated frame so the joint positions never move.
-        const yAxis = new T.Vector3(0, 1, 0);
-        const worldQuat = {};
-        const dir = new T.Vector3();
-        const desired = new T.Quaternion();
-        const invParent = new T.Quaternion();
+            // World head positions in the same space as the geometry (Y-up,
+            // 180° around Y, body-centred, feet at 0).
+            const head = {};
+            for (const name of boneNames) {
+                const p = rigData.joints[name];
+                head[name] = new T.Vector3(
+                    -(p[0] - offsetX),
+                    p[1] - offsetY,
+                    -(p[2] - offsetZ)
+                );
+            }
 
-        const parentWorldQuat = (name) =>
-            worldQuat[rigData.parentOf[name]] || new T.Quaternion();
+            const childrenOf = {};
+            let rootName = null;
 
-        const orient = (name) => {
-            const bone = boneByName[name];
-            const kids = childrenOf[name] || [];
+            for (const name of boneNames) {
+                const parentName = rigData.parentOf[name];
 
-            if (kids.length) {
-                dir.copy(head[kids[0]]).sub(head[name]);
-
-                if (dir.lengthSq() < 1e-8) {
-                    dir.copy(yAxis).applyQuaternion(parentWorldQuat(name));
+                if (parentName && boneByName[parentName]) {
+                    boneByName[parentName].add(boneByName[name]);
+                    (childrenOf[parentName] = childrenOf[parentName] || []).push(name);
                 } else {
-                    dir.normalize();
+                    rootName = name;
+                }
+            }
+
+            // Orient each bone's local +Y (head→tail) toward its first child so
+            // Blender draws the bones along the limbs instead of pointing them all
+            // up. Leaf bones continue the parent's direction. Parents are processed
+            // before children, and each child's local position is recomputed in the
+            // parent's rotated frame so the joint positions never move.
+            const yAxis = new T.Vector3(0, 1, 0);
+            const worldQuat = {};
+            const dir = new T.Vector3();
+            const desired = new T.Quaternion();
+            const invParent = new T.Quaternion();
+
+            const parentWorldQuat = (name) =>
+                worldQuat[rigData.parentOf[name]] || new T.Quaternion();
+
+            const orient = (name) => {
+                const bone = boneByName[name];
+                const kids = childrenOf[name] || [];
+
+                if (kids.length) {
+                    dir.copy(head[kids[0]]).sub(head[name]);
+
+                    if (dir.lengthSq() < 1e-8) {
+                        dir.copy(yAxis).applyQuaternion(parentWorldQuat(name));
+                    } else {
+                        dir.normalize();
+                    }
+                } else {
+                    // Leaf: keep pointing the way the parent points.
+                    dir.copy(yAxis).applyQuaternion(parentWorldQuat(name)).normalize();
+                }
+
+                desired.setFromUnitVectors(yAxis, dir);
+                worldQuat[name] = desired.clone();
+
+                const parentName = rigData.parentOf[name];
+
+                if (parentName && boneByName[parentName]) {
+                    const pq = parentWorldQuat(name);
+
+                    bone.quaternion.copy(pq).invert().multiply(desired);
+
+                    invParent.copy(pq).invert();
+                    bone.position
+                        .copy(head[name])
+                        .sub(head[parentName])
+                        .applyQuaternion(invParent);
+                } else {
+                    bone.position.copy(head[name]);
+                    bone.quaternion.copy(desired);
+                }
+
+                for (const child of kids) {
+                    orient(child);
+                }
+            };
+
+            if (rootName) {
+                orient(rootName);
+            }
+
+            container.add(boneByName[rootName]);
+
+            // Bone inverses are captured from the rest pose (after orientation).
+            scene.updateMatrixWorld(true);
+            skeleton = new T.Skeleton(bones);
+        });
+    }
+
+    // Scene assembly wraps the per-part geometry spans (fbx_geometry); when
+    // nested, stage durations are innermost-first and must not be summed across
+    // nesting levels.
+    await profile.run("fbx_scene", async () => {
+        for (const part of partList) {
+            const isHandle = splitParts && rigData && /^handle/i.test(part.name);
+            // Layered clothing (R15) spans several body parts and must deform with
+            // the skeleton; other handles stay rigid children of one bone.
+            const isClothing = !!(isHandle && rigData.isClothingGroup(part.name));
+
+            if (isClothing) {
+                // Skinned clothing: generate skin attributes and bind to the
+                // skeleton instead of rigidly parenting to a single bone.
+                const built = await profile.run("fbx_geometry", () =>
+                    buildPart(
+                        part.polys,
+                        splitParts ? part.name : null,
+                        null,
+                        (groupName, x, y, z) => rigData.skinClothingFor(x, y, z)
+                    )
+                );
+                const mesh = new T.SkinnedMesh(built.geometry, built.materials);
+                mesh.name = part.name;
+                mesh.bind(skeleton, new T.Matrix4());
+                mesh.frustumCulled = false;
+                container.add(mesh);
+                continue;
+            }
+
+            const handleBone = isHandle ? rigData.handleBoneMap[part.name] : null;
+            const recenter = isHandle ? partCenter(part.polys) : null;
+
+            const built = await profile.run("fbx_geometry", () =>
+                buildPart(part.polys, splitParts ? part.name : null, recenter)
+            );
+
+            let mesh;
+
+            if (rigData && !isHandle) {
+                mesh = new T.SkinnedMesh(built.geometry, built.materials);
+                mesh.name = part.name;
+                // Identity bind matrix: geometry and bones already share the same
+                // (FBX) space.
+                mesh.bind(skeleton, new T.Matrix4());
+                mesh.frustumCulled = false;
+                container.add(mesh);
+            } else if (isHandle) {
+                // Rigid child of the parent bone (not skinned); node transform keeps
+                // the centered geometry at its original world position.
+                mesh = new T.Mesh(built.geometry, built.materials);
+                mesh.name = part.name;
+                mesh.frustumCulled = false;
+
+                const bone = handleBone ? boneByName[handleBone] : null;
+
+                if (bone) {
+                    mesh.position.copy(bone.worldToLocal(recenter.clone()));
+                    mesh.quaternion.copy(
+                        bone.getWorldQuaternion(new T.Quaternion()).invert()
+                    );
+                    bone.add(mesh);
+                } else {
+                    mesh.position.copy(recenter);
+                    container.add(mesh);
                 }
             } else {
-                // Leaf: keep pointing the way the parent points.
-                dir.copy(yAxis).applyQuaternion(parentWorldQuat(name)).normalize();
-            }
-
-            desired.setFromUnitVectors(yAxis, dir);
-            worldQuat[name] = desired.clone();
-
-            const parentName = rigData.parentOf[name];
-
-            if (parentName && boneByName[parentName]) {
-                const pq = parentWorldQuat(name);
-
-                bone.quaternion.copy(pq).invert().multiply(desired);
-
-                invParent.copy(pq).invert();
-                bone.position
-                    .copy(head[name])
-                    .sub(head[parentName])
-                    .applyQuaternion(invParent);
-            } else {
-                bone.position.copy(head[name]);
-                bone.quaternion.copy(desired);
-            }
-
-            for (const child of kids) {
-                orient(child);
-            }
-        };
-
-        if (rootName) {
-            orient(rootName);
-        }
-
-        container.add(boneByName[rootName]);
-
-        // Bone inverses are captured from the rest pose (after orientation).
-        scene.updateMatrixWorld(true);
-        skeleton = new T.Skeleton(bones);
-    }
-
-    for (const part of partList) {
-        const isHandle = splitParts && rigData && /^handle/i.test(part.name);
-        // Layered clothing (R15) spans several body parts and must deform with
-        // the skeleton; other handles stay rigid children of one bone.
-        const isClothing = !!(isHandle && rigData.isClothingGroup(part.name));
-
-        if (isClothing) {
-            // Skinned clothing: generate skin attributes and bind to the
-            // skeleton instead of rigidly parenting to a single bone.
-            const built = buildPart(
-                part.polys,
-                splitParts ? part.name : null,
-                null,
-                (groupName, x, y, z) => rigData.skinClothingFor(x, y, z)
-            );
-            const mesh = new T.SkinnedMesh(built.geometry, built.materials);
-            mesh.name = part.name;
-            mesh.bind(skeleton, new T.Matrix4());
-            mesh.frustumCulled = false;
-            container.add(mesh);
-            continue;
-        }
-
-        const handleBone = isHandle ? rigData.handleBoneMap[part.name] : null;
-        const recenter = isHandle ? partCenter(part.polys) : null;
-
-        const built = buildPart(part.polys, splitParts ? part.name : null, recenter);
-
-        let mesh;
-
-        if (rigData && !isHandle) {
-            mesh = new T.SkinnedMesh(built.geometry, built.materials);
-            mesh.name = part.name;
-            // Identity bind matrix: geometry and bones already share the same
-            // (FBX) space.
-            mesh.bind(skeleton, new T.Matrix4());
-            mesh.frustumCulled = false;
-            container.add(mesh);
-        } else if (isHandle) {
-            // Rigid child of the parent bone (not skinned); node transform keeps
-            // the centered geometry at its original world position.
-            mesh = new T.Mesh(built.geometry, built.materials);
-            mesh.name = part.name;
-            mesh.frustumCulled = false;
-
-            const bone = handleBone ? boneByName[handleBone] : null;
-
-            if (bone) {
-                mesh.position.copy(bone.worldToLocal(recenter.clone()));
-                mesh.quaternion.copy(
-                    bone.getWorldQuaternion(new T.Quaternion()).invert()
-                );
-                bone.add(mesh);
-            } else {
-                mesh.position.copy(recenter);
+                mesh = new T.Mesh(built.geometry, built.materials);
+                mesh.name = part.name;
                 container.add(mesh);
             }
-        } else {
-            mesh = new T.Mesh(built.geometry, built.materials);
-            mesh.name = part.name;
-            container.add(mesh);
         }
-    }
+    });
 
     const exporter = new FBXExporter();
     const fbxBytes = await profile.run("fbx_export", () => exporter.parseSync(scene, {
