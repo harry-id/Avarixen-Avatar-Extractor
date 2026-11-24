@@ -40,14 +40,14 @@ test("non-rigged conversion failures are 500, rig failures are 422", async () =>
             );
             assert.equal(noRig.status, 500);
             const noRigBody = await noRig.json();
-            assert.equal(noRigBody.message, "Konversi model gagal.");
+            assert.equal(noRigBody.message, "Model conversion failed.");
 
             const withRig = await fetch(
                 `${base}/api/roblox/convert/${USER_ID}/fbx?rig=1`
             );
             assert.equal(withRig.status, 422);
             const withRigBody = await withRig.json();
-            assert.match(withRigBody.message, /Auto-rig gagal/);
+            assert.match(withRigBody.message, /Auto-rig failed/);
 
             const head = await fetch(
                 `${base}/api/roblox/convert/${USER_ID}/fbx`,
@@ -496,7 +496,7 @@ test("GLB rig failure returns 422", async () => {
             );
             assert.equal(res.status, 422);
             const body = await res.json();
-            assert.match(body.message, /Auto-rig gagal/);
+            assert.match(body.message, /Auto-rig failed/);
         });
     } finally {
         await fs.rm(USER_DIR, { recursive: true, force: true });

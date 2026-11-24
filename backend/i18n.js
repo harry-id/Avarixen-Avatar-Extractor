@@ -79,7 +79,7 @@ const MESSAGES = {
     }
 };
 
-const DEFAULT_LANG = "id";
+const DEFAULT_LANG = "en";
 
 function getLang(req) {
     const header = req.headers["accept-language"] || "";
