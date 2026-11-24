@@ -10,6 +10,7 @@ const path = require("path");
 const { PNG } = require("pngjs");
 const { isBodyGroup } = require("./obj-utils");
 const { computeRig, parseObjString, readCachedRobloxType, assertObjTextLimits } = require("./auto-rig");
+const profile = require("./profiler");
 
 let THREE = null;
 let FBXExporter = null;
@@ -253,7 +254,7 @@ async function buildFbx({
 
     const { THREE: T, FBXExporter } = await ensureModules();
 
-    const obj = parseObj(objText);
+    const obj = await profile.run("fbx_parse", () => parseObj(objText));
     const mtl = mtlText ? parseMtl(mtlText) : new Map();
     const excludeSubdivisionSet = new Set(excludeSubdivision || []);
 
@@ -265,22 +266,22 @@ async function buildFbx({
     // bone indices/weights from raw OBJ positions, so it is independent of the
     // axis/offset conversion applied below.
     const rigData = rig
-        ? computeRig(parseObjString(objText), {
+        ? await profile.run("fbx_rig", () => computeRig(parseObjString(objText), {
             moreJoints,
             hint: readCachedRobloxType(assetDir),
             bendAccessories
-        })
+        }))
         : null;
 
     // Even an unrigged FBX should keep split accessory components separate.
     let splitData = rigData;
     if (!splitData) {
         try {
-            splitData = computeRig(parseObjString(objText), {
+            splitData = await profile.run("fbx_rig", () => computeRig(parseObjString(objText), {
                 moreJoints,
                 hint: readCachedRobloxType(assetDir),
                 bendAccessories
-            });
+            }));
         } catch {
             splitData = null;
         }
@@ -779,13 +780,13 @@ async function buildFbx({
     }
 
     const exporter = new FBXExporter();
-    const fbxBytes = exporter.parseSync(scene, {
+    const fbxBytes = await profile.run("fbx_export", () => exporter.parseSync(scene, {
         binary: true,
         embedTextures,
         // Y-up, Z-forward, unit scale 100: Blender imports metres at the
         // right size instead of treating the model as centimetres.
         preset: "blender"
-    });
+    }));
 
     return Buffer.from(fbxBytes);
 }

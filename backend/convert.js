@@ -11,6 +11,7 @@ const { createConversionLimiter } = require("./conversion-limiter");
 const { createAdmissionLimiter } = require("./admission-limiter");
 const { parseNonNegativeNumber, parsePositiveNumber } = require("./config");
 const { withUserLock } = require("./user-lock");
+const profile = require("./profiler");
 
 const SUPPORTED_FORMATS = ["glb", "gltf", "fbx"];
 
@@ -342,7 +343,7 @@ module.exports = function (app, options = {}) {
         let release;
 
         try {
-            release = await conversionLimiter.acquire();
+            release = await profile.run("admission", () => conversionLimiter.acquire());
         } catch (error) {
             if (error && error.code === "ECONVERSIONBUSY") {
                 res.set("Retry-After", "5");
@@ -358,7 +359,7 @@ module.exports = function (app, options = {}) {
         try {
             // Share the per-user lock with downloads so a cache swap cannot
             // happen while conversion is reading avatar.obj/mtl/textures.
-            await withUserLock(userId, async () => {
+            const userLockTask = withUserLock(userId, async () => {
             try {
                 await fs.access(objPath);
             } catch {
@@ -442,14 +443,14 @@ module.exports = function (app, options = {}) {
 
             let doc;
             try {
-                ({ doc } = await convertAvatar(assetDir, {
+                ({ doc } = await profile.run("convert_avatar", () => convertAvatar(assetDir, {
                     rig,
                     splitParts,
                     groupName,
                     subdivision,
                     moreJoints,
                     bendAccessories
-                }));
+                })));
             } catch (conversionError) {
                 return handleExportError(res, lang, conversionError, {
                     rig,
@@ -481,7 +482,7 @@ module.exports = function (app, options = {}) {
             if (fmt === "glb") {
                 const tmpPath = path.join(os.tmpdir(), `aae-${userId}-${Date.now()}.glb`);
                 try {
-                    await io.write(tmpPath, doc);
+                    await profile.run("glb_write", () => io.write(tmpPath, doc));
                     await sendGeneratedFile(
                         res,
                         tmpPath,
@@ -494,7 +495,7 @@ module.exports = function (app, options = {}) {
                 }
                 return;
             } else {
-                const gltfText = await writeGltfEmbedded(doc);
+                const gltfText = await profile.run("gltf_embed", () => writeGltfEmbedded(doc));
 
                 res.setHeader("Content-Type", "model/gltf+json");
                 res.setHeader(
@@ -514,6 +515,7 @@ module.exports = function (app, options = {}) {
             }
         }
             });
+            await profile.run("user_lock_wait", () => userLockTask);
         } catch (err) {
             console.error("Convert error:", err);
 
@@ -525,6 +527,20 @@ module.exports = function (app, options = {}) {
             }
         } finally {
             release();
+
+            const spans = profile.finishSpans();
+            if (spans.length > 0) {
+                console.log(
+                    `[profile] format=${fmt} userId=${userId} stages=${JSON.stringify(
+                        spans.map((span) => ({
+                            stage: span.stage,
+                            durationMs: span.durationMs,
+                            cpuDurationMs: span.cpuDurationMs,
+                            rssBytes: span.rssBytes
+                        }))
+                    )}`
+                );
+            }
         }
     });
 };

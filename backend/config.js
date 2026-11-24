@@ -153,9 +153,39 @@ function parseNonNegativeNumber(value, fallback) {
     return Number.isFinite(number) && number >= 0 ? number : fallback;
 }
 
+/**
+ * Parse a boolean-ish environment value, falling back when the value is
+ * missing, empty, non-boolean-like, or unrecognized. Used for opt-in features
+ * (e.g. AAE_PROFILE_STAGES) that default to disabled.
+ */
+function parseBoolean(value, fallback = false) {
+    if (value === undefined || value === null) {
+        return fallback;
+    }
+
+    const raw = String(value).trim();
+
+    if (!raw) {
+        return fallback;
+    }
+
+    const lower = raw.toLowerCase();
+
+    if (["true", "1", "yes", "on"].includes(lower)) {
+        return true;
+    }
+
+    if (["false", "0", "no", "off", "none"].includes(lower)) {
+        return false;
+    }
+
+    return fallback;
+}
+
 module.exports = {
     parsePositiveNumber,
     parseNonNegativeNumber,
+    parseBoolean,
     parseTrustProxy,
     resolveTrustProxy,
     resolveHost,
