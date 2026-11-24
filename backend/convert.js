@@ -194,6 +194,34 @@ function sendGeneratedFile(res, filePath, filename, contentType) {
     });
 }
 
+/**
+ * Map a conversion/export failure to its client-visible outcome: oversized
+ * exports are a 413, a requested-rig failure is a 422, and any other failure is
+ * rethrown for the outer handler to answer with a 500.
+ */
+function handleExportError(res, lang, error, { rig, logLabel }) {
+    const errorId = crypto.randomUUID();
+    console.error(`${logLabel} [${errorId}]:`, error);
+
+    if (error && error.code === "EOBJTOOLARGE") {
+        return res.status(413).json({
+            success: false,
+            message: t(lang, "convert.too_large")
+        });
+    }
+
+    // A rig failure is a client-visible 422; other failures
+    // (I/O, parser, memory) remain a 500.
+    if (!rig) {
+        throw error;
+    }
+
+    return res.status(422).json({
+        success: false,
+        message: t(lang, "convert.rig_failed_generic")
+    });
+}
+
 module.exports = function (app, options = {}) {
     const partsLimiter = options.partsLimiter || defaultPartsLimiter;
 
@@ -382,25 +410,9 @@ module.exports = function (app, options = {}) {
                         bendAccessories
                     });
                 } catch (fbxError) {
-                    const errorId = crypto.randomUUID();
-                    console.error(`FBX conversion failed [${errorId}]:`, fbxError);
-
-                    if (fbxError && fbxError.code === "EOBJTOOLARGE") {
-                        return res.status(413).json({
-                            success: false,
-                            message: t(lang, "convert.too_large")
-                        });
-                    }
-
-                    // A rig failure is a client-visible 422; other failures
-                    // (I/O, parser, memory) remain a 500.
-                    if (!rig) {
-                        throw fbxError;
-                    }
-
-                    return res.status(422).json({
-                        success: false,
-                        message: t(lang, "convert.rig_failed_generic")
+                    return handleExportError(res, lang, fbxError, {
+                        rig,
+                        logLabel: "FBX conversion failed"
                     });
                 }
 
@@ -439,25 +451,9 @@ module.exports = function (app, options = {}) {
                     bendAccessories
                 }));
             } catch (conversionError) {
-                const errorId = crypto.randomUUID();
-                console.error(`Avatar conversion failed [${errorId}]:`, conversionError);
-
-                if (conversionError && conversionError.code === "EOBJTOOLARGE") {
-                    return res.status(413).json({
-                        success: false,
-                        message: t(lang, "convert.too_large")
-                    });
-                }
-
-                // Only a requested rig can fail with a "rig" error; plain
-                // GLB/GLTF failures must stay a 500.
-                if (!rig) {
-                    throw conversionError;
-                }
-
-                return res.status(422).json({
-                    success: false,
-                    message: t(lang, "convert.rig_failed_generic")
+                return handleExportError(res, lang, conversionError, {
+                    rig,
+                    logLabel: "Avatar conversion failed"
                 });
             }
 
