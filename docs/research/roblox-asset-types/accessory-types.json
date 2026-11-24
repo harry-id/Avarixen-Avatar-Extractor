@@ -1,0 +1,343 @@
+{
+  "enum": "AccessoryType",
+  "robloxSummary": "A subset of AssetTypes which are relevant to only accessories.",
+  "robloxDescription": "AccessoryType is a subset of AssetTypes which are relevant to only accessories. AccessoryTypes are mainly used in the AccessoryBlob of HumanoidDescription, and to specify the type in Accessory.",
+  "checkedAt": "2026-11-24",
+  "entryCount": 20,
+  "sources": [
+    {
+      "id": "creator-docs",
+      "title": "Roblox Creator Documentation repository (auto-generated enum YAML)",
+      "authority": "official (Roblox-maintained documentation source)",
+      "checkedAt": "2026-11-24",
+      "url": "https://raw.githubusercontent.com/Roblox/creator-docs/main/content/en-us/reference/engine/enums/AccessoryType.yaml"
+    },
+    {
+      "id": "creator-hub",
+      "title": "Roblox Creator Hub — Engine API reference (rendered docs)",
+      "authority": "official",
+      "checkedAt": "2026-11-24",
+      "url": "https://create.roblox.com/docs/reference/engine/enums/AccessoryType"
+    },
+    {
+      "id": "api-reference",
+      "title": "Roblox API Reference (Anaminus), generated from the Roblox API dump",
+      "authority": "reputable third-party technical reference; mirrors official API dump",
+      "checkedAt": "2026-11-24",
+      "url": "https://robloxapi.github.io/ref/enum/AccessoryType.html"
+    }
+  ],
+  "entries": [
+    {
+      "id": 0,
+      "name": "Unknown",
+      "description": "If the accessory type is not known.",
+      "kind": "unknown",
+      "mappedAvatarAssetTypeIds": [],
+      "legacyNames": [],
+      "sourceRefs": [
+        "creator-docs",
+        "api-reference"
+      ],
+      "verification": "confirmed"
+    },
+    {
+      "id": 1,
+      "name": "Hat",
+      "description": "A hat accessory (may be a rigid or layered accessory).",
+      "kind": "rigid-or-layered",
+      "mappedAvatarAssetTypeIds": [
+        8
+      ],
+      "legacyNames": [],
+      "sourceRefs": [
+        "creator-docs",
+        "api-reference"
+      ],
+      "verification": "confirmed"
+    },
+    {
+      "id": 2,
+      "name": "Hair",
+      "description": "A hair accessory (may be a rigid or layered accessory).",
+      "kind": "rigid-or-layered",
+      "mappedAvatarAssetTypeIds": [
+        41
+      ],
+      "legacyNames": [],
+      "sourceRefs": [
+        "creator-docs",
+        "api-reference"
+      ],
+      "verification": "confirmed"
+    },
+    {
+      "id": 3,
+      "name": "Face",
+      "description": "A face accessory (may be a rigid or layered accessory).",
+      "kind": "rigid-or-layered",
+      "mappedAvatarAssetTypeIds": [
+        42
+      ],
+      "legacyNames": [],
+      "sourceRefs": [
+        "creator-docs",
+        "api-reference"
+      ],
+      "verification": "confirmed"
+    },
+    {
+      "id": 4,
+      "name": "Neck",
+      "description": "A neck Accessory (may be a rigid or layered accessory).",
+      "kind": "rigid-or-layered",
+      "mappedAvatarAssetTypeIds": [
+        43
+      ],
+      "legacyNames": [],
+      "sourceRefs": [
+        "creator-docs",
+        "api-reference"
+      ],
+      "verification": "confirmed"
+    },
+    {
+      "id": 5,
+      "name": "Shoulder",
+      "description": "A shoulder accessory (may be a rigid or layered accessory).",
+      "kind": "rigid-or-layered",
+      "mappedAvatarAssetTypeIds": [
+        44
+      ],
+      "legacyNames": [],
+      "sourceRefs": [
+        "creator-docs",
+        "api-reference"
+      ],
+      "verification": "confirmed"
+    },
+    {
+      "id": 6,
+      "name": "Front",
+      "description": "A front accessory (may be a rigid or layered accessory).",
+      "kind": "rigid-or-layered",
+      "mappedAvatarAssetTypeIds": [
+        45
+      ],
+      "legacyNames": [],
+      "sourceRefs": [
+        "creator-docs",
+        "api-reference"
+      ],
+      "verification": "confirmed"
+    },
+    {
+      "id": 7,
+      "name": "Back",
+      "description": "A back accessory (may be a rigid or layered accessory).",
+      "kind": "rigid-or-layered",
+      "mappedAvatarAssetTypeIds": [
+        46
+      ],
+      "legacyNames": [],
+      "sourceRefs": [
+        "creator-docs",
+        "api-reference"
+      ],
+      "verification": "confirmed"
+    },
+    {
+      "id": 8,
+      "name": "Waist",
+      "description": "A waist accessory (may be a rigid or layered accessory).",
+      "kind": "rigid-or-layered",
+      "mappedAvatarAssetTypeIds": [
+        47
+      ],
+      "legacyNames": [],
+      "sourceRefs": [
+        "creator-docs",
+        "api-reference"
+      ],
+      "verification": "confirmed"
+    },
+    {
+      "id": 9,
+      "name": "TShirt",
+      "description": "A layered clothing T-Shirt accessory.",
+      "kind": "layered",
+      "mappedAvatarAssetTypeIds": [
+        64
+      ],
+      "legacyNames": [
+        "TeeShirt"
+      ],
+      "sourceRefs": [
+        "creator-docs",
+        "api-reference"
+      ],
+      "verification": "confirmed"
+    },
+    {
+      "id": 10,
+      "name": "Shirt",
+      "description": "A layered clothing shirt accessory.",
+      "kind": "layered",
+      "mappedAvatarAssetTypeIds": [
+        65
+      ],
+      "legacyNames": [],
+      "sourceRefs": [
+        "creator-docs",
+        "api-reference"
+      ],
+      "verification": "confirmed"
+    },
+    {
+      "id": 11,
+      "name": "Pants",
+      "description": "A layered clothing pants accessory.",
+      "kind": "layered",
+      "mappedAvatarAssetTypeIds": [
+        66
+      ],
+      "legacyNames": [],
+      "sourceRefs": [
+        "creator-docs",
+        "api-reference"
+      ],
+      "verification": "confirmed"
+    },
+    {
+      "id": 12,
+      "name": "Jacket",
+      "description": "A layered clothing jacket accessory.",
+      "kind": "layered",
+      "mappedAvatarAssetTypeIds": [
+        67
+      ],
+      "legacyNames": [],
+      "sourceRefs": [
+        "creator-docs",
+        "api-reference"
+      ],
+      "verification": "confirmed"
+    },
+    {
+      "id": 13,
+      "name": "Sweater",
+      "description": "A layered clothing sweater accessory.",
+      "kind": "layered",
+      "mappedAvatarAssetTypeIds": [
+        68
+      ],
+      "legacyNames": [],
+      "sourceRefs": [
+        "creator-docs",
+        "api-reference"
+      ],
+      "verification": "confirmed"
+    },
+    {
+      "id": 14,
+      "name": "Shorts",
+      "description": "A layered clothing shorts accessory.",
+      "kind": "layered",
+      "mappedAvatarAssetTypeIds": [
+        69
+      ],
+      "legacyNames": [],
+      "sourceRefs": [
+        "creator-docs",
+        "api-reference"
+      ],
+      "verification": "confirmed"
+    },
+    {
+      "id": 15,
+      "name": "LeftShoe",
+      "description": "A layered clothing left shoe accessory.",
+      "kind": "layered",
+      "mappedAvatarAssetTypeIds": [
+        70
+      ],
+      "legacyNames": [],
+      "sourceRefs": [
+        "creator-docs",
+        "api-reference"
+      ],
+      "verification": "confirmed"
+    },
+    {
+      "id": 16,
+      "name": "RightShoe",
+      "description": "A layered clothing right shoe accessory.",
+      "kind": "layered",
+      "mappedAvatarAssetTypeIds": [
+        71
+      ],
+      "legacyNames": [],
+      "sourceRefs": [
+        "creator-docs",
+        "api-reference"
+      ],
+      "verification": "confirmed"
+    },
+    {
+      "id": 17,
+      "name": "DressSkirt",
+      "description": "A layered clothing dress or skirt accessory.",
+      "kind": "layered",
+      "mappedAvatarAssetTypeIds": [
+        72
+      ],
+      "legacyNames": [],
+      "sourceRefs": [
+        "creator-docs",
+        "api-reference"
+      ],
+      "verification": "confirmed"
+    },
+    {
+      "id": 18,
+      "name": "Eyebrow",
+      "description": "A layered accessory for avatar eyebrows.",
+      "kind": "layered",
+      "mappedAvatarAssetTypeIds": [
+        76
+      ],
+      "legacyNames": [],
+      "sourceRefs": [
+        "creator-docs",
+        "api-reference"
+      ],
+      "verification": "confirmed"
+    },
+    {
+      "id": 19,
+      "name": "Eyelash",
+      "description": "A layered accessory for avatar eyelashes.",
+      "kind": "layered",
+      "mappedAvatarAssetTypeIds": [
+        77
+      ],
+      "legacyNames": [],
+      "sourceRefs": [
+        "creator-docs",
+        "api-reference"
+      ],
+      "verification": "confirmed"
+    }
+  ],
+  "removedEntries": [
+    {
+      "id": 8,
+      "name": "TeeShirt",
+      "status": "renamed",
+      "note": "Former name for TShirt (id 9); listed as a legacy name in the current API reference.",
+      "sourceRefs": [
+        "api-reference"
+      ]
+    }
+  ]
+}

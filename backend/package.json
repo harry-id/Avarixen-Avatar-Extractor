@@ -1,6 +1,6 @@
 {
   "name": "avarixen-avatar-extractor",
-  "version": "1.3.0-beta",
+  "version": "1.3.0-beta.1",
   "description": "Roblox Avatar 3D Extractor by Avarixen",
   "main": "server.js",
   "engines": {

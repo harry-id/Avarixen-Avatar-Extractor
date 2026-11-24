@@ -1,0 +1,1186 @@
+{
+  "enum": "AssetType",
+  "robloxSummary": "This Enum can be used to match the AssetTypeId from MarketplaceService:GetProductInfoAsync() to an asset type.",
+  "checkedAt": "2026-11-24",
+  "entryCount": 67,
+  "sources": [
+    {
+      "id": "creator-docs",
+      "title": "Roblox Creator Documentation repository (auto-generated enum YAML)",
+      "authority": "official (Roblox-maintained documentation source)",
+      "checkedAt": "2026-11-24",
+      "url": "https://raw.githubusercontent.com/Roblox/creator-docs/main/content/en-us/reference/engine/enums/AssetType.yaml"
+    },
+    {
+      "id": "creator-hub",
+      "title": "Roblox Creator Hub — Engine API reference (rendered docs)",
+      "authority": "official",
+      "checkedAt": "2026-11-24",
+      "url": "https://create.roblox.com/docs/reference/engine/enums/AssetType"
+    },
+    {
+      "id": "api-reference",
+      "title": "Roblox API Reference (Anaminus), generated from the Roblox API dump",
+      "authority": "reputable third-party technical reference; mirrors official API dump",
+      "checkedAt": "2026-11-24",
+      "url": "https://robloxapi.github.io/ref/enum/AssetType.html"
+    },
+    {
+      "id": "api-dump",
+      "title": "Roblox-Client-Tracker API-Dump.json (MaximumADHD), mirror of Roblox client API",
+      "authority": "third-party mirror of the official Roblox API dump",
+      "checkedAt": "2026-11-24",
+      "url": "https://raw.githubusercontent.com/MaximumADHD/Roblox-Client-Tracker/roblox/API-Dump.json"
+    }
+  ],
+  "entries": [
+    {
+      "id": 1,
+      "name": "Image",
+      "description": "The asset is an image.",
+      "category": "media",
+      "avatarRelevance": "low",
+      "accessoryRelevance": "none",
+      "inAvatarAssetType": false,
+      "legacyNames": [],
+      "deprecated": false,
+      "sourceRefs": [
+        "creator-docs",
+        "creator-hub",
+        "api-reference"
+      ],
+      "verification": "confirmed"
+    },
+    {
+      "id": 2,
+      "name": "TShirt",
+      "description": "The asset is a classic t-shirt (a flat image applied to the avatar's torso).",
+      "category": "classic-clothing",
+      "avatarRelevance": "high",
+      "accessoryRelevance": "none",
+      "inAvatarAssetType": true,
+      "legacyNames": [
+        "TeeShirt"
+      ],
+      "deprecated": false,
+      "sourceRefs": [
+        "creator-docs",
+        "creator-hub",
+        "api-reference"
+      ],
+      "verification": "confirmed"
+    },
+    {
+      "id": 3,
+      "name": "Audio",
+      "description": "The asset is an audio clip.",
+      "category": "media",
+      "avatarRelevance": "none",
+      "accessoryRelevance": "none",
+      "inAvatarAssetType": false,
+      "legacyNames": [],
+      "deprecated": false,
+      "sourceRefs": [
+        "creator-docs",
+        "creator-hub",
+        "api-reference"
+      ],
+      "verification": "confirmed"
+    },
+    {
+      "id": 4,
+      "name": "Mesh",
+      "description": "The asset is a mesh.",
+      "category": "mesh",
+      "avatarRelevance": "low",
+      "accessoryRelevance": "low",
+      "inAvatarAssetType": false,
+      "legacyNames": [],
+      "deprecated": false,
+      "sourceRefs": [
+        "creator-docs",
+        "creator-hub",
+        "api-reference"
+      ],
+      "verification": "confirmed"
+    },
+    {
+      "id": 5,
+      "name": "Lua",
+      "description": "The asset is Luau code, for example a ModuleScript.",
+      "category": "script",
+      "avatarRelevance": "none",
+      "accessoryRelevance": "none",
+      "inAvatarAssetType": false,
+      "legacyNames": [],
+      "deprecated": false,
+      "sourceRefs": [
+        "creator-docs",
+        "creator-hub",
+        "api-reference"
+      ],
+      "verification": "confirmed"
+    },
+    {
+      "id": 8,
+      "name": "Hat",
+      "description": "The asset is a hat.",
+      "category": "avatar-rigid-accessory",
+      "avatarRelevance": "high",
+      "accessoryRelevance": "high",
+      "inAvatarAssetType": true,
+      "legacyNames": [],
+      "deprecated": false,
+      "sourceRefs": [
+        "creator-docs",
+        "creator-hub",
+        "api-reference"
+      ],
+      "verification": "confirmed"
+    },
+    {
+      "id": 9,
+      "name": "Place",
+      "description": "The asset is a place.",
+      "category": "place",
+      "avatarRelevance": "none",
+      "accessoryRelevance": "none",
+      "inAvatarAssetType": false,
+      "legacyNames": [],
+      "deprecated": false,
+      "sourceRefs": [
+        "creator-docs",
+        "creator-hub",
+        "api-reference"
+      ],
+      "verification": "confirmed"
+    },
+    {
+      "id": 10,
+      "name": "Model",
+      "description": "The asset is a model.",
+      "category": "model",
+      "avatarRelevance": "low",
+      "accessoryRelevance": "none",
+      "inAvatarAssetType": false,
+      "legacyNames": [],
+      "deprecated": false,
+      "sourceRefs": [
+        "creator-docs",
+        "creator-hub",
+        "api-reference"
+      ],
+      "verification": "confirmed"
+    },
+    {
+      "id": 11,
+      "name": "Shirt",
+      "description": "The asset is a shirt.",
+      "category": "classic-clothing",
+      "avatarRelevance": "high",
+      "accessoryRelevance": "none",
+      "inAvatarAssetType": true,
+      "legacyNames": [],
+      "deprecated": false,
+      "sourceRefs": [
+        "creator-docs",
+        "creator-hub",
+        "api-reference"
+      ],
+      "verification": "confirmed"
+    },
+    {
+      "id": 12,
+      "name": "Pants",
+      "description": "The asset is a pants item.",
+      "category": "classic-clothing",
+      "avatarRelevance": "high",
+      "accessoryRelevance": "none",
+      "inAvatarAssetType": true,
+      "legacyNames": [],
+      "deprecated": false,
+      "sourceRefs": [
+        "creator-docs",
+        "creator-hub",
+        "api-reference"
+      ],
+      "verification": "confirmed"
+    },
+    {
+      "id": 13,
+      "name": "Decal",
+      "description": "The asset is a decal (image).",
+      "category": "decal",
+      "avatarRelevance": "low",
+      "accessoryRelevance": "none",
+      "inAvatarAssetType": false,
+      "legacyNames": [],
+      "deprecated": false,
+      "sourceRefs": [
+        "creator-docs",
+        "creator-hub",
+        "api-reference"
+      ],
+      "verification": "confirmed"
+    },
+    {
+      "id": 17,
+      "name": "Head",
+      "description": "The asset is a head.",
+      "category": "avatar-body-part",
+      "avatarRelevance": "high",
+      "accessoryRelevance": "none",
+      "inAvatarAssetType": true,
+      "legacyNames": [],
+      "deprecated": false,
+      "sourceRefs": [
+        "creator-docs",
+        "creator-hub",
+        "api-reference"
+      ],
+      "verification": "confirmed"
+    },
+    {
+      "id": 18,
+      "name": "Face",
+      "description": "The asset is a face.",
+      "category": "avatar-face",
+      "avatarRelevance": "high",
+      "accessoryRelevance": "none",
+      "inAvatarAssetType": true,
+      "legacyNames": [],
+      "deprecated": false,
+      "sourceRefs": [
+        "creator-docs",
+        "creator-hub",
+        "api-reference"
+      ],
+      "verification": "confirmed"
+    },
+    {
+      "id": 19,
+      "name": "Gear",
+      "description": "The asset is a gear item.",
+      "category": "avatar-gear",
+      "avatarRelevance": "medium",
+      "accessoryRelevance": "medium",
+      "inAvatarAssetType": true,
+      "legacyNames": [],
+      "deprecated": false,
+      "sourceRefs": [
+        "creator-docs",
+        "creator-hub",
+        "api-reference"
+      ],
+      "verification": "confirmed"
+    },
+    {
+      "id": 21,
+      "name": "Badge",
+      "description": "The asset is a badge.",
+      "category": "badge",
+      "avatarRelevance": "none",
+      "accessoryRelevance": "none",
+      "inAvatarAssetType": false,
+      "legacyNames": [],
+      "deprecated": false,
+      "sourceRefs": [
+        "creator-docs",
+        "creator-hub",
+        "api-reference"
+      ],
+      "verification": "confirmed"
+    },
+    {
+      "id": 24,
+      "name": "Animation",
+      "description": "The asset is an animation; also see the more specific animation type enums below.",
+      "category": "animation",
+      "avatarRelevance": "low",
+      "accessoryRelevance": "none",
+      "inAvatarAssetType": false,
+      "legacyNames": [],
+      "deprecated": false,
+      "sourceRefs": [
+        "creator-docs",
+        "creator-hub",
+        "api-reference"
+      ],
+      "verification": "confirmed"
+    },
+    {
+      "id": 27,
+      "name": "Torso",
+      "description": "The asset is a torso.",
+      "category": "avatar-body-part",
+      "avatarRelevance": "high",
+      "accessoryRelevance": "none",
+      "inAvatarAssetType": true,
+      "legacyNames": [],
+      "deprecated": false,
+      "sourceRefs": [
+        "creator-docs",
+        "creator-hub",
+        "api-reference"
+      ],
+      "verification": "confirmed"
+    },
+    {
+      "id": 28,
+      "name": "RightArm",
+      "description": "The asset is a right arm.",
+      "category": "avatar-body-part",
+      "avatarRelevance": "high",
+      "accessoryRelevance": "none",
+      "inAvatarAssetType": true,
+      "legacyNames": [],
+      "deprecated": false,
+      "sourceRefs": [
+        "creator-docs",
+        "creator-hub",
+        "api-reference"
+      ],
+      "verification": "confirmed"
+    },
+    {
+      "id": 29,
+      "name": "LeftArm",
+      "description": "The asset is a left arm.",
+      "category": "avatar-body-part",
+      "avatarRelevance": "high",
+      "accessoryRelevance": "none",
+      "inAvatarAssetType": true,
+      "legacyNames": [],
+      "deprecated": false,
+      "sourceRefs": [
+        "creator-docs",
+        "creator-hub",
+        "api-reference"
+      ],
+      "verification": "confirmed"
+    },
+    {
+      "id": 30,
+      "name": "LeftLeg",
+      "description": "The asset is a left leg.",
+      "category": "avatar-body-part",
+      "avatarRelevance": "high",
+      "accessoryRelevance": "none",
+      "inAvatarAssetType": true,
+      "legacyNames": [],
+      "deprecated": false,
+      "sourceRefs": [
+        "creator-docs",
+        "creator-hub",
+        "api-reference"
+      ],
+      "verification": "confirmed"
+    },
+    {
+      "id": 31,
+      "name": "RightLeg",
+      "description": "The asset is a right leg.",
+      "category": "avatar-body-part",
+      "avatarRelevance": "high",
+      "accessoryRelevance": "none",
+      "inAvatarAssetType": true,
+      "legacyNames": [],
+      "deprecated": false,
+      "sourceRefs": [
+        "creator-docs",
+        "creator-hub",
+        "api-reference"
+      ],
+      "verification": "confirmed"
+    },
+    {
+      "id": 32,
+      "name": "Package",
+      "description": "The asset is a pack, for example an animation package.",
+      "category": "package",
+      "avatarRelevance": "medium",
+      "accessoryRelevance": "low",
+      "inAvatarAssetType": false,
+      "legacyNames": [],
+      "deprecated": false,
+      "sourceRefs": [
+        "creator-docs",
+        "creator-hub",
+        "api-reference"
+      ],
+      "verification": "confirmed"
+    },
+    {
+      "id": 34,
+      "name": "GamePass",
+      "description": "The asset is a GamePass.",
+      "category": "gamepass",
+      "avatarRelevance": "none",
+      "accessoryRelevance": "none",
+      "inAvatarAssetType": false,
+      "legacyNames": [],
+      "deprecated": false,
+      "sourceRefs": [
+        "creator-docs",
+        "creator-hub",
+        "api-reference"
+      ],
+      "verification": "confirmed"
+    },
+    {
+      "id": 38,
+      "name": "Plugin",
+      "description": "The asset is a plugin.",
+      "category": "script",
+      "avatarRelevance": "none",
+      "accessoryRelevance": "none",
+      "inAvatarAssetType": false,
+      "legacyNames": [],
+      "deprecated": false,
+      "sourceRefs": [
+        "creator-docs",
+        "creator-hub",
+        "api-reference"
+      ],
+      "verification": "confirmed"
+    },
+    {
+      "id": 40,
+      "name": "MeshPart",
+      "description": "The asset is a mesh part.",
+      "category": "mesh",
+      "avatarRelevance": "medium",
+      "accessoryRelevance": "medium",
+      "inAvatarAssetType": false,
+      "legacyNames": [],
+      "deprecated": false,
+      "sourceRefs": [
+        "creator-docs",
+        "creator-hub",
+        "api-reference"
+      ],
+      "verification": "confirmed"
+    },
+    {
+      "id": 41,
+      "name": "HairAccessory",
+      "description": "The asset is a hair accessory.",
+      "category": "avatar-rigid-accessory",
+      "avatarRelevance": "high",
+      "accessoryRelevance": "high",
+      "inAvatarAssetType": true,
+      "legacyNames": [],
+      "deprecated": false,
+      "sourceRefs": [
+        "creator-docs",
+        "creator-hub",
+        "api-reference"
+      ],
+      "verification": "confirmed"
+    },
+    {
+      "id": 42,
+      "name": "FaceAccessory",
+      "description": "The asset is a face accessory.",
+      "category": "avatar-rigid-accessory",
+      "avatarRelevance": "high",
+      "accessoryRelevance": "high",
+      "inAvatarAssetType": true,
+      "legacyNames": [],
+      "deprecated": false,
+      "sourceRefs": [
+        "creator-docs",
+        "creator-hub",
+        "api-reference"
+      ],
+      "verification": "confirmed"
+    },
+    {
+      "id": 43,
+      "name": "NeckAccessory",
+      "description": "The asset is a neck accessory.",
+      "category": "avatar-rigid-accessory",
+      "avatarRelevance": "high",
+      "accessoryRelevance": "high",
+      "inAvatarAssetType": true,
+      "legacyNames": [],
+      "deprecated": false,
+      "sourceRefs": [
+        "creator-docs",
+        "creator-hub",
+        "api-reference"
+      ],
+      "verification": "confirmed"
+    },
+    {
+      "id": 44,
+      "name": "ShoulderAccessory",
+      "description": "The asset is a shoulder accessory.",
+      "category": "avatar-rigid-accessory",
+      "avatarRelevance": "high",
+      "accessoryRelevance": "high",
+      "inAvatarAssetType": true,
+      "legacyNames": [],
+      "deprecated": false,
+      "sourceRefs": [
+        "creator-docs",
+        "creator-hub",
+        "api-reference"
+      ],
+      "verification": "confirmed"
+    },
+    {
+      "id": 45,
+      "name": "FrontAccessory",
+      "description": "The asset is a front accessory.",
+      "category": "avatar-rigid-accessory",
+      "avatarRelevance": "high",
+      "accessoryRelevance": "high",
+      "inAvatarAssetType": true,
+      "legacyNames": [],
+      "deprecated": false,
+      "sourceRefs": [
+        "creator-docs",
+        "creator-hub",
+        "api-reference"
+      ],
+      "verification": "confirmed"
+    },
+    {
+      "id": 46,
+      "name": "BackAccessory",
+      "description": "The asset is a back accessory.",
+      "category": "avatar-rigid-accessory",
+      "avatarRelevance": "high",
+      "accessoryRelevance": "high",
+      "inAvatarAssetType": true,
+      "legacyNames": [],
+      "deprecated": false,
+      "sourceRefs": [
+        "creator-docs",
+        "creator-hub",
+        "api-reference"
+      ],
+      "verification": "confirmed"
+    },
+    {
+      "id": 47,
+      "name": "WaistAccessory",
+      "description": "The asset is a waist accessory.",
+      "category": "avatar-rigid-accessory",
+      "avatarRelevance": "high",
+      "accessoryRelevance": "high",
+      "inAvatarAssetType": true,
+      "legacyNames": [],
+      "deprecated": false,
+      "sourceRefs": [
+        "creator-docs",
+        "creator-hub",
+        "api-reference"
+      ],
+      "verification": "confirmed"
+    },
+    {
+      "id": 48,
+      "name": "ClimbAnimation",
+      "description": "The asset is a climb animation.",
+      "category": "animation",
+      "avatarRelevance": "none",
+      "accessoryRelevance": "none",
+      "inAvatarAssetType": true,
+      "legacyNames": [],
+      "deprecated": false,
+      "sourceRefs": [
+        "creator-docs",
+        "creator-hub",
+        "api-reference"
+      ],
+      "verification": "confirmed"
+    },
+    {
+      "id": 49,
+      "name": "DeathAnimation",
+      "description": "The asset is a death animation.",
+      "category": "animation",
+      "avatarRelevance": "none",
+      "accessoryRelevance": "none",
+      "inAvatarAssetType": false,
+      "legacyNames": [],
+      "deprecated": false,
+      "sourceRefs": [
+        "creator-docs",
+        "creator-hub",
+        "api-reference"
+      ],
+      "verification": "confirmed"
+    },
+    {
+      "id": 50,
+      "name": "FallAnimation",
+      "description": "The asset is a fall animation.",
+      "category": "animation",
+      "avatarRelevance": "none",
+      "accessoryRelevance": "none",
+      "inAvatarAssetType": true,
+      "legacyNames": [],
+      "deprecated": false,
+      "sourceRefs": [
+        "creator-docs",
+        "creator-hub",
+        "api-reference"
+      ],
+      "verification": "confirmed"
+    },
+    {
+      "id": 51,
+      "name": "IdleAnimation",
+      "description": "The asset is an idle animation.",
+      "category": "animation",
+      "avatarRelevance": "none",
+      "accessoryRelevance": "none",
+      "inAvatarAssetType": true,
+      "legacyNames": [],
+      "deprecated": false,
+      "sourceRefs": [
+        "creator-docs",
+        "creator-hub",
+        "api-reference"
+      ],
+      "verification": "confirmed"
+    },
+    {
+      "id": 52,
+      "name": "JumpAnimation",
+      "description": "The asset is a jump animation.",
+      "category": "animation",
+      "avatarRelevance": "none",
+      "accessoryRelevance": "none",
+      "inAvatarAssetType": true,
+      "legacyNames": [],
+      "deprecated": false,
+      "sourceRefs": [
+        "creator-docs",
+        "creator-hub",
+        "api-reference"
+      ],
+      "verification": "confirmed"
+    },
+    {
+      "id": 53,
+      "name": "RunAnimation",
+      "description": "The asset is a run animation.",
+      "category": "animation",
+      "avatarRelevance": "none",
+      "accessoryRelevance": "none",
+      "inAvatarAssetType": true,
+      "legacyNames": [],
+      "deprecated": false,
+      "sourceRefs": [
+        "creator-docs",
+        "creator-hub",
+        "api-reference"
+      ],
+      "verification": "confirmed"
+    },
+    {
+      "id": 54,
+      "name": "SwimAnimation",
+      "description": "The asset is a swim animation.",
+      "category": "animation",
+      "avatarRelevance": "none",
+      "accessoryRelevance": "none",
+      "inAvatarAssetType": true,
+      "legacyNames": [],
+      "deprecated": false,
+      "sourceRefs": [
+        "creator-docs",
+        "creator-hub",
+        "api-reference"
+      ],
+      "verification": "confirmed"
+    },
+    {
+      "id": 55,
+      "name": "WalkAnimation",
+      "description": "The asset is a walk animation.",
+      "category": "animation",
+      "avatarRelevance": "none",
+      "accessoryRelevance": "none",
+      "inAvatarAssetType": true,
+      "legacyNames": [],
+      "deprecated": false,
+      "sourceRefs": [
+        "creator-docs",
+        "creator-hub",
+        "api-reference"
+      ],
+      "verification": "confirmed"
+    },
+    {
+      "id": 56,
+      "name": "PoseAnimation",
+      "description": "The asset is a pose animation.",
+      "category": "animation",
+      "avatarRelevance": "none",
+      "accessoryRelevance": "none",
+      "inAvatarAssetType": false,
+      "legacyNames": [],
+      "deprecated": false,
+      "sourceRefs": [
+        "creator-docs",
+        "creator-hub",
+        "api-reference"
+      ],
+      "verification": "confirmed"
+    },
+    {
+      "id": 57,
+      "name": "EarAccessory",
+      "description": "The asset is an ear accessory.",
+      "category": "avatar-rigid-accessory",
+      "avatarRelevance": "medium",
+      "accessoryRelevance": "medium",
+      "inAvatarAssetType": false,
+      "legacyNames": [],
+      "deprecated": false,
+      "sourceRefs": [
+        "creator-docs",
+        "creator-hub",
+        "api-reference"
+      ],
+      "verification": "confirmed"
+    },
+    {
+      "id": 58,
+      "name": "EyeAccessory",
+      "description": "The asset is an eye accessory.",
+      "category": "avatar-rigid-accessory",
+      "avatarRelevance": "medium",
+      "accessoryRelevance": "medium",
+      "inAvatarAssetType": false,
+      "legacyNames": [],
+      "deprecated": false,
+      "sourceRefs": [
+        "creator-docs",
+        "creator-hub",
+        "api-reference"
+      ],
+      "verification": "confirmed"
+    },
+    {
+      "id": 61,
+      "name": "EmoteAnimation",
+      "description": "The asset is an emote animation.",
+      "category": "animation",
+      "avatarRelevance": "none",
+      "accessoryRelevance": "none",
+      "inAvatarAssetType": true,
+      "legacyNames": [],
+      "deprecated": false,
+      "sourceRefs": [
+        "creator-docs",
+        "creator-hub",
+        "api-reference"
+      ],
+      "verification": "confirmed"
+    },
+    {
+      "id": 62,
+      "name": "Video",
+      "description": "The asset is a video.",
+      "category": "media",
+      "avatarRelevance": "low",
+      "accessoryRelevance": "none",
+      "inAvatarAssetType": false,
+      "legacyNames": [],
+      "deprecated": false,
+      "sourceRefs": [
+        "creator-docs",
+        "creator-hub",
+        "api-reference"
+      ],
+      "verification": "confirmed"
+    },
+    {
+      "id": 64,
+      "name": "TShirtAccessory",
+      "description": "The asset is a layered clothing accessory representing a t-shirt.",
+      "category": "avatar-layered-accessory",
+      "avatarRelevance": "high",
+      "accessoryRelevance": "high",
+      "inAvatarAssetType": true,
+      "legacyNames": [
+        "TeeShirtAccessory"
+      ],
+      "deprecated": false,
+      "sourceRefs": [
+        "creator-docs",
+        "creator-hub",
+        "api-reference"
+      ],
+      "verification": "confirmed"
+    },
+    {
+      "id": 65,
+      "name": "ShirtAccessory",
+      "description": "The asset is a layered clothing accessory representing a shirt.",
+      "category": "avatar-layered-accessory",
+      "avatarRelevance": "high",
+      "accessoryRelevance": "high",
+      "inAvatarAssetType": true,
+      "legacyNames": [],
+      "deprecated": false,
+      "sourceRefs": [
+        "creator-docs",
+        "creator-hub",
+        "api-reference"
+      ],
+      "verification": "confirmed"
+    },
+    {
+      "id": 66,
+      "name": "PantsAccessory",
+      "description": "The asset is a layered clothing accessory representing pants.",
+      "category": "avatar-layered-accessory",
+      "avatarRelevance": "high",
+      "accessoryRelevance": "high",
+      "inAvatarAssetType": true,
+      "legacyNames": [],
+      "deprecated": false,
+      "sourceRefs": [
+        "creator-docs",
+        "creator-hub",
+        "api-reference"
+      ],
+      "verification": "confirmed"
+    },
+    {
+      "id": 67,
+      "name": "JacketAccessory",
+      "description": "The asset is a layered clothing accessory representing a jacket.",
+      "category": "avatar-layered-accessory",
+      "avatarRelevance": "high",
+      "accessoryRelevance": "high",
+      "inAvatarAssetType": true,
+      "legacyNames": [],
+      "deprecated": false,
+      "sourceRefs": [
+        "creator-docs",
+        "creator-hub",
+        "api-reference"
+      ],
+      "verification": "confirmed"
+    },
+    {
+      "id": 68,
+      "name": "SweaterAccessory",
+      "description": "The asset is a layered clothing accessory representing a sweater.",
+      "category": "avatar-layered-accessory",
+      "avatarRelevance": "high",
+      "accessoryRelevance": "high",
+      "inAvatarAssetType": true,
+      "legacyNames": [],
+      "deprecated": false,
+      "sourceRefs": [
+        "creator-docs",
+        "creator-hub",
+        "api-reference"
+      ],
+      "verification": "confirmed"
+    },
+    {
+      "id": 69,
+      "name": "ShortsAccessory",
+      "description": "The asset is a layered clothing accessory representing shorts.",
+      "category": "avatar-layered-accessory",
+      "avatarRelevance": "high",
+      "accessoryRelevance": "high",
+      "inAvatarAssetType": true,
+      "legacyNames": [],
+      "deprecated": false,
+      "sourceRefs": [
+        "creator-docs",
+        "creator-hub",
+        "api-reference"
+      ],
+      "verification": "confirmed"
+    },
+    {
+      "id": 70,
+      "name": "LeftShoeAccessory",
+      "description": "The asset is a layered clothing accessory representing a left shoe.",
+      "category": "avatar-layered-accessory",
+      "avatarRelevance": "high",
+      "accessoryRelevance": "high",
+      "inAvatarAssetType": true,
+      "legacyNames": [],
+      "deprecated": false,
+      "sourceRefs": [
+        "creator-docs",
+        "creator-hub",
+        "api-reference"
+      ],
+      "verification": "confirmed"
+    },
+    {
+      "id": 71,
+      "name": "RightShoeAccessory",
+      "description": "The asset is a layered clothing accessory representing a right shoe.",
+      "category": "avatar-layered-accessory",
+      "avatarRelevance": "high",
+      "accessoryRelevance": "high",
+      "inAvatarAssetType": true,
+      "legacyNames": [],
+      "deprecated": false,
+      "sourceRefs": [
+        "creator-docs",
+        "creator-hub",
+        "api-reference"
+      ],
+      "verification": "confirmed"
+    },
+    {
+      "id": 72,
+      "name": "DressSkirtAccessory",
+      "description": "The asset is a layered clothing accessory representing a dress or skirt.",
+      "category": "avatar-layered-accessory",
+      "avatarRelevance": "high",
+      "accessoryRelevance": "high",
+      "inAvatarAssetType": true,
+      "legacyNames": [],
+      "deprecated": false,
+      "sourceRefs": [
+        "creator-docs",
+        "creator-hub",
+        "api-reference"
+      ],
+      "verification": "confirmed"
+    },
+    {
+      "id": 73,
+      "name": "FontFamily",
+      "description": "The asset is a font family used for text rendering.",
+      "category": "font",
+      "avatarRelevance": "none",
+      "accessoryRelevance": "none",
+      "inAvatarAssetType": false,
+      "legacyNames": [],
+      "deprecated": false,
+      "sourceRefs": [
+        "creator-docs",
+        "creator-hub",
+        "api-reference"
+      ],
+      "verification": "confirmed"
+    },
+    {
+      "id": 76,
+      "name": "EyebrowAccessory",
+      "description": "The asset is a layered eyebrow accessory.",
+      "category": "avatar-layered-accessory",
+      "avatarRelevance": "medium",
+      "accessoryRelevance": "medium",
+      "inAvatarAssetType": true,
+      "legacyNames": [],
+      "deprecated": false,
+      "sourceRefs": [
+        "creator-docs",
+        "creator-hub",
+        "api-reference"
+      ],
+      "verification": "confirmed"
+    },
+    {
+      "id": 77,
+      "name": "EyelashAccessory",
+      "description": "The asset is a layered eyelash accessory.",
+      "category": "avatar-layered-accessory",
+      "avatarRelevance": "medium",
+      "accessoryRelevance": "medium",
+      "inAvatarAssetType": true,
+      "legacyNames": [],
+      "deprecated": false,
+      "sourceRefs": [
+        "creator-docs",
+        "creator-hub",
+        "api-reference"
+      ],
+      "verification": "confirmed"
+    },
+    {
+      "id": 78,
+      "name": "MoodAnimation",
+      "description": "The asset is a mood animation that defines a static facial expression for a character.",
+      "category": "avatar-facial",
+      "avatarRelevance": "low",
+      "accessoryRelevance": "none",
+      "inAvatarAssetType": true,
+      "legacyNames": [],
+      "deprecated": false,
+      "sourceRefs": [
+        "creator-docs",
+        "creator-hub",
+        "api-reference"
+      ],
+      "verification": "confirmed"
+    },
+    {
+      "id": 79,
+      "name": "DynamicHead",
+      "description": "The asset is a head with facial animation support.",
+      "category": "avatar-body-part",
+      "avatarRelevance": "high",
+      "accessoryRelevance": "none",
+      "inAvatarAssetType": true,
+      "legacyNames": [],
+      "deprecated": false,
+      "sourceRefs": [
+        "creator-docs",
+        "creator-hub",
+        "api-reference"
+      ],
+      "verification": "confirmed"
+    },
+    {
+      "id": 88,
+      "name": "FaceMakeup",
+      "description": "The asset is face makeup applied to a character's head via texture transfer.",
+      "category": "avatar-makeup",
+      "avatarRelevance": "medium",
+      "accessoryRelevance": "none",
+      "inAvatarAssetType": true,
+      "legacyNames": [],
+      "deprecated": false,
+      "sourceRefs": [
+        "creator-docs",
+        "creator-hub",
+        "api-reference"
+      ],
+      "verification": "confirmed"
+    },
+    {
+      "id": 89,
+      "name": "LipMakeup",
+      "description": "The asset is lip makeup applied to a character's face via texture transfer.",
+      "category": "avatar-makeup",
+      "avatarRelevance": "medium",
+      "accessoryRelevance": "none",
+      "inAvatarAssetType": true,
+      "legacyNames": [],
+      "deprecated": false,
+      "sourceRefs": [
+        "creator-docs",
+        "creator-hub",
+        "api-reference"
+      ],
+      "verification": "confirmed"
+    },
+    {
+      "id": 90,
+      "name": "EyeMakeup",
+      "description": "The asset is eye makeup applied to a character's face via texture transfer.",
+      "category": "avatar-makeup",
+      "avatarRelevance": "medium",
+      "accessoryRelevance": "none",
+      "inAvatarAssetType": true,
+      "legacyNames": [],
+      "deprecated": false,
+      "sourceRefs": [
+        "creator-docs",
+        "creator-hub",
+        "api-reference"
+      ],
+      "verification": "confirmed"
+    },
+    {
+      "id": 92,
+      "name": "AvatarBackground",
+      "description": "The asset is an avatar background used as a scene backdrop in avatar previews.",
+      "category": "avatar-background",
+      "avatarRelevance": "low",
+      "accessoryRelevance": "none",
+      "inAvatarAssetType": true,
+      "legacyNames": [],
+      "deprecated": false,
+      "sourceRefs": [
+        "creator-docs",
+        "creator-hub",
+        "api-reference"
+      ],
+      "verification": "confirmed"
+    },
+    {
+      "id": 93,
+      "name": "TextDocument",
+      "description": "The asset is a text document.",
+      "category": "text",
+      "avatarRelevance": "none",
+      "accessoryRelevance": "none",
+      "inAvatarAssetType": false,
+      "legacyNames": [],
+      "deprecated": false,
+      "sourceRefs": [
+        "creator-docs",
+        "creator-hub",
+        "api-reference"
+      ],
+      "verification": "confirmed"
+    },
+    {
+      "id": 95,
+      "name": "AnimatedImage",
+      "description": null,
+      "category": "media",
+      "avatarRelevance": "low",
+      "accessoryRelevance": "none",
+      "inAvatarAssetType": false,
+      "legacyNames": [],
+      "deprecated": false,
+      "sourceRefs": [
+        "api-reference"
+      ],
+      "verification": "api-reference-only"
+    },
+    {
+      "id": 96,
+      "name": "ComputeFunction",
+      "description": null,
+      "category": "compute",
+      "avatarRelevance": "none",
+      "accessoryRelevance": "none",
+      "inAvatarAssetType": false,
+      "legacyNames": [],
+      "deprecated": false,
+      "sourceRefs": [
+        "api-reference"
+      ],
+      "verification": "api-reference-only"
+    },
+    {
+      "id": 97,
+      "name": "SpawnEffect",
+      "description": null,
+      "category": "effect",
+      "avatarRelevance": "unknown",
+      "accessoryRelevance": "unknown",
+      "inAvatarAssetType": true,
+      "legacyNames": [],
+      "deprecated": false,
+      "sourceRefs": [
+        "api-reference"
+      ],
+      "verification": "api-reference-only"
+    }
+  ],
+  "removedEntries": [
+    {
+      "id": 91,
+      "name": "VoxelFragment",
+      "status": "removed",
+      "note": "Present in older API history; removed from the current Roblox API reference (see API reference history for AssetType).",
+      "sourceRefs": [
+        "api-reference"
+      ]
+    }
+  ]
+}

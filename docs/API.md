@@ -68,7 +68,7 @@ Service info.
 
 **200**
 ```json
-{ "status": "online", "name": "Avarixen Avatar Extractor", "version": "1.3.0-beta" }
+{ "status": "online", "name": "Avarixen Avatar Extractor", "version": "1.3.0-beta.1" }
 ```
 
 ---
@@ -78,7 +78,7 @@ Lightweight health probe.
 
 **200**
 ```json
-{ "status": "online", "version": "1.3.0-beta" }
+{ "status": "online", "version": "1.3.0-beta.1" }
 ```
 
 ---

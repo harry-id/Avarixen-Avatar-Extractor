@@ -1,0 +1,683 @@
+{
+  "enum": "AvatarAssetType",
+  "robloxSummary": "Describes the asset types that an avatar can equip.",
+  "robloxDescription": "Describes the asset types that an avatar can equip. See Enum.AssetType for all asset types.",
+  "checkedAt": "2026-11-24",
+  "entryCount": 45,
+  "sources": [
+    {
+      "id": "creator-docs",
+      "title": "Roblox Creator Documentation repository (auto-generated enum YAML)",
+      "authority": "official (Roblox-maintained documentation source)",
+      "checkedAt": "2026-11-24",
+      "url": "https://raw.githubusercontent.com/Roblox/creator-docs/main/content/en-us/reference/engine/enums/AvatarAssetType.yaml"
+    },
+    {
+      "id": "creator-hub",
+      "title": "Roblox Creator Hub — Engine API reference (rendered docs)",
+      "authority": "official",
+      "checkedAt": "2026-11-24",
+      "url": "https://create.roblox.com/docs/reference/engine/enums/AvatarAssetType"
+    },
+    {
+      "id": "api-reference",
+      "title": "Roblox API Reference (Anaminus), generated from the Roblox API dump",
+      "authority": "reputable third-party technical reference; mirrors official API dump",
+      "checkedAt": "2026-11-24",
+      "url": "https://robloxapi.github.io/ref/enum/AvatarAssetType.html"
+    },
+    {
+      "id": "api-dump",
+      "title": "Roblox-Client-Tracker API-Dump.json (MaximumADHD), mirror of Roblox client API",
+      "authority": "third-party mirror of the official Roblox API dump",
+      "checkedAt": "2026-11-24",
+      "url": "https://raw.githubusercontent.com/MaximumADHD/Roblox-Client-Tracker/roblox/API-Dump.json"
+    }
+  ],
+  "entries": [
+    {
+      "id": 2,
+      "name": "TShirt",
+      "description": "A classic 2D TShirt.",
+      "category": "classic-clothing",
+      "accessoryTypeId": null,
+      "legacyNames": [
+        "TeeShirt"
+      ],
+      "deprecated": false,
+      "sourceRefs": [
+        "creator-docs",
+        "api-reference"
+      ],
+      "verification": "confirmed"
+    },
+    {
+      "id": 8,
+      "name": "Hat",
+      "description": "A hat.",
+      "category": "rigid-accessory",
+      "accessoryTypeId": 1,
+      "legacyNames": [],
+      "deprecated": false,
+      "sourceRefs": [
+        "creator-docs",
+        "api-reference"
+      ],
+      "verification": "confirmed"
+    },
+    {
+      "id": 11,
+      "name": "Shirt",
+      "description": "A classic 2D shirt.",
+      "category": "classic-clothing",
+      "accessoryTypeId": null,
+      "legacyNames": [],
+      "deprecated": false,
+      "sourceRefs": [
+        "creator-docs",
+        "api-reference"
+      ],
+      "verification": "confirmed"
+    },
+    {
+      "id": 12,
+      "name": "Pants",
+      "description": "A classic 2D pants.",
+      "category": "classic-clothing",
+      "accessoryTypeId": null,
+      "legacyNames": [],
+      "deprecated": false,
+      "sourceRefs": [
+        "creator-docs",
+        "api-reference"
+      ],
+      "verification": "confirmed"
+    },
+    {
+      "id": 17,
+      "name": "Head",
+      "description": "A head.",
+      "category": "body-part",
+      "accessoryTypeId": null,
+      "legacyNames": [],
+      "deprecated": false,
+      "sourceRefs": [
+        "creator-docs",
+        "api-reference"
+      ],
+      "verification": "confirmed"
+    },
+    {
+      "id": 18,
+      "name": "Face",
+      "description": "A face.",
+      "category": "face-texture",
+      "accessoryTypeId": null,
+      "legacyNames": [],
+      "deprecated": false,
+      "sourceRefs": [
+        "creator-docs",
+        "api-reference"
+      ],
+      "verification": "confirmed"
+    },
+    {
+      "id": 19,
+      "name": "Gear",
+      "description": "A gear.",
+      "category": "gear",
+      "accessoryTypeId": null,
+      "legacyNames": [],
+      "deprecated": false,
+      "sourceRefs": [
+        "creator-docs",
+        "api-reference"
+      ],
+      "verification": "confirmed"
+    },
+    {
+      "id": 27,
+      "name": "Torso",
+      "description": "A torso.",
+      "category": "body-part",
+      "accessoryTypeId": null,
+      "legacyNames": [],
+      "deprecated": false,
+      "sourceRefs": [
+        "creator-docs",
+        "api-reference"
+      ],
+      "verification": "confirmed"
+    },
+    {
+      "id": 28,
+      "name": "RightArm",
+      "description": "A right arm.",
+      "category": "body-part",
+      "accessoryTypeId": null,
+      "legacyNames": [],
+      "deprecated": false,
+      "sourceRefs": [
+        "creator-docs",
+        "api-reference"
+      ],
+      "verification": "confirmed"
+    },
+    {
+      "id": 29,
+      "name": "LeftArm",
+      "description": "A left arm.",
+      "category": "body-part",
+      "accessoryTypeId": null,
+      "legacyNames": [],
+      "deprecated": false,
+      "sourceRefs": [
+        "creator-docs",
+        "api-reference"
+      ],
+      "verification": "confirmed"
+    },
+    {
+      "id": 30,
+      "name": "LeftLeg",
+      "description": "A left leg.",
+      "category": "body-part",
+      "accessoryTypeId": null,
+      "legacyNames": [],
+      "deprecated": false,
+      "sourceRefs": [
+        "creator-docs",
+        "api-reference"
+      ],
+      "verification": "confirmed"
+    },
+    {
+      "id": 31,
+      "name": "RightLeg",
+      "description": "A right leg.",
+      "category": "body-part",
+      "accessoryTypeId": null,
+      "legacyNames": [],
+      "deprecated": false,
+      "sourceRefs": [
+        "creator-docs",
+        "api-reference"
+      ],
+      "verification": "confirmed"
+    },
+    {
+      "id": 41,
+      "name": "HairAccessory",
+      "description": "A hair accessory.",
+      "category": "rigid-accessory",
+      "accessoryTypeId": 2,
+      "legacyNames": [],
+      "deprecated": false,
+      "sourceRefs": [
+        "creator-docs",
+        "api-reference"
+      ],
+      "verification": "confirmed"
+    },
+    {
+      "id": 42,
+      "name": "FaceAccessory",
+      "description": "A face accessory.",
+      "category": "rigid-accessory",
+      "accessoryTypeId": 3,
+      "legacyNames": [],
+      "deprecated": false,
+      "sourceRefs": [
+        "creator-docs",
+        "api-reference"
+      ],
+      "verification": "confirmed"
+    },
+    {
+      "id": 43,
+      "name": "NeckAccessory",
+      "description": "A neck accessory.",
+      "category": "rigid-accessory",
+      "accessoryTypeId": 4,
+      "legacyNames": [],
+      "deprecated": false,
+      "sourceRefs": [
+        "creator-docs",
+        "api-reference"
+      ],
+      "verification": "confirmed"
+    },
+    {
+      "id": 44,
+      "name": "ShoulderAccessory",
+      "description": "A shoulder accessory.",
+      "category": "rigid-accessory",
+      "accessoryTypeId": 5,
+      "legacyNames": [],
+      "deprecated": false,
+      "sourceRefs": [
+        "creator-docs",
+        "api-reference"
+      ],
+      "verification": "confirmed"
+    },
+    {
+      "id": 45,
+      "name": "FrontAccessory",
+      "description": "A front accessory.",
+      "category": "rigid-accessory",
+      "accessoryTypeId": 6,
+      "legacyNames": [],
+      "deprecated": false,
+      "sourceRefs": [
+        "creator-docs",
+        "api-reference"
+      ],
+      "verification": "confirmed"
+    },
+    {
+      "id": 46,
+      "name": "BackAccessory",
+      "description": "A back accessory.",
+      "category": "rigid-accessory",
+      "accessoryTypeId": 7,
+      "legacyNames": [],
+      "deprecated": false,
+      "sourceRefs": [
+        "creator-docs",
+        "api-reference"
+      ],
+      "verification": "confirmed"
+    },
+    {
+      "id": 47,
+      "name": "WaistAccessory",
+      "description": "A waist accessory.",
+      "category": "rigid-accessory",
+      "accessoryTypeId": 8,
+      "legacyNames": [],
+      "deprecated": false,
+      "sourceRefs": [
+        "creator-docs",
+        "api-reference"
+      ],
+      "verification": "confirmed"
+    },
+    {
+      "id": 48,
+      "name": "ClimbAnimation",
+      "description": "A climb animation.",
+      "category": "animation",
+      "accessoryTypeId": null,
+      "legacyNames": [],
+      "deprecated": false,
+      "sourceRefs": [
+        "creator-docs",
+        "api-reference"
+      ],
+      "verification": "confirmed"
+    },
+    {
+      "id": 50,
+      "name": "FallAnimation",
+      "description": "A fall animation.",
+      "category": "animation",
+      "accessoryTypeId": null,
+      "legacyNames": [],
+      "deprecated": false,
+      "sourceRefs": [
+        "creator-docs",
+        "api-reference"
+      ],
+      "verification": "confirmed"
+    },
+    {
+      "id": 51,
+      "name": "IdleAnimation",
+      "description": "An idle animation.",
+      "category": "animation",
+      "accessoryTypeId": null,
+      "legacyNames": [],
+      "deprecated": false,
+      "sourceRefs": [
+        "creator-docs",
+        "api-reference"
+      ],
+      "verification": "confirmed"
+    },
+    {
+      "id": 52,
+      "name": "JumpAnimation",
+      "description": "A jump animation.",
+      "category": "animation",
+      "accessoryTypeId": null,
+      "legacyNames": [],
+      "deprecated": false,
+      "sourceRefs": [
+        "creator-docs",
+        "api-reference"
+      ],
+      "verification": "confirmed"
+    },
+    {
+      "id": 53,
+      "name": "RunAnimation",
+      "description": "A run animation.",
+      "category": "animation",
+      "accessoryTypeId": null,
+      "legacyNames": [],
+      "deprecated": false,
+      "sourceRefs": [
+        "creator-docs",
+        "api-reference"
+      ],
+      "verification": "confirmed"
+    },
+    {
+      "id": 54,
+      "name": "SwimAnimation",
+      "description": "A swim animation.",
+      "category": "animation",
+      "accessoryTypeId": null,
+      "legacyNames": [],
+      "deprecated": false,
+      "sourceRefs": [
+        "creator-docs",
+        "api-reference"
+      ],
+      "verification": "confirmed"
+    },
+    {
+      "id": 55,
+      "name": "WalkAnimation",
+      "description": "A walk animation.",
+      "category": "animation",
+      "accessoryTypeId": null,
+      "legacyNames": [],
+      "deprecated": false,
+      "sourceRefs": [
+        "creator-docs",
+        "api-reference"
+      ],
+      "verification": "confirmed"
+    },
+    {
+      "id": 61,
+      "name": "EmoteAnimation",
+      "description": "An emote animation.",
+      "category": "animation",
+      "accessoryTypeId": null,
+      "legacyNames": [],
+      "deprecated": false,
+      "sourceRefs": [
+        "creator-docs",
+        "api-reference"
+      ],
+      "verification": "confirmed"
+    },
+    {
+      "id": 64,
+      "name": "TShirtAccessory",
+      "description": "A layered clothing TShirt.",
+      "category": "layered-clothing",
+      "accessoryTypeId": 9,
+      "legacyNames": [
+        "TeeShirtAccessory"
+      ],
+      "deprecated": false,
+      "sourceRefs": [
+        "creator-docs",
+        "api-reference"
+      ],
+      "verification": "confirmed"
+    },
+    {
+      "id": 65,
+      "name": "ShirtAccessory",
+      "description": "A layered clothing shirt.",
+      "category": "layered-clothing",
+      "accessoryTypeId": 10,
+      "legacyNames": [],
+      "deprecated": false,
+      "sourceRefs": [
+        "creator-docs",
+        "api-reference"
+      ],
+      "verification": "confirmed"
+    },
+    {
+      "id": 66,
+      "name": "PantsAccessory",
+      "description": "A layered clothing pants.",
+      "category": "layered-clothing",
+      "accessoryTypeId": 11,
+      "legacyNames": [],
+      "deprecated": false,
+      "sourceRefs": [
+        "creator-docs",
+        "api-reference"
+      ],
+      "verification": "confirmed"
+    },
+    {
+      "id": 67,
+      "name": "JacketAccessory",
+      "description": "A layered clothing jacket.",
+      "category": "layered-clothing",
+      "accessoryTypeId": 12,
+      "legacyNames": [],
+      "deprecated": false,
+      "sourceRefs": [
+        "creator-docs",
+        "api-reference"
+      ],
+      "verification": "confirmed"
+    },
+    {
+      "id": 68,
+      "name": "SweaterAccessory",
+      "description": "A layered clothing sweater.",
+      "category": "layered-clothing",
+      "accessoryTypeId": 13,
+      "legacyNames": [],
+      "deprecated": false,
+      "sourceRefs": [
+        "creator-docs",
+        "api-reference"
+      ],
+      "verification": "confirmed"
+    },
+    {
+      "id": 69,
+      "name": "ShortsAccessory",
+      "description": "A layered clothing shorts.",
+      "category": "layered-clothing",
+      "accessoryTypeId": 14,
+      "legacyNames": [],
+      "deprecated": false,
+      "sourceRefs": [
+        "creator-docs",
+        "api-reference"
+      ],
+      "verification": "confirmed"
+    },
+    {
+      "id": 70,
+      "name": "LeftShoeAccessory",
+      "description": "A layered clothing left shoe.",
+      "category": "layered-clothing",
+      "accessoryTypeId": 15,
+      "legacyNames": [],
+      "deprecated": false,
+      "sourceRefs": [
+        "creator-docs",
+        "api-reference"
+      ],
+      "verification": "confirmed"
+    },
+    {
+      "id": 71,
+      "name": "RightShoeAccessory",
+      "description": "A layered clothing right shoe.",
+      "category": "layered-clothing",
+      "accessoryTypeId": 16,
+      "legacyNames": [],
+      "deprecated": false,
+      "sourceRefs": [
+        "creator-docs",
+        "api-reference"
+      ],
+      "verification": "confirmed"
+    },
+    {
+      "id": 72,
+      "name": "DressSkirtAccessory",
+      "description": "A layered clothing dress or skirt.",
+      "category": "layered-clothing",
+      "accessoryTypeId": 17,
+      "legacyNames": [],
+      "deprecated": false,
+      "sourceRefs": [
+        "creator-docs",
+        "api-reference"
+      ],
+      "verification": "confirmed"
+    },
+    {
+      "id": 76,
+      "name": "EyebrowAccessory",
+      "description": "A layered eyebrow accessory.",
+      "category": "layered-accessory-thin",
+      "accessoryTypeId": 18,
+      "legacyNames": [],
+      "deprecated": false,
+      "sourceRefs": [
+        "creator-docs",
+        "api-reference"
+      ],
+      "verification": "confirmed"
+    },
+    {
+      "id": 77,
+      "name": "EyelashAccessory",
+      "description": "A layered eyelash accessory.",
+      "category": "layered-accessory-thin",
+      "accessoryTypeId": 19,
+      "legacyNames": [],
+      "deprecated": false,
+      "sourceRefs": [
+        "creator-docs",
+        "api-reference"
+      ],
+      "verification": "confirmed"
+    },
+    {
+      "id": 78,
+      "name": "MoodAnimation",
+      "description": "A mood animation that drives a character's facial expression.",
+      "category": "facial-animation",
+      "accessoryTypeId": null,
+      "legacyNames": [],
+      "deprecated": false,
+      "sourceRefs": [
+        "creator-docs",
+        "api-reference"
+      ],
+      "verification": "confirmed"
+    },
+    {
+      "id": 79,
+      "name": "DynamicHead",
+      "description": "A head with facial animation support.",
+      "category": "dynamic-head",
+      "accessoryTypeId": null,
+      "legacyNames": [],
+      "deprecated": false,
+      "sourceRefs": [
+        "creator-docs",
+        "api-reference"
+      ],
+      "verification": "confirmed"
+    },
+    {
+      "id": 88,
+      "name": "FaceMakeup",
+      "description": "Face makeup applied to a character's head.",
+      "category": "makeup",
+      "accessoryTypeId": null,
+      "legacyNames": [],
+      "deprecated": false,
+      "sourceRefs": [
+        "creator-docs",
+        "api-reference"
+      ],
+      "verification": "confirmed"
+    },
+    {
+      "id": 89,
+      "name": "LipMakeup",
+      "description": "Lip makeup applied to a character's face.",
+      "category": "makeup",
+      "accessoryTypeId": null,
+      "legacyNames": [],
+      "deprecated": false,
+      "sourceRefs": [
+        "creator-docs",
+        "api-reference"
+      ],
+      "verification": "confirmed"
+    },
+    {
+      "id": 90,
+      "name": "EyeMakeup",
+      "description": "Eye makeup applied to a character's face.",
+      "category": "makeup",
+      "accessoryTypeId": null,
+      "legacyNames": [],
+      "deprecated": false,
+      "sourceRefs": [
+        "creator-docs",
+        "api-reference"
+      ],
+      "verification": "confirmed"
+    },
+    {
+      "id": 92,
+      "name": "AvatarBackground",
+      "description": "A 2D image background displayed behind a user's avatar on their profile and thumbnail surfaces.",
+      "category": "background",
+      "accessoryTypeId": null,
+      "legacyNames": [],
+      "deprecated": false,
+      "sourceRefs": [
+        "creator-docs",
+        "api-reference"
+      ],
+      "verification": "confirmed"
+    },
+    {
+      "id": 97,
+      "name": "SpawnEffect",
+      "description": null,
+      "category": "effect",
+      "accessoryTypeId": null,
+      "legacyNames": [],
+      "deprecated": false,
+      "sourceRefs": [
+        "api-reference"
+      ],
+      "verification": "api-reference-only"
+    }
+  ],
+  "removedEntries": [
+    {
+      "id": 64,
+      "name": "TeeShirtAccessory",
+      "status": "renamed",
+      "note": "Former name for TShirtAccessory (id 64); listed as a legacy name in the current API reference.",
+      "sourceRefs": [
+        "api-reference"
+      ]
+    }
+  ]
+}
