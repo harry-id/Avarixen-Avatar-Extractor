@@ -13,11 +13,48 @@
 // built so 2 concurrent conversions stay within the 1 GB container. Values are
 // chosen from those measurements with margin: 500K (GLB/glTF) and 400K (FBX).
 // The 3.5M hard cap remains the outer bound.
+//
+// Both budgets are configurable via environment variables (MAX_OUTPUT_FACES and
+// MAX_OUTPUT_FACES_FBX); see parseBudget below for the validation rules.
 
 const HARD_MAX_OUTPUT_FACES = 3_500_000;
-const MAX_OUTPUT_FACES = 500_000;
-const MAX_OUTPUT_FACES_FBX = 400_000;
 const MAX_SUBDIVISION_LEVEL = 4;
+
+/**
+ * Parse an output-face budget from an environment value.
+ *
+ * Rules (per the task):
+ * - Missing/empty, non-numeric, zero or negative values fall back to `fallback`.
+ * - A valid value is floored to an integer and clamped to the 3.5M hard max.
+ * - The hard max itself is never configurable.
+ *
+ * @param {string|number|undefined|null} value raw environment value
+ * @param {number} fallback default budget
+ * @returns {number}
+ */
+function parseBudget(value, fallback) {
+    if (value === undefined || value === null || String(value).trim() === "") {
+        return fallback;
+    }
+
+    const number = Number(value);
+
+    if (!Number.isFinite(number) || number <= 0) {
+        return fallback;
+    }
+
+    return Math.min(Math.floor(number), HARD_MAX_OUTPUT_FACES);
+}
+
+// Configurable via environment (documented in README and .env.example):
+//   MAX_OUTPUT_FACES      GLB/glTF output-face budget (default 500000)
+//   MAX_OUTPUT_FACES_FBX  FBX output-face budget (default 400000)
+// Both are clamped to HARD_MAX_OUTPUT_FACES (3.5M), which is not configurable.
+const MAX_OUTPUT_FACES = parseBudget(process.env.MAX_OUTPUT_FACES, 500_000);
+const MAX_OUTPUT_FACES_FBX = parseBudget(
+    process.env.MAX_OUTPUT_FACES_FBX,
+    400_000
+);
 
 /**
  * Reduce the requested subdivision level so the subdivided output stays within
@@ -63,5 +100,6 @@ module.exports = {
     MAX_OUTPUT_FACES,
     MAX_OUTPUT_FACES_FBX,
     MAX_SUBDIVISION_LEVEL,
+    parseBudget,
     effectiveSubdivisionLevel
 };

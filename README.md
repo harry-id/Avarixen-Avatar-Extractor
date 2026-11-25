@@ -73,6 +73,7 @@ Notes:
 - `DOWNLOADS_TTL_HOURS` (default `24`) expires cached avatars. `DOWNLOADS_MAX_BYTES` defaults to **5 GiB**; set `0` only for an explicitly unlimited cache. `MIN_FREE_DISK_BYTES` (default 512 MiB) blocks downloads when free space is low.
 - `MAX_CONCURRENT_CONVERSIONS` (default `2`) and `MAX_CONVERSION_QUEUE` (default `8`) bound CPU-heavy GLB/GLTF/FBX work. `MAX_CONCURRENT_PARTS`/`MAX_PARTS_QUEUE` (default `2`/`8`) bound explorer parsing.
 - `MAX_OBJ_BYTES`, `MAX_OBJ_VERTICES`, and `MAX_OBJ_FACES` reject oversized OBJ inputs before conversion (defaults: 64 MiB, 1.5M vertices, 1M faces).
+- `MAX_OUTPUT_FACES` (default `500000`) and `MAX_OUTPUT_FACES_FBX` (default `400000`) cap the subdivided output-face count so 2 concurrent conversions fit a 1 GB container. Non-numeric, zero, or negative values fall back to the default; valid values are clamped to the 3.5M hard cap. The 3.5M cap itself is not configurable.
 - `MAX_CONCURRENT_DOWNLOADS`/`MAX_DOWNLOAD_QUEUE` (default `2`/`8`), `MAX_ASSET_BYTES` (64 MiB), `MAX_AVATAR_BYTES` (256 MiB), and `DOWNLOAD_TIMEOUT_MS` (120s) bound upstream downloads.
 - Request logging is on by default. `LOG_REQUESTS=false` disables it; `LOG_REQUESTS=verbose` adds bodies/user agents (forced off in production); `LOG_ASSETS=1` adds per-file CDN logs (noisy).
 - File logging is on by default: a clean (ANSI-stripped) copy of every console line is written to `backend/aae.log`. Set `AAE_LOG_FILE=false` to disable, `AAE_LOG_FILE=<path>` to change the location, or `AAE_LOG_LEVEL=debug|info|warn|error` (default `info`) to filter.

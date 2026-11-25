@@ -1,0 +1,16 @@
+# Development override for local work. Do NOT use in production.
+#
+# Run with both files so the override is layered on top of the base config:
+#
+#   docker compose -f compose.yaml -f compose.dev.yaml up
+#
+# It only relaxes resource limits (more CPUs, optionally more memory) so local
+# conversions are faster. All other settings come from compose.yaml.
+services:
+  backend:
+    deploy:
+      resources:
+        limits:
+          cpus: "4"
+          memory: "2G"
+          pids: 1024
