@@ -9,15 +9,27 @@ const JSZip = require("jszip");
 const { PNG } = require("pngjs");
 
 const registerConvertRoutes = require("../convert");
+const { ConversionPool } = require("../worker/conversion-pool");
 const { withUserLock } = require("../user-lock");
 
 const USER_ID = String(9_910_000_000 + Math.floor(Math.random() * 100000));
 const DOWNLOADS_DIR = path.join(__dirname, "../../downloads");
 const USER_DIR = path.join(DOWNLOADS_DIR, USER_ID);
 
+function makeTestPool(overrides = {}) {
+    return new ConversionPool({
+        size: 1,
+        recycleAfter: 1000,
+        resourceLimits: { maxOldGenerationSizeMb: 512 },
+        log: () => {},
+        ...overrides
+    });
+}
+
 async function withServer(run, options = {}) {
     const app = express();
-    registerConvertRoutes(app, options);
+    const pool = options.pool || makeTestPool();
+    registerConvertRoutes(app, { ...options, pool });
     const server = app.listen(0, "127.0.0.1");
     await new Promise((resolve) => server.once("listening", resolve));
 
@@ -26,6 +38,7 @@ async function withServer(run, options = {}) {
     } finally {
         server.closeAllConnections?.();
         await new Promise((resolve) => server.close(resolve));
+        pool.close();
     }
 }
 
@@ -585,5 +598,125 @@ test("parts for another user is not delayed or rejected while user A's lock is h
         await held.catch(() => {});
         await fs.rm(dirA, { recursive: true, force: true });
         await fs.rm(dirB, { recursive: true, force: true });
+    }
+});
+
+// ---- Step 3: pool wiring, status mapping, limiter slot release ----
+
+function fakeLimiter() {
+    let releases = 0;
+    return {
+        acquire: async () => () => { releases += 1; },
+        get releases() { return releases; }
+    };
+}
+
+function fakePool(runImpl) {
+    return { run: runImpl, close() {} };
+}
+
+const OK_GLB = { ok: true, kind: "glb", data: new Uint8Array([0x67, 0x6c, 0x54, 0x46]).buffer };
+
+async function writeSimpleAvatar(dir) {
+    await fs.mkdir(dir, { recursive: true });
+    await fs.writeFile(
+        path.join(dir, "avatar.obj"),
+        ["g Torso", "v 0 0 0", "v 1 0 0", "v 0 1 0", "f 1 2 3", ""].join("\n")
+    );
+    await fs.writeFile(path.join(dir, "avatar.mtl"), "");
+}
+
+test("glTF separate export works through the pool (ZIP with model.gltf)", async () => {
+    const dir = USER_DIR;
+    await writeSimpleAvatar(dir);
+    try {
+        await withServer(async (base) => {
+            const res = await fetch(`${base}/api/roblox/convert/${USER_ID}/gltf?separate=1`);
+            assert.equal(res.status, 200);
+            assert.equal(res.headers.get("content-type"), "application/zip");
+            const buf = Buffer.from(await res.arrayBuffer());
+            const zip = await JSZip.loadAsync(buf);
+            assert.ok(zip.file(`${USER_ID}.gltf`), "ZIP must contain the .gltf");
+        });
+    } finally {
+        await fs.rm(dir, { recursive: true, force: true });
+    }
+});
+
+test("worker EOBJTOOLARGE maps to 413", async () => {
+    await writeSimpleAvatar(USER_DIR);
+    const limiter = fakeLimiter();
+    const pool = fakePool(async () => { const e = new Error("too big"); e.code = "EOBJTOOLARGE"; throw e; });
+    try {
+        await withServer(async (base) => {
+            const res = await fetch(`${base}/api/roblox/convert/${USER_ID}/glb?rig=1`);
+            assert.equal(res.status, 413);
+        }, { pool, conversionLimiter: limiter });
+        assert.equal(limiter.releases, 1, "limiter released exactly once");
+    } finally {
+        await fs.rm(USER_DIR, { recursive: true, force: true });
+    }
+});
+
+test("worker out-of-memory maps to 503 with Retry-After", async () => {
+    await writeSimpleAvatar(USER_DIR);
+    const limiter = fakeLimiter();
+    const pool = fakePool(async () => { const e = new Error("worker oom"); e.workerCode = "ERR_WORKER_OUT_OF_MEMORY"; throw e; });
+    try {
+        await withServer(async (base) => {
+            const res = await fetch(`${base}/api/roblox/convert/${USER_ID}/glb?rig=1`);
+            assert.equal(res.status, 503);
+            assert.equal(res.headers.get("retry-after"), "5");
+            const body = await res.json();
+            assert.match(body.message, /out of memory/i);
+        }, { pool, conversionLimiter: limiter });
+        assert.equal(limiter.releases, 1, "limiter released exactly once");
+    } finally {
+        await fs.rm(USER_DIR, { recursive: true, force: true });
+    }
+});
+
+test("rig failure maps to 422 and releases the slot once", async () => {
+    await writeSimpleAvatar(USER_DIR);
+    const limiter = fakeLimiter();
+    const pool = fakePool(async () => { throw new Error("rig boom"); });
+    try {
+        await withServer(async (base) => {
+            const res = await fetch(`${base}/api/roblox/convert/${USER_ID}/glb?rig=1`);
+            assert.equal(res.status, 422);
+        }, { pool, conversionLimiter: limiter });
+        assert.equal(limiter.releases, 1);
+    } finally {
+        await fs.rm(USER_DIR, { recursive: true, force: true });
+    }
+});
+
+test("worker crash maps to 500 and releases the slot once", async () => {
+    await writeSimpleAvatar(USER_DIR);
+    const limiter = fakeLimiter();
+    const pool = fakePool(async () => { const e = new Error("crash"); e.code = "ECONVERSIONCRASH"; throw e; });
+    try {
+        await withServer(async (base) => {
+            const res = await fetch(`${base}/api/roblox/convert/${USER_ID}/glb?rig=1`);
+            assert.equal(res.status, 500);
+        }, { pool, conversionLimiter: limiter });
+        assert.equal(limiter.releases, 1);
+    } finally {
+        await fs.rm(USER_DIR, { recursive: true, force: true });
+    }
+});
+
+test("successful conversion releases the limiter slot exactly once", async () => {
+    await writeSimpleAvatar(USER_DIR);
+    const limiter = fakeLimiter();
+    const pool = fakePool(async () => OK_GLB);
+    try {
+        await withServer(async (base) => {
+            const res = await fetch(`${base}/api/roblox/convert/${USER_ID}/glb`);
+            assert.equal(res.status, 200);
+        }, { pool, conversionLimiter: limiter });
+        assert.equal(limiter.releases, 1);
+    } finally {
+        await fs.rm(USER_DIR, { recursive: true, force: true });
     }
 });

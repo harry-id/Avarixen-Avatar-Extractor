@@ -11,13 +11,14 @@ const { createConversionLimiter } = require("./conversion-limiter");
 const { createAdmissionLimiter } = require("./admission-limiter");
 const { parseNonNegativeNumber, parsePositiveNumber } = require("./config");
 const { isUserLocked, tryWithUserLock, withUserLock } = require("./user-lock");
+const { ConversionPool } = require("./worker/conversion-pool");
 const profile = require("./profiler");
 
 const SUPPORTED_FORMATS = ["glb", "gltf", "fbx"];
 
 // Cap simultaneous conversions so a burst cannot exhaust memory/CPU. Requests
 // beyond the queue limit get a retryable 503 instead of piling up.
-const conversionLimiter = createConversionLimiter({
+const defaultConversionLimiter = createConversionLimiter({
     maxConcurrent: parsePositiveNumber(process.env.MAX_CONCURRENT_CONVERSIONS, 2),
     maxQueue: parseNonNegativeNumber(process.env.MAX_CONVERSION_QUEUE, 8)
 });
@@ -223,8 +224,73 @@ function handleExportError(res, lang, error, { rig, logLabel }) {
     });
 }
 
+// Reusable conversion worker pool (size = MAX_CONCURRENT_CONVERSIONS). Created
+// lazily once and shared across route registrations. Tests can inject a pool via
+// options.pool.
+let defaultPool = null;
+function getPool(options = {}) {
+    if (options.pool) {
+        return options.pool;
+    }
+    if (!defaultPool) {
+        defaultPool = new ConversionPool({
+            size: parsePositiveNumber(process.env.MAX_CONCURRENT_CONVERSIONS, 2),
+            recycleAfter: parsePositiveNumber(process.env.MAX_WORKER_RECYCLE_JOBS, 50),
+            resourceLimits: {
+                maxOldGenerationSizeMb: parsePositiveNumber(process.env.MAX_WORKER_HEAP_MB, 512)
+            }
+        });
+    }
+    return defaultPool;
+}
+
+// Send a worker conversion result using the same response shapes as before.
+async function sendConversionResult(res, result, userId, assetDir, separate) {
+    if (result.kind === "glb") {
+        res.setHeader("Content-Type", "model/gltf-binary");
+        res.setHeader("Content-Disposition", `attachment; filename="${userId}.glb"`);
+        return res.send(Buffer.from(result.data));
+    }
+
+    if (result.kind === "gltf") {
+        res.setHeader("Content-Type", "model/gltf+json");
+        res.setHeader("Content-Disposition", `attachment; filename="${userId}.gltf"`);
+        return res.send(result.text);
+    }
+
+    if (result.kind === "gltf-separate") {
+        const zip = new JSZip();
+        for (const file of result.files) {
+            const zipName = file.name === "model.gltf" ? `${userId}.gltf` : file.name;
+            zip.file(zipName, Buffer.from(file.data));
+        }
+        return streamZip(res, zip, `${userId}.zip`);
+    }
+
+    // fbx
+    const fbx = Buffer.from(result.data);
+    if (separate) {
+        const zip = new JSZip();
+        zip.file(`${userId}.fbx`, fbx);
+        const entries = await fs.readdir(assetDir);
+        for (const entry of entries) {
+            if (!/^texture\d+\.png$/i.test(entry)) {
+                continue;
+            }
+            zip.file(entry, await fs.readFile(path.join(assetDir, entry)));
+        }
+        return streamZip(res, zip, `${userId}.zip`);
+    }
+
+    res.setHeader("Content-Type", "application/octet-stream");
+    res.setHeader("Content-Disposition", `attachment; filename="${userId}.fbx"`);
+    return res.send(fbx);
+}
+
 module.exports = function (app, options = {}) {
     const partsLimiter = options.partsLimiter || defaultPartsLimiter;
+    const conversionLimiter = options.conversionLimiter || defaultConversionLimiter;
+    const pool = getPool(options);
 
     // Lightweight part-mapping lookup for the model explorer sidebar.
     app.get("/api/roblox/parts/:userId", async (req, res) => {
@@ -396,149 +462,75 @@ module.exports = function (app, options = {}) {
             }
 
         try {
-            if (fmt === "fbx") {
-                const [objText, mtlText] = await Promise.all([
-                    fs.readFile(objPath, "utf8"),
-                    fs.readFile(path.join(assetDir, "avatar.mtl"), "utf8").catch(() => "")
-                ]);
-
-                // Keep the head out of the mesh-quality subdivision (matches
-                // the GLB/GLTF behaviour).
-                let headGroups = [];
-                if (subdivision > 0) {
-                    try {
-                        const info = getPartInfo(assetDir);
-                        headGroups = info.groups
-                            .filter(
-                                (g) =>
-                                    !/^handle/i.test(g.name) &&
-                                    (g.part === "Head" || /^head$/i.test(g.name))
-                            )
-                            .map((g) => g.name);
-                    } catch {
-                        headGroups = [];
-                    }
-                }
-
-                let fbx;
-
+            // Keep the head out of the mesh-quality subdivision for FBX (matches
+            // the GLB/GLTF behaviour).
+            let excludeSubdivision = [];
+            if (fmt === "fbx" && subdivision > 0) {
                 try {
-                    fbx = await buildFbx({
-                        objText,
-                        mtlText,
-                        assetDir,
-                        splitParts,
-                        groupName,
-                        embedTextures: !separate,
-                        subdivision,
-                        excludeSubdivision: headGroups,
-                        rig,
-                        moreJoints,
-                        bendAccessories
-                    });
-                } catch (fbxError) {
-                    return handleExportError(res, lang, fbxError, {
-                        rig,
-                        logLabel: "FBX conversion failed"
-                    });
+                    const info = getPartInfo(assetDir);
+                    excludeSubdivision = info.groups
+                        .filter(
+                            (g) =>
+                                !/^handle/i.test(g.name) &&
+                                (g.part === "Head" || /^head$/i.test(g.name))
+                        )
+                        .map((g) => g.name);
+                } catch {
+                    excludeSubdivision = [];
                 }
-
-                if (separate) {
-                    const zip = new JSZip();
-                    zip.file(`${userId}.fbx`, fbx);
-
-                    const entries = await fs.readdir(assetDir);
-                    for (const entry of entries) {
-                        if (!/^texture\d+\.png$/i.test(entry)) {
-                            continue;
-                        }
-                        zip.file(entry, await fs.readFile(path.join(assetDir, entry)));
-                    }
-
-                    await streamZip(res, zip, `${userId}.zip`);
-                    return;
-                }
-
-                res.setHeader("Content-Type", "application/octet-stream");
-                res.setHeader(
-                    "Content-Disposition",
-                    `attachment; filename="${userId}.fbx"`
-                );
-                return res.send(fbx);
             }
 
-            let doc;
-            try {
-                ({ doc } = await profile.run("convert_avatar", () => convertAvatar(assetDir, {
+            const job = {
+                fmt,
+                assetDir,
+                separate,
+                options: {
                     rig,
                     splitParts,
                     groupName,
                     subdivision,
                     moreJoints,
-                    bendAccessories
-                })));
-            } catch (conversionError) {
-                return handleExportError(res, lang, conversionError, {
-                    rig,
-                    logLabel: "Avatar conversion failed"
-                });
-            }
-
-            if (separate) {
-                const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "aae-convert-"));
-                try {
-                    const files = await writeGltfSeparate(doc, tmpDir);
-                    const zip = new JSZip();
-                    const baseName = String(userId);
-                    for (const file of files) {
-                        const data = await fs.readFile(file.path);
-                        const zipName = file.name === "model.gltf"
-                            ? `${baseName}.gltf`
-                            : file.name;
-                        zip.file(zipName, data);
-                    }
-                    await streamZip(res, zip, `${baseName}.zip`);
-                    return;
-                } finally {
-                    await fs.rm(tmpDir, { recursive: true, force: true }).catch(() => {});
+                    bendAccessories,
+                    embedTextures: !separate,
+                    excludeSubdivision
                 }
-            }
+            };
 
-            const io = new NodeIO();
-            if (fmt === "glb") {
-                const tmpPath = path.join(os.tmpdir(), `aae-${userId}-${Date.now()}.glb`);
-                try {
-                    await profile.run("glb_write", () => io.write(tmpPath, doc));
-                    await sendGeneratedFile(
-                        res,
-                        tmpPath,
-                        `${userId}.glb`,
-                        "model/gltf-binary"
-                    );
-                } catch (error) {
-                    await fs.unlink(tmpPath).catch(() => {});
-                    throw error;
+            // Run the full convert + serialize in the worker pool. The limiter
+            // slot is held for the whole job and released exactly once in the
+            // outer finally.
+            const result = await profile.run("worker_convert", () => pool.run(job));
+            await sendConversionResult(res, result, userId, assetDir, separate);
+        } catch (err) {
+            // A worker that exceeded its V8 heap limit dies alone; surface a
+            // clear, retryable 503 rather than a generic 500.
+            if (err && err.workerCode === "ERR_WORKER_OUT_OF_MEMORY") {
+                console.error("Conversion worker out of memory:", err);
+                if (!res.headersSent) {
+                    res.set("Retry-After", "5");
+                    return res.status(503).json({
+                        success: false,
+                        message: t(lang, "convert.worker_oom")
+                    });
                 }
                 return;
-            } else {
-                const gltfText = await profile.run("gltf_embed", () => writeGltfEmbedded(doc));
-
-                res.setHeader("Content-Type", "model/gltf+json");
-                res.setHeader(
-                    "Content-Disposition",
-                    `attachment; filename="${userId}.gltf"`
-                );
-                return res.send(gltfText);
             }
-        } catch (err) {
-            console.error("Convert error:", err);
 
-            if (!res.headersSent) {
-                res.status(500).json({
-                    success: false,
-                    message: t(lang, "convert.failed")
-                });
+            if (err && err.code === "ECONVERSIONCRASH") {
+                console.error("Conversion worker crashed:", err);
+                if (!res.headersSent) {
+                    return res.status(500).json({
+                        success: false,
+                        message: t(lang, "convert.failed")
+                    });
+                }
+                return;
             }
+
+            return handleExportError(res, lang, err, {
+                rig,
+                logLabel: "Avatar conversion failed"
+            });
         }
             });
             await profile.run("user_lock_wait", () => userLockTask);

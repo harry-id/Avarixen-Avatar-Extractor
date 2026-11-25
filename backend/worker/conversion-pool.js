@@ -25,11 +25,13 @@ function abortError() {
     return err;
 }
 
-function crashError(code) {
-    const err = new Error(`Conversion worker exited unexpectedly (code ${code})`);
+function crashError(info) {
+    const code = info && typeof info === "object" ? (info.code || info.message) : info;
+    const err = new Error(`Conversion worker exited unexpectedly (${code})`);
     err.name = "WorkerCrashError";
     err.code = "ECONVERSIONCRASH";
-    err.exitCode = code;
+    err.workerCode = info && typeof info === "object" ? info.code : undefined;
+    err.exitCode = typeof info === "number" ? info : undefined;
     return err;
 }
 
@@ -122,7 +124,7 @@ class ConversionPool {
         record.job = null;
         if (entry) {
             this._settle(entry);
-            entry.reject(crashError(info && info.code ? info.code : info));
+            entry.reject(crashError(info));
         }
 
         this._removeRecord(record);
