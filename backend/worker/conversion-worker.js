@@ -191,5 +191,18 @@ parentPort.on("message", (job) => {
         parentPort.postMessage({ stopped: true, id: job.id });
         return;
     }
+    // Test hook: simulate an unexpected worker exit so the pool can respawn.
+    if (job && job.cmd === "crash") {
+        process.exit(1);
+        return;
+    }
+    // Test hook: a controllable long-running job for cancellation tests.
+    if (job && job.cmd === "sleep") {
+        const t0 = Date.now();
+        setTimeout(() => {
+            parentPort.postMessage({ ok: true, id: job.id, kind: "sleep", ms: Date.now() - t0 });
+        }, job.ms || 1000);
+        return;
+    }
     handle(job);
 });
