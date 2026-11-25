@@ -5,6 +5,8 @@ const assert = require("node:assert/strict");
 const fs = require("fs");
 const os = require("os");
 const path = require("path");
+const { PNG } = require("pngjs");
+const { NodeIO } = require("@gltf-transform/core");
 
 const {
     parseObj,
@@ -1687,3 +1689,70 @@ test("generated GLB rig produces valid skin weights and intact bone hierarchy", 
         fs.rmSync(dir, { recursive: true, force: true });
     }
 });
+
+test("materials sharing an image embed a single texture", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "aae-test-"));
+    const png = new PNG({ width: 2, height: 2 });
+    png.data.fill(128);
+
+    const obj = [
+        "mtllib avatar.mtl",
+        "v 0 0 0",
+        "v 1 0 0",
+        "v 0 1 0",
+        "vt 0 0",
+        "vt 1 0",
+        "vt 0 1",
+        "vn 0 0 1",
+        "usemtl clothA",
+        "g Head",
+        "f 1/1/1 2/2/1 3/3/1",
+        "usemtl clothB",
+        "g Torso",
+        "f 1/1/1 2/2/1 3/3/1",
+        ""
+    ].join("\n");
+    const mtl = [
+        "newmtl clothA",
+        "Kd 1 1 1",
+        "map_Kd texture1.png",
+        "",
+        "newmtl clothB",
+        "Kd 0.5 0.5 0.5",
+        "map_Kd texture1.png",
+        ""
+    ].join("\n");
+
+    try {
+        fs.writeFileSync(path.join(dir, "avatar.obj"), obj);
+        fs.writeFileSync(path.join(dir, "avatar.mtl"), mtl);
+        fs.writeFileSync(path.join(dir, "texture1.png"), PNG.sync.write(png));
+
+        const { doc } = await convertAvatar(dir, { splitParts: true });
+        const textures = doc.getRoot().listTextures();
+
+        assert.equal(textures.length, 1, "identical images must share one texture");
+
+        const materials = doc.getRoot().listMaterials();
+        assert.equal(materials.length, 2, "both materials must remain independent");
+        assert.equal(materials[0].getBaseColorTexture(), textures[0]);
+        assert.equal(materials[1].getBaseColorTexture(), textures[0]);
+        assert.notEqual(
+            materials[0].getBaseColorFactor(),
+            materials[1].getBaseColorFactor(),
+            "material properties must not be merged"
+        );
+
+        // The serialized GLB must contain exactly one image and one texture.
+        const glb = Buffer.from(await new NodeIO().writeBinary(doc));
+        const jsonLength = glb.readUInt32LE(12);
+        const json = JSON.parse(glb.toString("utf8", 20, 20 + jsonLength));
+
+        assert.equal(json.images.length, 1, "GLB must embed one image");
+        assert.equal(json.textures.length, 1, "GLB must declare one texture");
+        assert.equal(json.materials.length, 2, "GLB must keep both materials");
+    } finally {
+        fs.rmSync(dir, { recursive: true, force: true });
+    }
+});
+

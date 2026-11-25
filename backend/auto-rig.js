@@ -2,6 +2,7 @@
 
 const fs = require("fs");
 const path = require("path");
+const crypto = require("crypto");
 const { Document, Accessor, Material } = require("@gltf-transform/core");
 const { parsePositiveNumber } = require("./config");
 
@@ -2257,6 +2258,10 @@ function buildDocument(parsed, partMapping, joints, offsetX, offsetY, offsetZ, r
     const buffer = doc.createBuffer();
     const materialMap = Object.create(null);
     const materialOrientation = new Map();
+    // Materials often reference the same image (e.g. several Roblox materials
+    // share one texture file). Cache by content hash so identical image bytes
+    // become a single embedded texture instead of one copy per material.
+    const textureCache = new Map();
 
     for (const g of groups) {
         const stats = orientationStatsForGroup(g, parsed);
@@ -2284,9 +2289,18 @@ function buildDocument(parsed, partMapping, joints, offsetX, offsetY, offsetZ, r
             const texPath = resolveAssetTexture(parsed._assetDir, mtl.map_Kd);
             if (texPath && fs.existsSync(texPath)) {
                 const pngData = fs.readFileSync(texPath);
-                const tex = doc.createTexture(matName + "_tex")
-                    .setMimeType("image/png")
-                    .setImage(pngData);
+                const hash = crypto.createHash("sha1").update(pngData).digest("hex");
+                let tex = textureCache.get(hash);
+
+                if (!tex) {
+                    tex = doc.createTexture(matName + "_tex")
+                        .setMimeType("image/png")
+                        .setImage(pngData);
+                    textureCache.set(hash, tex);
+                }
+
+                // Reuse the shared texture object; glTF allows one texture to be
+                // referenced by many materials and NodeIO writes it only once.
                 mat.setBaseColorTexture(tex);
             }
             // White baseColorFactor so texture colors show unmodified (Kd would tint).

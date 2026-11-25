@@ -333,3 +333,68 @@ test("buildFbx supports ungrouped OBJ with negative indices", async () => {
         fs.rmSync(dir, { recursive: true, force: true });
     }
 });
+
+test("buildFbx embeds one copy of a texture shared by multiple materials", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "aae-fbx-"));
+    const png = new PNG({ width: 2, height: 2 });
+    png.data.fill(200);
+
+    const obj = [
+        "mtllib avatar.mtl",
+        "v 0 0 0",
+        "v 1 0 0",
+        "v 0 1 0",
+        "vt 0 0",
+        "vt 1 0",
+        "vt 0 1",
+        "usemtl clothA",
+        "g Head",
+        "f 1/1 2/2 3/3",
+        "usemtl clothB",
+        "g Torso",
+        "f 1/1 2/2 3/3",
+        ""
+    ].join("\n");
+    const mtl = [
+        "newmtl clothA",
+        "Kd 1 1 1",
+        "map_Kd texture1.png",
+        "",
+        "newmtl clothB",
+        "Kd 0.5 0.5 0.5",
+        "map_Kd texture1.png",
+        ""
+    ].join("\n");
+
+    try {
+        fs.writeFileSync(path.join(dir, "avatar.obj"), obj);
+        fs.writeFileSync(path.join(dir, "avatar.mtl"), mtl);
+        fs.writeFileSync(path.join(dir, "texture1.png"), PNG.sync.write(png));
+
+        const fbx = await buildFbx({
+            objText: obj,
+            mtlText: mtl,
+            assetDir: dir,
+            splitParts: true,
+            groupName: "Tester"
+        });
+
+        // The FBX texture encoder emits PNG for RGBA DataTextures. Count the
+        // PNG signature: a shared texture must be embedded exactly once.
+        const pngSignature = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+        let embedded = 0;
+        let index = 0;
+        while ((index = fbx.indexOf(pngSignature, index)) !== -1) {
+            embedded += 1;
+            index += pngSignature.length;
+        }
+
+        assert.equal(embedded, 1, "shared texture must be embedded once");
+        // The texture is still referenced by the material(s).
+        assert.equal(fbx.includes(Buffer.from("texture1.png")), true);
+        assert.ok(fbx.length > 0, "FBX must still contain geometry");
+    } finally {
+        fs.rmSync(dir, { recursive: true, force: true });
+    }
+});
+

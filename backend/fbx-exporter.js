@@ -7,6 +7,7 @@
 
 const fs = require("fs");
 const path = require("path");
+const crypto = require("crypto");
 const { PNG } = require("pngjs");
 const { isBodyGroup } = require("./obj-utils");
 const { computeRig, parseObjString, readCachedRobloxType, assertObjTextLimits } = require("./auto-rig");
@@ -190,7 +191,7 @@ function resolveTexture(assetDir, filename) {
     return resolved;
 }
 
-async function loadTexture(assetDir, filename) {
+async function loadTexture(assetDir, filename, cache = null) {
     const resolved = resolveTexture(assetDir, filename);
 
     if (!resolved) {
@@ -199,6 +200,16 @@ async function loadTexture(assetDir, filename) {
 
     try {
         const buf = fs.readFileSync(resolved);
+        const hash = crypto.createHash("sha1").update(buf).digest("hex");
+
+        // Reuse an already-decoded texture when another material references
+        // identical image bytes. The FBX collector keys textures by object
+        // identity, so a shared texture is written once and connected to every
+        // material that uses it.
+        if (cache && cache.has(hash)) {
+            return cache.get(hash);
+        }
+
         const png = PNG.sync.read(buf);
 
         const texture = new THREE.DataTexture(
@@ -210,6 +221,10 @@ async function loadTexture(assetDir, filename) {
         // The FBX exporter uses the texture name as the external file name
         // when embedTextures is false.
         texture.name = path.basename(filename).replace(/\.[^.]+$/, "");
+
+        if (cache) {
+            cache.set(hash, texture);
+        }
 
         return texture;
     } catch {
@@ -335,11 +350,12 @@ async function buildFbx({
         const matNames = [...new Set(obj.polygons.map((poly) => poly.material || "default"))];
 
         const texMap = new Map();
+        const textureCache = new Map();
         for (const name of matNames) {
             const material = mtl.get(name);
 
             if (material?.map_Kd) {
-                const texture = await loadTexture(assetDir, material.map_Kd);
+                const texture = await loadTexture(assetDir, material.map_Kd, textureCache);
 
                 if (texture) {
                     texMap.set(name, texture);
