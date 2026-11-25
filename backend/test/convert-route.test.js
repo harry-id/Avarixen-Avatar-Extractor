@@ -367,6 +367,9 @@ test("FBX separate export streams a ZIP containing the FBX and textures", async 
             assert.ok(
                 (single.headers.get("content-disposition") || "").includes(`${USER_ID}.fbx`)
             );
+            // Consume the body so the per-user lock is released before the
+            // next same-user request (which now fails fast if the lock is held).
+            await single.arrayBuffer();
 
             const separate = await fetch(
                 `${base}/api/roblox/convert/${USER_ID}/fbx?separate=1`
@@ -411,12 +414,16 @@ test("compat=1 aliases separate=1 for GLTF and FBX exports", async () => {
 
     try {
         await withServer(async (base) => {
+            // Same-user conversions now fail fast if the lock is still held, so
+            // each request must fully complete before the next starts.
             const gltfCompat = await fetch(
                 `${base}/api/roblox/convert/${USER_ID}/gltf?compat=1`
             );
+            const gltfCompatBuf = Buffer.from(await gltfCompat.arrayBuffer());
             const gltfSeparate = await fetch(
                 `${base}/api/roblox/convert/${USER_ID}/gltf?separate=1`
             );
+            const gltfSeparateBuf = Buffer.from(await gltfSeparate.arrayBuffer());
             assert.equal(gltfCompat.status, gltfSeparate.status);
             assert.equal(
                 gltfCompat.headers.get("content-type"),
@@ -427,8 +434,8 @@ test("compat=1 aliases separate=1 for GLTF and FBX exports", async () => {
                 gltfSeparate.headers.get("content-disposition")
             );
 
-            const gltfCompatArchive = await JSZip.loadAsync(Buffer.from(await gltfCompat.arrayBuffer()));
-            const gltfSeparateArchive = await JSZip.loadAsync(Buffer.from(await gltfSeparate.arrayBuffer()));
+            const gltfCompatArchive = await JSZip.loadAsync(gltfCompatBuf);
+            const gltfSeparateArchive = await JSZip.loadAsync(gltfSeparateBuf);
             assert.deepEqual(
                 Object.keys(gltfCompatArchive.files).sort(),
                 Object.keys(gltfSeparateArchive.files).sort()
@@ -445,15 +452,17 @@ test("compat=1 aliases separate=1 for GLTF and FBX exports", async () => {
             const fbxCompat = await fetch(
                 `${base}/api/roblox/convert/${USER_ID}/fbx?compat=1`
             );
+            const fbxCompatBuf = Buffer.from(await fbxCompat.arrayBuffer());
             const fbxSeparate = await fetch(
                 `${base}/api/roblox/convert/${USER_ID}/fbx?separate=1`
             );
+            const fbxSeparateBuf = Buffer.from(await fbxSeparate.arrayBuffer());
             assert.equal(fbxCompat.status, fbxSeparate.status);
             assert.equal(fbxCompat.headers.get("content-type"), fbxSeparate.headers.get("content-type"));
             assert.equal(fbxCompat.headers.get("content-disposition"), fbxSeparate.headers.get("content-disposition"));
 
-            const fbxCompatArchive = await JSZip.loadAsync(Buffer.from(await fbxCompat.arrayBuffer()));
-            const fbxSeparateArchive = await JSZip.loadAsync(Buffer.from(await fbxSeparate.arrayBuffer()));
+            const fbxCompatArchive = await JSZip.loadAsync(fbxCompatBuf);
+            const fbxSeparateArchive = await JSZip.loadAsync(fbxSeparateBuf);
             assert.deepEqual(
                 Object.keys(fbxCompatArchive.files).sort(),
                 Object.keys(fbxSeparateArchive.files).sort()
@@ -821,5 +830,150 @@ test("no double release when the client disconnects after the deadline", async (
         assert.equal(limiter.releases, 1, "exactly one release across deadline+disconnect");
     } finally {
         await fs.rm(USER_DIR, { recursive: true, force: true });
+    }
+});
+
+// ---- Convert starvation: fail fast, never hold a slot while locked ----
+
+const { createConversionLimiter } = require("../conversion-limiter");
+
+// A pool whose first run blocks until releaseGate() is called; later runs
+// resolve immediately. `started` resolves once the first run is entered (i.e.
+// the first request holds the user lock and a conversion slot).
+function gatedPool() {
+    let call = 0;
+    let releaseGate;
+    const gate = new Promise((resolve) => { releaseGate = resolve; });
+    let markStarted;
+    const started = new Promise((resolve) => { markStarted = resolve; });
+    return {
+        run: () => {
+            call += 1;
+            if (call === 1) {
+                markStarted();
+                return gate.then(() => OK_GLB);
+            }
+            return Promise.resolve(OK_GLB);
+        },
+        releaseGate,
+        started,
+        close() {}
+    };
+}
+
+test("convert fails fast when the same user's lock is held, without taking a slot", async () => {
+    const userId = String(9_950_000_000 + Math.floor(Math.random() * 100000));
+    const userDir = path.join(DOWNLOADS_DIR, userId);
+    await writeSimpleAvatar(userDir);
+
+    let releaseLock;
+    const held = withUserLock(
+        userId,
+        () => new Promise((resolve) => { releaseLock = resolve; })
+    );
+    const limiter = fakeLimiter();
+
+    try {
+        await withServer(async (base) => {
+            const busy = await fetch(`${base}/api/roblox/convert/${userId}/glb`);
+            assert.equal(busy.status, 503);
+            assert.equal(busy.headers.get("retry-after"), "5");
+            const busyBody = await busy.json();
+            assert.equal(busyBody.success, false);
+            // Fail-fast happens before acquire(), so no slot was ever taken.
+            assert.equal(limiter.releases, 0, "fail-fast must not take a slot");
+
+            releaseLock();
+            const ok = await fetch(`${base}/api/roblox/convert/${userId}/glb`);
+            assert.equal(ok.status, 200);
+            assert.equal(limiter.releases, 1, "slot released once after recovery");
+        }, { pool: fakePool(async () => OK_GLB), conversionLimiter: limiter });
+    } finally {
+        if (releaseLock) releaseLock();
+        await held.catch(() => {});
+        await fs.rm(userDir, { recursive: true, force: true });
+    }
+});
+
+test("convert for another user is not delayed or rejected while user A's lock is held", async () => {
+    const userA = String(9_960_000_000 + Math.floor(Math.random() * 100000));
+    const userB = String(9_970_000_000 + Math.floor(Math.random() * 100000));
+    const dirA = path.join(DOWNLOADS_DIR, userA);
+    const dirB = path.join(DOWNLOADS_DIR, userB);
+    await writeSimpleAvatar(dirA);
+    await writeSimpleAvatar(dirB);
+
+    let releaseLock;
+    const held = withUserLock(
+        userA,
+        () => new Promise((resolve) => { releaseLock = resolve; })
+    );
+
+    try {
+        await withServer(async (base) => {
+            // User A is locked; A's own request fails fast.
+            const aRes = await fetch(`${base}/api/roblox/convert/${userA}/glb`);
+            assert.equal(aRes.status, 503);
+            assert.equal(aRes.headers.get("retry-after"), "5");
+
+            // User B is unaffected: not delayed and not rejected.
+            const t0 = Date.now();
+            const bRes = await fetch(`${base}/api/roblox/convert/${userB}/glb`);
+            const bMs = Date.now() - t0;
+            assert.equal(bRes.status, 200);
+            assert.ok(bMs < 5000, `user B convert took ${bMs}ms, expected prompt`);
+        });
+    } finally {
+        if (releaseLock) releaseLock();
+        await held.catch(() => {});
+        await fs.rm(dirA, { recursive: true, force: true });
+        await fs.rm(dirB, { recursive: true, force: true });
+    }
+});
+
+test("same user's second convert gets a fast 503 and does not occupy a slot", async () => {
+    const userA = String(9_980_000_000 + Math.floor(Math.random() * 100000));
+    const userB = String(9_990_000_000 + Math.floor(Math.random() * 100000));
+    const dirA = path.join(DOWNLOADS_DIR, userA);
+    const dirB = path.join(DOWNLOADS_DIR, userB);
+    await writeSimpleAvatar(dirA);
+    await writeSimpleAvatar(dirB);
+
+    const limiter = createConversionLimiter({ maxConcurrent: 2, maxQueue: 8 });
+    const pool = gatedPool();
+
+    try {
+        await withServer(async (base) => {
+            // First request for A acquires a slot and blocks in the pool.
+            const a1 = fetch(`${base}/api/roblox/convert/${userA}/glb`);
+            await pool.started;
+            assert.equal(limiter.active, 1, "A's first request holds one slot");
+
+            // A's duplicate fails fast and takes no slot.
+            const t0 = Date.now();
+            const a2 = await fetch(`${base}/api/roblox/convert/${userA}/glb`);
+            const a2Ms = Date.now() - t0;
+            assert.equal(a2.status, 503);
+            assert.equal(a2.headers.get("retry-after"), "5");
+            assert.ok(a2Ms < 1000, `duplicate took ${a2Ms}ms, expected fast fail`);
+            assert.equal(limiter.active, 1, "duplicate did not take a slot");
+
+            // A different user runs in the free slot, not delayed or rejected.
+            const bRes = await fetch(`${base}/api/roblox/convert/${userB}/glb`);
+            assert.equal(bRes.status, 200);
+            await new Promise((r) => setTimeout(r, 50));
+            assert.equal(limiter.active, 1, "B released its slot; A still holds one");
+
+            // Release A's blocked job; it completes and frees the last slot.
+            pool.releaseGate();
+            const a1Res = await a1;
+            assert.equal(a1Res.status, 200);
+            await new Promise((r) => setTimeout(r, 50));
+            assert.equal(limiter.active, 0, "no slots held after all outcomes");
+        }, { pool, conversionLimiter: limiter });
+    } finally {
+        pool.releaseGate();
+        await fs.rm(dirA, { recursive: true, force: true });
+        await fs.rm(dirB, { recursive: true, force: true });
     }
 });

@@ -10,7 +10,7 @@ const { convertAvatar, getPartInfo } = require("./auto-rig");
 const { createConversionLimiter } = require("./conversion-limiter");
 const { createAdmissionLimiter } = require("./admission-limiter");
 const { parseNonNegativeNumber, parsePositiveNumber } = require("./config");
-const { isUserLocked, tryWithUserLock, withUserLock } = require("./user-lock");
+const { isUserLocked, tryWithUserLock } = require("./user-lock");
 const { ConversionPool } = require("./worker/conversion-pool");
 const profile = require("./profiler");
 
@@ -437,17 +437,29 @@ module.exports = function (app, options = {}) {
         const assetDir = path.join(__dirname, "../downloads", userId);
         const objPath = path.join(assetDir, "avatar.obj");
 
+        // Fail fast when this user's cache is already locked (a download or
+        // conversion is in progress): return 503 before taking a conversion
+        // slot. Holding a global slot while blocked on the per-user lock is what
+        // let one user's duplicate requests starve other users' conversions.
+        const busyResponse = () => {
+            res.set("Retry-After", "5");
+            return res.status(503).json({
+                success: false,
+                message: t(lang, "convert.busy")
+            });
+        };
+
+        if (isUserLocked(userId)) {
+            return busyResponse();
+        }
+
         let release;
 
         try {
             release = await profile.run("admission", () => conversionLimiter.acquire());
         } catch (error) {
             if (error && error.code === "ECONVERSIONBUSY") {
-                res.set("Retry-After", "5");
-                return res.status(503).json({
-                    success: false,
-                    message: t(lang, "convert.busy")
-                });
+                return busyResponse();
             }
 
             throw error;
@@ -456,7 +468,10 @@ module.exports = function (app, options = {}) {
         try {
             // Share the per-user lock with downloads so a cache swap cannot
             // happen while conversion is reading avatar.obj/mtl/textures.
-            const userLockTask = withUserLock(userId, async () => {
+            // tryWithUserLock is non-blocking: if a same-user download/conversion
+            // grabbed the lock while we waited for a slot, fail fast (the slot is
+            // released in finally) instead of blocking while holding the slot.
+            const attempt = tryWithUserLock(userId, async () => {
             try {
                 await fs.access(objPath);
             } catch {
@@ -575,7 +590,12 @@ module.exports = function (app, options = {}) {
             });
         }
             });
-            await profile.run("user_lock_wait", () => userLockTask);
+
+            if (attempt.locked) {
+                return busyResponse();
+            }
+
+            await profile.run("user_lock_wait", () => attempt.promise);
         } catch (err) {
             console.error("Convert error:", err);
 
