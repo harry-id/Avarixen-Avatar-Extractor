@@ -274,6 +274,12 @@ app.use("/api", (req, res, next) => {
         return next();
     }
 
+    // Health probes must never be rate limited: uptime monitors and the
+    // frontend status badge poll /api/health frequently from one IP.
+    if (req.path === "/health") {
+        return next();
+    }
+
     const lang = getLang(req);
     const now = Date.now();
     const ip = getClientIp(req, clientIdentity.mode) || "unknown";
