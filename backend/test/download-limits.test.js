@@ -316,6 +316,38 @@ test("misleading small Content-Length cannot bypass the streamed limit", async (
     );
 });
 
+test("quota pressure with only protected entries fails 507 and keeps the active avatar", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "aae-download-protected-"));
+    // A young (recently used) entry from another user, larger than the quota.
+    const otherDir = path.join(root, "777");
+    await fs.mkdir(otherDir, { recursive: true });
+    await fs.writeFile(path.join(otherDir, "avatar.obj"), "z".repeat(200));
+
+    try {
+        await withServer({
+            downloadsRoot: root,
+            downloadsMaxBytes: 32,
+            maxAssetBytes: 1024,
+            maxAvatarBytes: 4096,
+            downloadsMinAgeMs: 300000
+        }, async (base) => {
+            const response = await fetch(`${base}/api/roblox/download/${USER_ID}`);
+            assert.equal(response.status, 507);
+            const body = await response.json();
+            assert.equal(body.success, false);
+        });
+
+        // The protected (young) entry survived; the new user was not committed.
+        await fs.access(otherDir);
+        await assert.rejects(
+            () => fs.access(path.join(root, USER_ID)),
+            /ENOENT/
+        );
+    } finally {
+        await fs.rm(root, { recursive: true, force: true });
+    }
+});
+
 test("client disconnect aborts upstream work", async () => {
     const root = await fs.mkdtemp(path.join(os.tmpdir(), "aae-download-abort-"));
     let aborted = false;

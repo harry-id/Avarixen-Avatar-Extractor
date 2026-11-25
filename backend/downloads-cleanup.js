@@ -13,6 +13,22 @@ const DEFAULTS = {
 const OLD_BACKUP_RE = /^\.old-(\d+)-/;
 
 /**
+ * Best-effort "touch" that refreshes an entry's mtime so an avatar in active
+ * use is not treated as old by the age/quota sweep. Never throws: a read must
+ * not fail because the timestamp could not be updated.
+ *
+ * @param {string} full absolute path to the cache entry (the user directory)
+ */
+async function touchEntry(full) {
+    try {
+        const now = new Date();
+        await fs.promises.utimes(full, now, now);
+    } catch {
+        // Best-effort only.
+    }
+}
+
+/**
  * True when `name` is an `.old-<userId>-*` backup whose live output directory
  * (`<dir>/<userId>`) is missing. Such a backup is the only surviving copy of a
  * user's cache after a crash between the two commit renames, so the age sweep
@@ -78,6 +94,10 @@ function entrySize(full) {
  *   shouldSkip  optional (fullPath, name) predicate for entries currently in
  *               use (e.g. an in-progress download). Skipped entries are not
  *               deleted and do not count toward the quota calculation.
+ *   minAgeMs    optional minimum age (ms) an entry must reach before the quota
+ *               sweep may evict it. Entries younger than this are protected
+ *               (e.g. an avatar read moments ago); if the quota cannot be met
+ *               without evicting them, they are left in place.
  */
 function sweepDownloads(
     dir,
@@ -87,6 +107,7 @@ function sweepDownloads(
 ) {
     const result = { removed: 0, errors: 0, removedBytes: 0 };
     const maxBytes = Number(options.maxBytes) || 0;
+    const minAgeMs = Number(options.minAgeMs) || 0;
     const shouldSkip = typeof options.shouldSkip === "function"
         ? options.shouldSkip
         : () => false;
@@ -155,6 +176,8 @@ function sweepDownloads(
         if (total > maxBytes) {
             const oldestFirst = candidates
                 .filter((candidate) => !candidate.deleted)
+                // Protect recently-used entries from quota eviction.
+                .filter((candidate) => now - candidate.mtimeMs >= minAgeMs)
                 .sort((a, b) => a.mtimeMs - b.mtimeMs);
 
             for (const candidate of oldestFirst) {
@@ -183,6 +206,7 @@ function startDownloadsCleanup(options = {}) {
         : DEFAULTS.maxAgeMs;
     const intervalMs = options.intervalMs || DEFAULTS.intervalMs;
     const maxBytes = Number(options.maxBytes) || 0;
+    const minAgeMs = Number(options.minAgeMs) || 0;
     const shouldSkip = options.shouldSkip;
     const log = options.log || ((message) => console.log(message));
 
@@ -192,6 +216,7 @@ function startDownloadsCleanup(options = {}) {
 
     const sweep = () => sweepDownloads(dir, maxAgeMs, Date.now(), {
         maxBytes,
+        minAgeMs,
         shouldSkip
     });
 
@@ -248,5 +273,6 @@ module.exports = {
     getAvailableBytes,
     isOldBackupOfMissingOutput,
     sweepDownloads,
-    startDownloadsCleanup
+    startDownloadsCleanup,
+    touchEntry
 };

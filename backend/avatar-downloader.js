@@ -394,7 +394,7 @@ function withCacheQuotaLock(task) {
  * The check is serialized so concurrent downloads cannot all observe an
  * under-quota cache and then commit past the limit.
  */
-async function enforceCacheQuota(downloadsRoot, outputDir, maxBytes) {
+async function enforceCacheQuota(downloadsRoot, outputDir, maxBytes, minAgeMs = 0) {
     if (!(maxBytes > 0)) {
         return;
     }
@@ -404,8 +404,10 @@ async function enforceCacheQuota(downloadsRoot, outputDir, maxBytes) {
 
         // Evict unlocked old entries first; the current user is locked by
         // withUserLock, so its old output and staging directory are preserved.
+        // Entries younger than minAgeMs are protected (recently used).
         sweepDownloads(downloadsRoot, Number.POSITIVE_INFINITY, Date.now(), {
             maxBytes,
+            minAgeMs,
             shouldSkip: (fullPath, name) => {
                 if (isUserLocked(name)) return true;
                 const match = /^\.(?:stage|old)-(\d+)-/.exec(name);
@@ -420,6 +422,9 @@ async function enforceCacheQuota(downloadsRoot, outputDir, maxBytes) {
         const total = entrySize(downloadsRoot);
         const committed = total - oldSize;
 
+        // If the protected (young) entries alone keep the cache over quota, the
+        // new download fails with 507 rather than evicting someone's active
+        // avatar.
         if (committed > maxBytes) {
             throw new CacheQuotaError();
         }
@@ -554,6 +559,9 @@ module.exports = function (app, options = {}) {
     const downloadsMaxBytes = options.downloadsMaxBytes !== undefined
         ? options.downloadsMaxBytes
         : parseNonNegativeNumber(process.env.DOWNLOADS_MAX_BYTES, 5 * 1024 * 1024 * 1024);
+    const downloadsMinAgeMs = options.downloadsMinAgeMs !== undefined
+        ? options.downloadsMinAgeMs
+        : parseNonNegativeNumber(process.env.DOWNLOADS_MIN_AGE_MS, 5 * 60 * 1000);
     const minFreeDiskBytes = options.minFreeDiskBytes !== undefined
         ? options.minFreeDiskBytes
         : parseNonNegativeNumber(process.env.MIN_FREE_DISK_BYTES, 512 * 1024 * 1024);
@@ -856,7 +864,7 @@ module.exports = function (app, options = {}) {
                     )
                 );
 
-                await enforceCacheQuota(downloadsRoot, outputDir, downloadsMaxBytes);
+                await enforceCacheQuota(downloadsRoot, outputDir, downloadsMaxBytes, downloadsMinAgeMs);
 
                 const backupDir = path.join(
                     downloadsRoot,

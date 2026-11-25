@@ -11,6 +11,7 @@ const { createConversionLimiter } = require("./conversion-limiter");
 const { createAdmissionLimiter } = require("./admission-limiter");
 const { parseNonNegativeNumber, parsePositiveNumber } = require("./config");
 const { isUserLocked, tryWithUserLock } = require("./user-lock");
+const { touchEntry } = require("./downloads-cleanup");
 const { ConversionPool } = require("./worker/conversion-pool");
 const profile = require("./profiler");
 
@@ -320,6 +321,10 @@ module.exports = function (app, options = {}) {
             });
         }
 
+        // Reading the cache refreshes its mtime so an avatar in active use is
+        // not evicted by the age/quota sweep. Best-effort: never fails.
+        await touchEntry(assetDir);
+
         // Fail fast when this user's cache is already locked (a download or
         // conversion is in progress): return 503 without taking a parts slot or
         // waiting. Holding a slot while blocked on the per-user lock is what let
@@ -480,6 +485,10 @@ module.exports = function (app, options = {}) {
                     message: t(lang, "convert.no_obj")
                 });
             }
+
+            // Reading the cache refreshes its mtime so an avatar in active use
+            // is not evicted by the age/quota sweep. Best-effort: never fails.
+            await touchEntry(assetDir);
 
         // Declared here (outside the try) so the catch can read why the run
         // aborted (deadline vs client disconnect).

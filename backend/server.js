@@ -216,6 +216,13 @@ const minFreeDiskBytes = parseNonNegativeNumber(
     process.env.MIN_FREE_DISK_BYTES,
     DEFAULT_MIN_FREE_DISK_BYTES
 );
+// Minimum age (ms) before the quota sweep may evict an entry. Recently-read
+// avatars (touched by parts/convert) are protected below this age; if the quota
+// cannot be met without evicting them, the new download fails with 507 instead.
+const downloadsMinAgeMs = parseNonNegativeNumber(
+    process.env.DOWNLOADS_MIN_AGE_MS,
+    5 * 60 * 1000
+);
 // Recover any cache left in a half-committed state by a crash between the two
 // commit renames (output -> .old-<userId>-<ts>, then staging -> output). Runs
 // synchronously before the server listens and before the first cleanup sweep so
@@ -226,6 +233,7 @@ const downloadsCleanup = startDownloadsCleanup({
     dir: downloadsDir,
     maxAgeMs: downloadsTtlHours * 60 * 60 * 1000,
     maxBytes: downloadsMaxBytes,
+    minAgeMs: downloadsMinAgeMs,
     // Never delete a user's cache (or its staging/backup directory) while a
     // download/conversion for that user is in progress, and never age-sweep a
     // backup whose live output is missing (crash recovery restores it first).
@@ -369,6 +377,7 @@ require("./avatar-downloader")(app, {
     fetchWithTimeout,
     getApiKey,
     downloadsMaxBytes,
+    downloadsMinAgeMs,
     minFreeDiskBytes
 });
 
