@@ -720,3 +720,106 @@ test("successful conversion releases the limiter slot exactly once", async () =>
         await fs.rm(USER_DIR, { recursive: true, force: true });
     }
 });
+
+// ---- Step 4: cancellation (disconnect + deadline) ----
+
+function abortErr() {
+    const e = new Error("cancelled");
+    e.name = "AbortError";
+    e.code = "ECONVERSIONCANCELLED";
+    return e;
+}
+
+// A pool whose first run blocks until the signal aborts, then resolves OK.
+function cancelThenSucceedPool() {
+    let call = 0;
+    return {
+        run: (job, { signal } = {}) => {
+            call += 1;
+            if (call === 1) {
+                return new Promise((resolve, reject) => {
+                    if (signal && signal.aborted) return reject(abortErr());
+                    if (signal) signal.addEventListener("abort", () => reject(abortErr()), { once: true });
+                });
+            }
+            return Promise.resolve(OK_GLB);
+        },
+        close() {}
+    };
+}
+
+function neverResolvingPool() {
+    return {
+        run: (job, { signal } = {}) => new Promise((resolve, reject) => {
+            if (signal && signal.aborted) return reject(abortErr());
+            if (signal) signal.addEventListener("abort", () => reject(abortErr()), { once: true });
+        }),
+        close() {}
+    };
+}
+
+test("client disconnect cancels the job, releases the slot once, and the next request succeeds", async () => {
+    await writeSimpleAvatar(USER_DIR);
+    const limiter = fakeLimiter();
+    const pool = cancelThenSucceedPool();
+    try {
+        await withServer(async (base) => {
+            const ac = new AbortController();
+            const first = fetch(`${base}/api/roblox/convert/${USER_ID}/glb`, { signal: ac.signal }).catch(() => null);
+            setTimeout(() => ac.abort(), 100);
+            await first;
+
+            // Give the server a tick to run its finally (release) after the
+            // client-side abort is observed.
+            await new Promise((r) => setTimeout(r, 200));
+
+            // The aborted request released its slot exactly once.
+            assert.equal(limiter.releases, 1, "slot released once on cancel");
+
+            // The next request on the same pool/limiter succeeds.
+            const second = await fetch(`${base}/api/roblox/convert/${USER_ID}/glb`);
+            assert.equal(second.status, 200);
+            assert.equal(limiter.releases, 2, "slot released once for the second request");
+        }, { pool, conversionLimiter: limiter });
+    } finally {
+        await fs.rm(USER_DIR, { recursive: true, force: true });
+    }
+});
+
+test("conversion deadline aborts the job and returns 504, releasing the slot once", async () => {
+    await writeSimpleAvatar(USER_DIR);
+    const limiter = fakeLimiter();
+    const pool = neverResolvingPool();
+    try {
+        await withServer(async (base) => {
+            const res = await fetch(`${base}/api/roblox/convert/${USER_ID}/glb`);
+            assert.equal(res.status, 504);
+            assert.equal(res.headers.get("retry-after"), "5");
+            const body = await res.json();
+            assert.match(body.message, /too long/i);
+            await new Promise((r) => setTimeout(r, 100));
+        }, { pool, conversionLimiter: limiter, conversionDeadlineMs: 100 });
+        assert.equal(limiter.releases, 1, "slot released exactly once on deadline");
+    } finally {
+        await fs.rm(USER_DIR, { recursive: true, force: true });
+    }
+});
+
+test("no double release when the client disconnects after the deadline", async () => {
+    await writeSimpleAvatar(USER_DIR);
+    const limiter = fakeLimiter();
+    const pool = neverResolvingPool();
+    try {
+        await withServer(async (base) => {
+            const ac = new AbortController();
+            const p = fetch(`${base}/api/roblox/convert/${USER_ID}/glb`, { signal: ac.signal }).catch(() => null);
+            // Abort just after the deadline fires.
+            setTimeout(() => ac.abort(), 250);
+            await p;
+        }, { pool, conversionLimiter: limiter, conversionDeadlineMs: 100 });
+        // Either path (deadline or disconnect) releases exactly once.
+        assert.equal(limiter.releases, 1, "exactly one release across deadline+disconnect");
+    } finally {
+        await fs.rm(USER_DIR, { recursive: true, force: true });
+    }
+});

@@ -16,6 +16,10 @@ const profile = require("./profiler");
 
 const SUPPORTED_FORMATS = ["glb", "gltf", "fbx"];
 
+// Conversion deadline (env CONVERSION_DEADLINE_MS, default 110s — below the 120s
+// request timeout). On expiry the in-flight worker is terminated and respawned.
+const conversionDeadlineMs = parsePositiveNumber(process.env.CONVERSION_DEADLINE_MS, 110_000);
+
 // Cap simultaneous conversions so a burst cannot exhaust memory/CPU. Requests
 // beyond the queue limit get a retryable 503 instead of piling up.
 const defaultConversionLimiter = createConversionLimiter({
@@ -291,6 +295,7 @@ module.exports = function (app, options = {}) {
     const partsLimiter = options.partsLimiter || defaultPartsLimiter;
     const conversionLimiter = options.conversionLimiter || defaultConversionLimiter;
     const pool = getPool(options);
+    const deadlineMs = options.conversionDeadlineMs || conversionDeadlineMs;
 
     // Lightweight part-mapping lookup for the model explorer sidebar.
     app.get("/api/roblox/parts/:userId", async (req, res) => {
@@ -461,6 +466,10 @@ module.exports = function (app, options = {}) {
                 });
             }
 
+        // Declared here (outside the try) so the catch can read why the run
+        // aborted (deadline vs client disconnect).
+        let deadlineExceeded = false;
+
         try {
             // Keep the head out of the mesh-quality subdivision for FBX (matches
             // the GLB/GLTF behaviour).
@@ -496,12 +505,45 @@ module.exports = function (app, options = {}) {
                 }
             };
 
-            // Run the full convert + serialize in the worker pool. The limiter
-            // slot is held for the whole job and released exactly once in the
-            // outer finally.
-            const result = await profile.run("worker_convert", () => pool.run(job));
-            await sendConversionResult(res, result, userId, assetDir, separate);
+            // Cancellation: abort on client disconnect (before the response
+            // finishes) or when the conversion deadline fires. The pool
+            // terminates that worker, respawns it, and rejects the run; the
+            // limiter slot is released exactly once in the outer finally.
+            const ac = new AbortController();
+            const deadline = setTimeout(() => {
+                deadlineExceeded = true;
+                ac.abort();
+            }, deadlineMs);
+            if (typeof deadline.unref === "function") deadline.unref();
+            const onClose = () => {
+                if (!res.writableEnded) ac.abort();
+            };
+            res.on("close", onClose);
+
+            try {
+                // Run the full convert + serialize in the worker pool. The
+                // limiter slot is held for the whole job.
+                const result = await profile.run("worker_convert", () =>
+                    pool.run(job, { signal: ac.signal })
+                );
+                await sendConversionResult(res, result, userId, assetDir, separate);
+            } finally {
+                clearTimeout(deadline);
+                res.off("close", onClose);
+            }
         } catch (err) {
+            // Cancelled (client gone or deadline): do not double-send.
+            if (err && (err.name === "AbortError" || err.code === "ECONVERSIONCANCELLED")) {
+                if (deadlineExceeded && !res.headersSent) {
+                    res.set("Retry-After", "5");
+                    return res.status(504).json({
+                        success: false,
+                        message: t(lang, "convert.timeout")
+                    });
+                }
+                return;
+            }
+
             // A worker that exceeded its V8 heap limit dies alone; surface a
             // clear, retryable 503 rather than a generic 500.
             if (err && err.workerCode === "ERR_WORKER_OUT_OF_MEMORY") {
