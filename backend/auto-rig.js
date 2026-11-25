@@ -6,6 +6,7 @@ const crypto = require("crypto");
 const { Document, Accessor, Material } = require("@gltf-transform/core");
 const { parsePositiveNumber } = require("./config");
 const { deriveHasLayeredClothing, countAccessoryAssets } = require("./avatar-assets");
+const { effectiveSubdivisionLevel, MAX_OUTPUT_FACES } = require("./conversion-budget");
 
 const DEFAULT_MAX_OBJ_BYTES = 64 * 1024 * 1024;
 const DEFAULT_MAX_OBJ_VERTICES = 1_500_000;
@@ -3200,15 +3201,28 @@ async function convertAvatar(assetDir, {
         throw new Error("avatar.obj contains no faces");
     }
 
-    if (subdivision > 0) {
-        // Mesh quality refines the body only: accessories (Handle* groups) and
-        // the head keep their original density.
-        const headGroup = findHeadGroupName(parsed);
-        const isExcluded = (name) =>
-            typeof name === "string" &&
-            (/^handle/i.test(name) || name === headGroup);
+    // Mesh quality refines the body only: accessories (Handle* groups) and the
+    // head keep their original density, so they do not multiply under
+    // subdivision. The output-face budget therefore applies to the subdividable
+    // (body) faces, not the total. subdivideParsed still applies the 3.5M hard
+    // cap as an outer bound.
+    const headGroup = findHeadGroupName(parsed);
+    const isExcluded = (name) =>
+        typeof name === "string" &&
+        (/^handle/i.test(name) || name === headGroup);
+    const subdividableFaces = parsed.faces.reduce(
+        (sum, face) => sum + (isExcluded(face.group) ? 0 : 1),
+        0
+    );
 
-        subdivideParsed(parsed, subdivision, (face) => !isExcluded(face.group));
+    const effectiveSubdivision = effectiveSubdivisionLevel(
+        subdividableFaces,
+        subdivision,
+        MAX_OUTPUT_FACES
+    );
+
+    if (effectiveSubdivision > 0) {
+        subdivideParsed(parsed, effectiveSubdivision, (face) => !isExcluded(face.group));
     }
     parsed._mtls = mtl;
     parsed._assetDir = assetDir;

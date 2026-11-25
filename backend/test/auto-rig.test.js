@@ -1974,3 +1974,49 @@ test("R6 layered metadata never skins accessories", async () => {
     }
 });
 
+test("conversion budget reduces level 4 to 3 above the output-face budget", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "aae-test-"));
+
+    try {
+        // 60 * 32 * 2 = 3,840 grid faces + 14 body boxes * 12 = 168 subdividable
+        // body faces (the head is excluded) = 4,008 subdividable faces.
+        // Level 4 would be 1,026,048 > 500,000 budget, so it must drop to 3
+        // (4,008 * 64 = 256,512 <= budget).
+        writeR15Avatar(dir, {
+            group: "UpperTorso",
+            x0: -1.9, x1: 1.9, y0: 3.2, y1: 4.8, z: 0,
+            cols: 60, rows: 32
+        });
+        writeAvatarMeta(dir, RIGID_ONLY_ASSETS);
+
+        const { doc: four } = await convertAvatar(dir, {
+            rig: true, splitParts: true, subdivision: 4
+        });
+        const { doc: three } = await convertAvatar(dir, {
+            rig: true, splitParts: true, subdivision: 3
+        });
+
+        const triangles = (doc) => {
+            let total = 0;
+            for (const mesh of doc.getRoot().listMeshes()) {
+                for (const primitive of mesh.listPrimitives()) {
+                    const indices = primitive.getIndices();
+                    if (indices) total += indices.getCount() / 3;
+                }
+            }
+            return total;
+        };
+
+        const fourTris = triangles(four);
+        const threeTris = triangles(three);
+
+        assert.ok(fourTris <= 500_000, `level 4 output ${fourTris} exceeds budget`);
+        assert.equal(
+            fourTris,
+            threeTris,
+            "level 4 must be reduced to level 3 above the budget"
+        );
+    } finally {
+        fs.rmSync(dir, { recursive: true, force: true });
+    }
+});

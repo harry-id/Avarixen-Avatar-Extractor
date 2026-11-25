@@ -17,6 +17,7 @@ const {
     assertObjTextLimits
 } = require("./auto-rig");
 const { deriveHasLayeredClothing, countAccessoryAssets } = require("./avatar-assets");
+const { effectiveSubdivisionLevel, MAX_OUTPUT_FACES_FBX } = require("./conversion-budget");
 const profile = require("./profiler");
 
 let THREE = null;
@@ -340,21 +341,27 @@ async function buildFbx({
     }
 
     // Match the GLB export: center the body on X/Z and put the feet at y = 0.
-    let safeSubdivision = Math.max(0, Math.min(4, Math.floor(subdivision || 0)));
-
+    // Only body groups (excluding the head and any excluded groups) are
+    // subdivided, so the output-face budget applies to those triangles.
     const baseTriangleCount = obj.polygons.reduce(
-        (sum, poly) => sum + Math.max(1, poly.corners.length - 2),
+        (sum, poly) =>
+            sum +
+            (isBodyGroup(poly.group || "") &&
+            !excludeSubdivisionSet.has(poly.group)
+                ? Math.max(1, poly.corners.length - 2)
+                : 0),
         0
     );
 
-    const { src, offsetX, offsetY, offsetZ } = await profile.run("fbx_bounds", async () => {
-        while (
-            safeSubdivision > 0 &&
-            baseTriangleCount * Math.pow(4, safeSubdivision) > 3_500_000
-        ) {
-            safeSubdivision -= 1;
-        }
+    // Reduce the level to the (lower) FBX output-face budget before building
+    // geometry. The 3.5M hard cap remains the outer bound.
+    const safeSubdivision = effectiveSubdivisionLevel(
+        baseTriangleCount,
+        subdivision,
+        MAX_OUTPUT_FACES_FBX
+    );
 
+    const { src, offsetX, offsetY, offsetZ } = await profile.run("fbx_bounds", async () => {
         const all = createBounds();
         const body = createBounds();
 
