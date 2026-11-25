@@ -48,7 +48,8 @@ function parseTrustProxy(value) {
  *
  * `true` trusts every forwarding header from every peer, so it is never safe
  * for a public deployment. In production it fails startup; outside production
- * it is downgraded to no proxy trust with a warning.
+ * it is treated as Cloudflare mode (loopback-only CF-Connecting-IP) with a
+ * warning.
  *
  * `cloudflare` is the safe Cloudflare Tunnel mode: CF-Connecting-IP is only
  * accepted when the direct TCP peer is loopback (the local cloudflared

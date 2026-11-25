@@ -24,6 +24,14 @@ test("metadata URLs reject non-Roblox hosts, protocols, and malformed input", ()
     assert.equal(isAllowedMetadataUrl("not a url"), false);
 });
 
+test("metadata URLs allow only the default HTTPS port", () => {
+    // :443 is normalized away by new URL(), so it is equivalent to no port.
+    assert.equal(isAllowedMetadataUrl("https://tr.rbxcdn.com:443/abc"), true);
+    assert.equal(isAllowedMetadataUrl("https://tr.rbxcdn.com:22/abc"), false);
+    assert.equal(isAllowedMetadataUrl("https://roblox.com:8443/x"), false);
+    assert.equal(isAllowedMetadataUrl("https://t0.rbxcdn.com:0/hash"), false);
+});
+
 test("metadata decompression is bounded", () => {
     const zlib = require("zlib");
     const { decodeMetadata } = require("../avatar-metadata");

@@ -9,6 +9,7 @@ const JSZip = require("jszip");
 const { PNG } = require("pngjs");
 
 const registerConvertRoutes = require("../convert");
+const { withUserLock } = require("../user-lock");
 
 const USER_ID = String(9_910_000_000 + Math.floor(Math.random() * 100000));
 const DOWNLOADS_DIR = path.join(__dirname, "../../downloads");
@@ -499,6 +500,49 @@ test("GLB rig failure returns 422", async () => {
             assert.match(body.message, /Auto-rig failed/);
         });
     } finally {
+        await fs.rm(USER_DIR, { recursive: true, force: true });
+    }
+});
+
+test("parts waits for the same-user lock and then succeeds", async () => {
+    await fs.mkdir(USER_DIR, { recursive: true });
+    await fs.writeFile(
+        path.join(USER_DIR, "avatar.obj"),
+        ["g Torso", "v 0 0 0", "v 1 0 0", "v 0 1 0", "f 1 2 3", ""].join("\n")
+    );
+    await fs.writeFile(path.join(USER_DIR, "avatar.mtl"), "");
+
+    let releaseLock;
+    const held = withUserLock(
+        USER_ID,
+        () => new Promise((resolve) => { releaseLock = resolve; })
+    );
+
+    try {
+        await withServer(async (base) => {
+            let settled = false;
+            const request = fetch(`${base}/api/roblox/parts/${USER_ID}`).then(
+                (response) => {
+                    settled = true;
+                    return response;
+                }
+            );
+
+            // The route must block on the lock rather than read mid-swap.
+            await new Promise((resolve) => setTimeout(resolve, 150));
+            assert.equal(settled, false, "parts must wait for the user lock");
+
+            releaseLock();
+            const response = await request;
+            assert.equal(response.status, 200);
+
+            const body = await response.json();
+            assert.equal(body.success, true);
+            assert.ok(Array.isArray(body.groups));
+        });
+    } finally {
+        if (releaseLock) releaseLock();
+        await held.catch(() => {});
         await fs.rm(USER_DIR, { recursive: true, force: true });
     }
 });

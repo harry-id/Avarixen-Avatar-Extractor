@@ -7,7 +7,8 @@ const express = require("express");
 const {
     parseNonNegativeNumber,
     parsePositiveNumber,
-    parseTrustProxy
+    parseTrustProxy,
+    resolveTrustProxy
 } = require("../config");
 
 test("parseTrustProxy accepts booleans, hop counts, and CIDR lists", () => {
@@ -45,4 +46,20 @@ test("parseNonNegativeNumber keeps zero but rejects negatives", () => {
     assert.equal(parseNonNegativeNumber("5", 8), 5);
     assert.equal(parseNonNegativeNumber("-5", 8), 8);
     assert.equal(parseNonNegativeNumber("junk", 8), 8);
+});
+
+test("TRUST_PROXY=true outside production resolves to Cloudflare mode", () => {
+    const resolved = resolveTrustProxy("true", { production: false });
+
+    assert.equal(resolved.mode, "cloudflare");
+    assert.equal(resolved.apply, true);
+    assert.equal(resolved.value, false);
+    assert.ok(resolved.warning);
+});
+
+test("TRUST_PROXY=true is rejected in production", () => {
+    assert.throws(
+        () => resolveTrustProxy("true", { production: true }),
+        /not allowed in production/
+    );
 });

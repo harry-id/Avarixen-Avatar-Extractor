@@ -87,7 +87,11 @@ function decompress(buffer, maxBytes = DEFAULT_MAX_AVATAR_BYTES) {
 }
 
 function isValidAssetHash(hash) {
-    return typeof hash === "string" && hash.length > 0;
+    // Real Roblox CDN hashes are "30DAY-<32 hex>" (or plain hex/base64url);
+    // fixtures use short tokens like "hash1"/"objhash". Accept the URL-safe
+    // charset only, with a length bound, so path/query separators cannot be
+    // injected into the CDN URL.
+    return typeof hash === "string" && /^[A-Za-z0-9_-]{1,128}$/.test(hash);
 }
 
 function getHost(hash) {
@@ -865,4 +869,5 @@ module.exports.planTextures = planTextures;
 module.exports.readResponseLimited = readResponseLimited;
 module.exports.fetchAssetResponse = fetchAssetResponse;
 module.exports.decompress = decompress;
+module.exports.isValidAssetHash = isValidAssetHash;
 module.exports.DownloadTooLargeError = DownloadTooLargeError;

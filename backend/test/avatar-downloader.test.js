@@ -3,7 +3,7 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 
-const { planTextures } = require("../avatar-downloader");
+const { planTextures, isValidAssetHash } = require("../avatar-downloader");
 
 test("planTextures names successful textures contiguously", () => {
     const hashes = ["hash1", "hash2", "hash3"];
@@ -57,4 +57,37 @@ test("planTextures rewrites every reference to the same hash", () => {
 
     assert.doesNotMatch(plan.mtl, /30DAY-abc123/);
     assert.equal((plan.mtl.match(/texture1\.png/g) || []).length, 4);
+});
+
+test("isValidAssetHash accepts real and fixture hash formats", () => {
+    // Real cached metadata hashes: "30DAY-<32 hex>".
+    assert.equal(
+        isValidAssetHash("30DAY-0438af40ad8fbfe9e943c683a325b59d"),
+        true
+    );
+    assert.equal(isValidAssetHash("0438af40ad8fbfe9e943c683a325b59d"), true);
+    // Existing test fixtures use short URL-safe tokens.
+    assert.equal(isValidAssetHash("hash1"), true);
+    assert.equal(isValidAssetHash("objhash"), true);
+    assert.equal(isValidAssetHash("a_b-c"), true);
+});
+
+test("isValidAssetHash rejects separators, query characters, and malformed input", () => {
+    const bad = [
+        "",
+        "../x",
+        "a/b",
+        "a?b",
+        "a#b",
+        "a.b",
+        "a b",
+        "x".repeat(129),
+        null,
+        undefined,
+        123
+    ];
+
+    for (const value of bad) {
+        assert.equal(isValidAssetHash(value), false, String(value));
+    }
 });

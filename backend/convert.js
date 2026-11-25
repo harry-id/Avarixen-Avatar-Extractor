@@ -265,7 +265,14 @@ module.exports = function (app, options = {}) {
 
         try {
             const moreJoints = parseBool(req.query.moreJoints);
-            const info = getPartInfo(assetDir, { moreJoints });
+            // Serialize with downloads/conversions for the same user so the
+            // explorer cannot read avatar.json/avatar.obj across a cache swap.
+            // getPartInfo does not take the lock itself, so there is no
+            // re-entry/deadlock. This can add latency while a same-user
+            // download/conversion is in progress.
+            const info = await withUserLock(userId, () =>
+                getPartInfo(assetDir, { moreJoints })
+            );
             res.json({
                 success: true,
                 rigType: info.rigType,

@@ -107,6 +107,12 @@ function isAllowedMetadataUrl(rawUrl) {
         return false;
     }
 
+    // Only the default HTTPS port is allowed. new URL() normalizes :443 to an
+    // empty port, so both "" and "443" pass; any other port is rejected.
+    if (url.port && url.port !== "443") {
+        return false;
+    }
+
     const hostname = url.hostname.toLowerCase();
 
     return (
