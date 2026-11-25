@@ -303,6 +303,60 @@ app.use("/api", (req, res, next) => {
     next();
 });
 
+// Stricter per-IP limit for the expensive download route, applied on top of the
+// global limiter above. Same client-IP key (getClientIp) so it behaves the same
+// behind a proxy. Window and max are env-configurable with safe defaults.
+const downloadRateWindowMs = parsePositiveNumber(
+    process.env.DOWNLOAD_RATE_LIMIT_WINDOW_MS,
+    60_000
+);
+const downloadRateMax = parsePositiveNumber(
+    process.env.DOWNLOAD_RATE_LIMIT_MAX,
+    10
+);
+const downloadRateBuckets = new Map();
+
+const downloadRatePruneTimer = setInterval(() => {
+    const now = Date.now();
+    for (const [ip, bucket] of downloadRateBuckets) {
+        if (now > bucket.resetAt) {
+            downloadRateBuckets.delete(ip);
+        }
+    }
+}, downloadRateWindowMs);
+downloadRatePruneTimer.unref();
+
+app.use("/api/roblox/download", (req, res, next) => {
+    if (req.method === "OPTIONS") {
+        return next();
+    }
+
+    const lang = getLang(req);
+    const now = Date.now();
+    const ip = getClientIp(req, clientIdentity.mode) || "unknown";
+    const bucket = downloadRateBuckets.get(ip);
+
+    if (!bucket || now > bucket.resetAt) {
+        downloadRateBuckets.set(ip, {
+            count: 1,
+            resetAt: now + downloadRateWindowMs
+        });
+        return next();
+    }
+
+    bucket.count += 1;
+    if (bucket.count > downloadRateMax) {
+        const retryAfter = Math.max(1, Math.ceil((bucket.resetAt - now) / 1000));
+        res.set("Retry-After", String(retryAfter));
+        return res.status(429).json({
+            success: false,
+            message: t(lang, "download.rate_limited")
+        });
+    }
+
+    next();
+});
+
 function getApiKey() {
     const apiKey = process.env.ROBLOX_API_KEY;
     if (!apiKey || apiKey === "your_roblox_api_key_here") {
