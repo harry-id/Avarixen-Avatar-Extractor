@@ -10,6 +10,28 @@ const DEFAULTS = {
     intervalMs: 60 * 60 * 1000
 };
 
+const OLD_BACKUP_RE = /^\.old-(\d+)-/;
+
+/**
+ * True when `name` is an `.old-<userId>-*` backup whose live output directory
+ * (`<dir>/<userId>`) is missing. Such a backup is the only surviving copy of a
+ * user's cache after a crash between the two commit renames, so the age sweep
+ * must never delete it (startup recovery restores it first).
+ */
+function isOldBackupOfMissingOutput(dir, name) {
+    const match = OLD_BACKUP_RE.exec(name);
+
+    if (!match) {
+        return false;
+    }
+
+    try {
+        return !fs.existsSync(path.join(dir, match[1]));
+    } catch {
+        return false;
+    }
+}
+
 /**
  * Recursively total the size of a cache entry without following symlinks.
  */
@@ -224,6 +246,7 @@ module.exports = {
     DEFAULTS,
     entrySize,
     getAvailableBytes,
+    isOldBackupOfMissingOutput,
     sweepDownloads,
     startDownloadsCleanup
 };

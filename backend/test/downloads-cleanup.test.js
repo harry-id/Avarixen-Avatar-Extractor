@@ -6,7 +6,7 @@ const fs = require("fs");
 const os = require("os");
 const path = require("path");
 
-const { sweepDownloads } = require("../downloads-cleanup");
+const { sweepDownloads, isOldBackupOfMissingOutput } = require("../downloads-cleanup");
 
 function makeTempDir() {
     return fs.mkdtempSync(path.join(os.tmpdir(), "aae-cleanup-"));
@@ -56,4 +56,48 @@ test("sweepDownloads tolerates a missing directory", () => {
 
     assert.strictEqual(result.removed, 0);
     assert.strictEqual(result.errors, 0);
+});
+
+test("isOldBackupOfMissingOutput detects backups whose output is gone", () => {
+    const dir = makeTempDir();
+    const userId = "123456";
+
+    // No output dir -> backup of a missing output.
+    assert.strictEqual(
+        isOldBackupOfMissingOutput(dir, `.old-${userId}-1000`),
+        true
+    );
+
+    // Output present -> not a missing-output backup.
+    fs.mkdirSync(path.join(dir, userId));
+    assert.strictEqual(
+        isOldBackupOfMissingOutput(dir, `.old-${userId}-1000`),
+        false
+    );
+
+    // Non-backup names are never flagged.
+    assert.strictEqual(isOldBackupOfMissingOutput(dir, userId), false);
+    assert.strictEqual(isOldBackupOfMissingOutput(dir, `.stage-${userId}-x`), false);
+
+    fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test("sweepDownloads never deletes a backup whose output is missing when shouldSkip guards it", () => {
+    const dir = makeTempDir();
+    const userId = "123456";
+    const backup = path.join(dir, `.old-${userId}-1000`);
+    fs.mkdirSync(backup);
+    fs.writeFileSync(path.join(backup, "avatar.obj"), "ONLY COPY");
+
+    const twoDaysAgo = (Date.now() - 2 * 24 * 60 * 60 * 1000) / 1000;
+    fs.utimesSync(backup, twoDaysAgo, twoDaysAgo);
+
+    const result = sweepDownloads(dir, 24 * 60 * 60 * 1000, Date.now(), {
+        shouldSkip: (full, name) => isOldBackupOfMissingOutput(dir, name)
+    });
+
+    assert.strictEqual(result.removed, 0);
+    assert.strictEqual(fs.existsSync(backup), true);
+
+    fs.rmSync(dir, { recursive: true, force: true });
 });

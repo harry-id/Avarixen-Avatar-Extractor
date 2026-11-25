@@ -14,7 +14,8 @@ const path = require("path");
 const { getLang, t } = require("./i18n");
 const { fetchAvatar3D } = require("./avatar-metadata");
 const { version: APP_VERSION } = require("./package.json");
-const { startDownloadsCleanup } = require("./downloads-cleanup");
+const { startDownloadsCleanup, isOldBackupOfMissingOutput } = require("./downloads-cleanup");
+const { recoverDownloads } = require("./avatar-downloader");
 const { fetchWithTimeout } = require("./fetch-utils");
 const { isUserLocked } = require("./user-lock");
 const {
@@ -215,19 +216,30 @@ const minFreeDiskBytes = parseNonNegativeNumber(
     process.env.MIN_FREE_DISK_BYTES,
     DEFAULT_MIN_FREE_DISK_BYTES
 );
+// Recover any cache left in a half-committed state by a crash between the two
+// commit renames (output -> .old-<userId>-<ts>, then staging -> output). Runs
+// synchronously before the server listens and before the first cleanup sweep so
+// a backup whose output is missing is restored rather than aged out.
+recoverDownloads(downloadsDir, { log: (message) => console.log(message) });
+
 const downloadsCleanup = startDownloadsCleanup({
     dir: downloadsDir,
     maxAgeMs: downloadsTtlHours * 60 * 60 * 1000,
     maxBytes: downloadsMaxBytes,
     // Never delete a user's cache (or its staging/backup directory) while a
-    // download/conversion for that user is in progress.
+    // download/conversion for that user is in progress, and never age-sweep a
+    // backup whose live output is missing (crash recovery restores it first).
     shouldSkip: (fullPath, name) => {
         if (isUserLocked(name)) {
             return true;
         }
 
         const match = /^\.(?:stage|old)-(\d+)-/.exec(name);
-        return match ? isUserLocked(match[1]) : false;
+        if (match && isUserLocked(match[1])) {
+            return true;
+        }
+
+        return isOldBackupOfMissingOutput(downloadsDir, name);
     }
 });
 

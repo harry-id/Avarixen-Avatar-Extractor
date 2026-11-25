@@ -1,4 +1,5 @@
 const fs = require("fs/promises");
+const fsSync = require("fs");
 const path = require("path");
 const zlib = require("zlib");
 const { getLang, t } = require("./i18n");
@@ -12,7 +13,7 @@ const {
 const { withUserLock, isUserLocked } = require("./user-lock");
 const { createAdmissionLimiter } = require("./admission-limiter");
 const { parseNonNegativeNumber, parsePositiveNumber } = require("./config");
-const { sweepDownloads, entrySize, getAvailableBytes } = require("./downloads-cleanup");
+const { sweepDownloads, entrySize, getAvailableBytes, isOldBackupOfMissingOutput } = require("./downloads-cleanup");
 const { version: APP_VERSION } = require("./package.json");
 
 const DEFAULT_MAX_CONCURRENT_DOWNLOADS = 2;
@@ -408,7 +409,11 @@ async function enforceCacheQuota(downloadsRoot, outputDir, maxBytes) {
             shouldSkip: (fullPath, name) => {
                 if (isUserLocked(name)) return true;
                 const match = /^\.(?:stage|old)-(\d+)-/.exec(name);
-                return match ? isUserLocked(match[1]) : false;
+                if (match && isUserLocked(match[1])) return true;
+                // Never evict a backup whose live output is missing (crash
+                // recovery has not run or failed); it is the only copy.
+                if (isOldBackupOfMissingOutput(downloadsRoot, name)) return true;
+                return false;
             }
         });
 
@@ -419,6 +424,108 @@ async function enforceCacheQuota(downloadsRoot, outputDir, maxBytes) {
             throw new CacheQuotaError();
         }
     });
+}
+
+const OLD_BACKUP_RE = /^\.old-(\d+)-(\d+)/;
+const STAGE_DIR_RE = /^\.stage-(\d+)-/;
+
+/**
+ * Recover caches left behind by a crash between the two commit renames
+ * (`output -> .old-<userId>-<ts>`, then `staging -> output`).
+ *
+ * - For each `.old-<userId>-*` whose live output directory is missing, restore
+ *   the newest backup (by the timestamp in its name) back to `output`.
+ * - Remove stale `.stage-*` directories left from before this process started.
+ *
+ * Idempotent (a second run finds no missing output and no stage dirs) and
+ * best-effort: every filesystem step is wrapped so a failure is logged and
+ * never crashes startup. Synchronous so it completes before the server listens.
+ *
+ * @param {string} downloadsRoot
+ * @param {{log?: (message: string) => void}} [options]
+ * @returns {{restored: string[], removedStages: string[], errors: number}}
+ */
+function recoverDownloads(downloadsRoot, { log = () => {} } = {}) {
+    const result = { restored: [], removedStages: [], errors: 0 };
+
+    let entries;
+    try {
+        entries = fsSync.readdirSync(downloadsRoot, { withFileTypes: true });
+    } catch (err) {
+        if (err.code !== "ENOENT") {
+            result.errors += 1;
+            log(`[recovery] cannot read downloads root: ${err.message}`);
+        }
+        return result;
+    }
+
+    const backups = new Map(); // userId -> [{ name, full, ts }]
+    const stages = [];
+
+    for (const entry of entries) {
+        const match = OLD_BACKUP_RE.exec(entry.name);
+
+        if (match) {
+            const userId = match[1];
+            const ts = Number(match[2]) || 0;
+
+            if (!backups.has(userId)) {
+                backups.set(userId, []);
+            }
+
+            backups.get(userId).push({
+                name: entry.name,
+                full: path.join(downloadsRoot, entry.name),
+                ts
+            });
+            continue;
+        }
+
+        if (STAGE_DIR_RE.test(entry.name)) {
+            stages.push({ name: entry.name, full: path.join(downloadsRoot, entry.name) });
+        }
+    }
+
+    // Restore the newest backup for any user whose output is missing.
+    for (const [userId, list] of backups) {
+        const output = path.join(downloadsRoot, userId);
+
+        let outputExists = true;
+        try {
+            fsSync.accessSync(output);
+        } catch {
+            outputExists = false;
+        }
+
+        if (outputExists) {
+            continue; // live cache present; leave the backup to the normal sweep
+        }
+
+        list.sort((a, b) => b.ts - a.ts); // newest first
+        const newest = list[0];
+
+        try {
+            fsSync.renameSync(newest.full, output);
+            result.restored.push(userId);
+            log(`[recovery] restored ${newest.name} -> ${userId}`);
+        } catch (err) {
+            result.errors += 1;
+            log(`[recovery] failed to restore ${newest.name}: ${err.message}`);
+        }
+    }
+
+    // Remove stale staging directories (all of them predate this process).
+    for (const stage of stages) {
+        try {
+            fsSync.rmSync(stage.full, { recursive: true, force: true });
+            result.removedStages.push(stage.name);
+        } catch (err) {
+            result.errors += 1;
+            log(`[recovery] failed to remove ${stage.name}: ${err.message}`);
+        }
+    }
+
+    return result;
 }
 
 module.exports = function (app, options = {}) {
@@ -870,4 +977,5 @@ module.exports.readResponseLimited = readResponseLimited;
 module.exports.fetchAssetResponse = fetchAssetResponse;
 module.exports.decompress = decompress;
 module.exports.isValidAssetHash = isValidAssetHash;
+module.exports.recoverDownloads = recoverDownloads;
 module.exports.DownloadTooLargeError = DownloadTooLargeError;
