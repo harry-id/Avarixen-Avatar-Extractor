@@ -227,7 +227,10 @@ test("download queue saturation returns 503", async () => {
             // Let the first request acquire the limiter and start waiting upstream.
             await new Promise((resolve) => setTimeout(resolve, 50));
 
-            const second = await fetch(`${base}/api/roblox/download/${USER_ID}`);
+            // A DIFFERENT user cannot coalesce with the first, so it hits the
+            // saturated admission limiter and gets a retryable 503.
+            const otherId = String(Number(USER_ID) + 1);
+            const second = await fetch(`${base}/api/roblox/download/${otherId}`);
             assert.equal(second.status, 503);
             assert.equal(second.headers.get("retry-after"), "5");
 

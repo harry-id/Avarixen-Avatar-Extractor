@@ -533,6 +533,88 @@ function recoverDownloads(downloadsRoot, { log = () => {} } = {}) {
     return result;
 }
 
+// Build an error that carries an explicit HTTP status + i18n message key, so a
+// shared download can propagate a specific client response to every waiter.
+function downloadResponseError(status, messageKey, code) {
+    const error = new Error(messageKey);
+    error.status = status;
+    error.messageKey = messageKey;
+    if (code) error.code = code;
+    return error;
+}
+
+function isPermissionError(error) {
+    return Boolean(error && ["EACCES", "EPERM", "EROFS"].includes(error.code));
+}
+
+function isStorageError(error) {
+    return Boolean(error && (
+        error.code === "ECACHEQUOTA" ||
+        error.code === "ENOSPC" ||
+        error.code === "EDQUOT"
+    ));
+}
+
+function sendDownloadSuccess(res, lang, data) {
+    if (res.headersSent || res.writableEnded || res.destroyed) {
+        return;
+    }
+    res.json({
+        success: true,
+        message: t(lang, "download.success"),
+        textureCount: data.textureCount,
+        files: data.files,
+        totalSize: data.totalSize,
+        rigType: data.rigType,
+        robloxType: data.robloxType,
+        compatibility: data.compatibility
+    });
+}
+
+// Map a shared-download error to the same client response the old inline
+// handler produced, for every waiter.
+function sendDownloadError(res, lang, error) {
+    if (res.headersSent || res.writableEnded || res.destroyed) {
+        return;
+    }
+
+    // All requesters gone: nothing to send.
+    if (error && error.name === "AbortError" && error.code === "ECLIENTABORT") {
+        return;
+    }
+
+    console.error("Avatar Downloader:", error);
+
+    let status = 500;
+    let key = "download.failed";
+
+    if (error && Number.isInteger(error.status) && error.messageKey) {
+        status = error.status;
+        key = error.messageKey;
+    } else if (isAssetTooLarge(error) || error.code === "EOBJTOOLARGE") {
+        status = 413;
+        key = "download.too_large";
+    } else if (isStorageError(error)) {
+        status = 507;
+        key = "download.no_space";
+    } else if (isTimeoutError(error)) {
+        status = 504;
+        key = "download.timeout";
+    } else if (isPermissionError(error)) {
+        key = "download.write_failed";
+    }
+
+    // The admission-queue-full 503 is transient: advertise a retry.
+    if (error && error.code === "EDOWNLOADBUSY") {
+        res.set("Retry-After", "5");
+    }
+
+    res.status(status).json({
+        success: false,
+        message: t(lang, key)
+    });
+}
+
 module.exports = function (app, options = {}) {
     const fetchWithTimeout =
         options.fetchWithTimeout || defaultFetchWithTimeout;
@@ -580,401 +662,370 @@ module.exports = function (app, options = {}) {
         res.set("Allow", "GET").status(405).end();
     });
 
-    app.get("/api/roblox/download/:userId", async (req, res) => {
-        const lang = getLang(req);
+    // In-flight downloads keyed by userId. A second same-user request joins the
+    // existing download instead of starting another. The check-and-set is
+    // synchronous and happens BEFORE withUserLock: the per-user lock serializes
+    // same-user requests, so a check inside it would never see an in-flight
+    // entry (the first request would have to finish and release the lock first).
+    const inFlightDownloads = new Map();
+
+    // Perform one download end-to-end and resolve with the response payload.
+    // Shared by all coalesced waiters; never touches `res`. The admission slot
+    // is held for the whole download and released in finally. The deadline is
+    // per-download (not per-requester). Rejections carry either a specific
+    // status/messageKey (downloadResponseError) or a code the error mapper knows.
+    async function runDownload(userId, apiKey, controller) {
+        const signal = controller.signal;
+        const outputDir = path.join(downloadsRoot, userId);
 
         try {
-            const { userId } = req.params;
-
-            if (!/^\d+$/.test(userId)) {
-                return res.status(400).json({
-                    success: false,
-                    message: t(lang, "download.invalid_user_id")
-                });
-            }
-
-            const apiKey = getApiKey();
-
-            if (!apiKey) {
-                return res.status(500).json({
-                    success: false,
-                    message: t(lang, "download.not_configured")
-                });
-            }
-
-            const outputDir = path.join(downloadsRoot, userId);
-
-            try {
-                await fs.mkdir(downloadsRoot, { recursive: true });
-                if (minFreeDiskBytes > 0) {
-                    const freeBytes = await getFreeDiskBytes(downloadsRoot);
-                    if (Number.isFinite(freeBytes) && freeBytes < minFreeDiskBytes) {
-                        console.warn(
-                            `[download] free-space guard: ${freeBytes} bytes available, ` +
-                            `${minFreeDiskBytes} required`
-                        );
-                        return res.status(507).json({
-                            success: false,
-                            message: t(lang, "download.no_space")
-                        });
-                    }
+            await fs.mkdir(downloadsRoot, { recursive: true });
+            if (minFreeDiskBytes > 0) {
+                const freeBytes = await getFreeDiskBytes(downloadsRoot);
+                if (Number.isFinite(freeBytes) && freeBytes < minFreeDiskBytes) {
+                    console.warn(
+                        `[download] free-space guard: ${freeBytes} bytes available, ` +
+                        `${minFreeDiskBytes} required`
+                    );
+                    throw downloadResponseError(507, "download.no_space", "ENOSPC");
                 }
-            } catch (error) {
-                console.error("Download storage check failed:", error);
-                return res.status(500).json({
-                    success: false,
-                    message: t(lang, "download.write_failed")
-                });
             }
+        } catch (error) {
+            if (error && error.messageKey) throw error;
+            console.error("Download storage check failed:", error);
+            throw downloadResponseError(500, "download.write_failed");
+        }
 
-            let release;
-            try {
-                release = await downloadLimiter.acquire();
-            } catch (error) {
-                if (error && error.code === "EDOWNLOADBUSY") {
-                    res.set("Retry-After", "5");
-                    return res.status(503).json({
-                        success: false,
-                        message: t(lang, "download.busy")
-                    });
-                }
-                throw error;
+        let release;
+        try {
+            release = await downloadLimiter.acquire();
+        } catch (error) {
+            if (error && error.code === "EDOWNLOADBUSY") {
+                throw downloadResponseError(503, "download.busy", "EDOWNLOADBUSY");
             }
+            throw error;
+        }
 
-            const controller = new AbortController();
-            let deadlineExceeded = false;
-            const deadline = setTimeout(() => {
-                deadlineExceeded = true;
-                const error = new Error("Download deadline exceeded");
-                error.name = "AbortError";
-                error.code = "EDOWNLOADTIMEOUT";
-                controller.abort(error);
-            }, downloadTimeoutMs);
-            if (typeof deadline.unref === "function") deadline.unref();
+        const deadline = setTimeout(() => {
+            const error = new Error("Download deadline exceeded");
+            error.name = "AbortError";
+            error.code = "EDOWNLOADTIMEOUT";
+            controller.abort(error);
+        }, downloadTimeoutMs);
+        if (typeof deadline.unref === "function") deadline.unref();
 
-            const abortOnDisconnect = () => {
-                if (!res.writableEnded) {
-                    const error = new Error("Client disconnected");
-                    error.name = "AbortError";
-                    error.code = "ECLIENTABORT";
-                    controller.abort(error);
-                }
-            };
-            res.on("close", abortOnDisconnect);
-
-            try {
-
-            // Serialize same-user downloads. Two concurrent requests used to
-            // overwrite the same files, and a conversion could read a partially
-            // replaced cache.
-            await withUserLock(userId, async () => {
-
-            const avatar = await fetchAvatar3D(
-                fetchWithTimeout,
-                apiKey,
-                userId,
-                { signal: controller.signal }
-            );
-
-            if (!avatar.ok) {
-                console.error(
-                    "Avatar metadata lookup failed:",
-                    avatar.status,
-                    `after ${avatar.attempts} attempt(s)`
+        try {
+            // Serialize same-user cache mutations with conversions/explorer.
+            return await withUserLock(userId, async () => {
+                const avatar = await fetchAvatar3D(
+                    fetchWithTimeout,
+                    apiKey,
+                    userId,
+                    { signal }
                 );
-                return res.status(502).json({
-                    success: false,
-                    message: t(lang, "download.upstream_avatar_failed")
-                });
-            }
 
-            // Roblox avatar-3d API returns imageUrl inside data[0]
-            const imageUrl = avatar.imageUrl;
+                if (!avatar.ok) {
+                    console.error(
+                        "Avatar metadata lookup failed:",
+                        avatar.status,
+                        `after ${avatar.attempts} attempt(s)`
+                    );
+                    throw downloadResponseError(502, "download.upstream_avatar_failed");
+                }
 
-            // Fetch the avatar type hint in parallel with the (slower) metadata
-            // JSON so it adds no serial latency. Best-effort: it never fails the
-            // download.
-            const [metadataResult, playerAvatar] = await Promise.all([
-                fetchAvatarMetadataJson(fetchWithTimeout, imageUrl, {
-                    signal: controller.signal,
-                    maxBytes: maxMetadataBytes
-                }),
-                fetchPlayerAvatar(fetchWithTimeout, apiKey, userId, {
-                    attempts: 2,
-                    delayMs: 500,
-                    signal: controller.signal
-                })
-            ]);
+                // Roblox avatar-3d API returns imageUrl inside data[0]
+                const imageUrl = avatar.imageUrl;
 
-            if (!metadataResult.ok) {
-                console.error(
-                    "Avatar metadata download failed:",
-                    metadataResult.reason,
-                    metadataResult.status,
-                    `after ${metadataResult.attempts} attempt(s)`
-                );
-                return res.status(502).json({
-                    success: false,
-                    message: t(
-                        lang,
+                // Fetch the avatar type hint in parallel with the (slower)
+                // metadata JSON so it adds no serial latency. Best-effort.
+                const [metadataResult, playerAvatar] = await Promise.all([
+                    fetchAvatarMetadataJson(fetchWithTimeout, imageUrl, {
+                        signal,
+                        maxBytes: maxMetadataBytes
+                    }),
+                    fetchPlayerAvatar(fetchWithTimeout, apiKey, userId, {
+                        attempts: 2,
+                        delayMs: 500,
+                        signal
+                    })
+                ]);
+
+                if (!metadataResult.ok) {
+                    console.error(
+                        "Avatar metadata download failed:",
+                        metadataResult.reason,
+                        metadataResult.status,
+                        `after ${metadataResult.attempts} attempt(s)`
+                    );
+                    throw downloadResponseError(
+                        502,
                         metadataResult.reason === "invalid" ||
                         metadataResult.reason === "blocked"
                             ? "download.metadata_invalid"
                             : "download.metadata_failed"
-                    )
-                });
-            }
+                    );
+                }
 
-            const metadata = metadataResult.metadata;
+                const metadata = metadataResult.metadata;
 
-            if (
-                !metadata ||
-                typeof metadata !== "object" ||
-                !isValidAssetHash(metadata.obj) ||
-                !isValidAssetHash(metadata.mtl) ||
-                !Array.isArray(metadata.textures) ||
-                metadata.textures.length === 0 ||
-                metadata.textures.length > 32 ||
-                !metadata.textures.every(isValidAssetHash)
-            ) {
-                console.error(
-                    "Metadata validation failed:",
-                    JSON.stringify({
-                        hasObj: !!metadata?.obj,
-                        hasMtl: !!metadata?.mtl,
-                        texturesType: Array.isArray(metadata?.textures)
-                            ? `array[${metadata.textures.length}]`
-                            : typeof metadata?.textures,
-                    })
-                );
-                return res.status(502).json({
-                    success: false,
-                    message: t(lang, "download.metadata_incomplete")
-                });
-            }
+                if (
+                    !metadata ||
+                    typeof metadata !== "object" ||
+                    !isValidAssetHash(metadata.obj) ||
+                    !isValidAssetHash(metadata.mtl) ||
+                    !Array.isArray(metadata.textures) ||
+                    metadata.textures.length === 0 ||
+                    metadata.textures.length > 32 ||
+                    !metadata.textures.every(isValidAssetHash)
+                ) {
+                    console.error(
+                        "Metadata validation failed:",
+                        JSON.stringify({
+                            hasObj: !!metadata?.obj,
+                            hasMtl: !!metadata?.mtl,
+                            texturesType: Array.isArray(metadata?.textures)
+                                ? `array[${metadata.textures.length}]`
+                                : typeof metadata?.textures
+                        })
+                    );
+                    throw downloadResponseError(502, "download.metadata_incomplete");
+                }
 
-            const byteBudget = { used: 0, max: maxAvatarBytes };
-            const [objRaw, mtlRaw, ...textureRawBuffers] =
-                await Promise.all([
-                    downloadAsset(metadata.obj, fetchWithTimeout, {
-                        signal: controller.signal,
-                        maxBytes: maxAssetBytes,
-                        budget: byteBudget
-                    }),
-                    downloadAsset(metadata.mtl, fetchWithTimeout, {
-                        signal: controller.signal,
-                        maxBytes: maxAssetBytes,
-                        budget: byteBudget
-                    }),
-                    ...metadata.textures.map((hash) =>
-                        downloadAsset(hash, fetchWithTimeout, {
-                            allowFailure: true,
-                            signal: controller.signal,
+                const byteBudget = { used: 0, max: maxAvatarBytes };
+                const [objRaw, mtlRaw, ...textureRawBuffers] =
+                    await Promise.all([
+                        downloadAsset(metadata.obj, fetchWithTimeout, {
+                            signal,
                             maxBytes: maxAssetBytes,
                             budget: byteBudget
-                        })
-                    )
-                ]);
+                        }),
+                        downloadAsset(metadata.mtl, fetchWithTimeout, {
+                            signal,
+                            maxBytes: maxAssetBytes,
+                            budget: byteBudget
+                        }),
+                        ...metadata.textures.map((hash) =>
+                            downloadAsset(hash, fetchWithTimeout, {
+                                allowFailure: true,
+                                signal,
+                                maxBytes: maxAssetBytes,
+                                budget: byteBudget
+                            })
+                        )
+                    ]);
 
-            let obj = decompress(objRaw, maxAvatarBytes).toString("utf8");
-            let mtl = decompress(mtlRaw, maxAvatarBytes).toString("utf8");
+                let obj = decompress(objRaw, maxAvatarBytes).toString("utf8");
+                let mtl = decompress(mtlRaw, maxAvatarBytes).toString("utf8");
 
-            if (
-                Buffer.byteLength(obj) + Buffer.byteLength(mtl) > maxAvatarBytes
-            ) {
-                throw new DownloadTooLargeError();
-            }
-
-            // Pair textures with their buffers, skipping any that failed to download.
-            // Names stay contiguous so the frontend ZIP probe sees every texture.
-            const texturePlan = planTextures(
-                metadata.textures,
-                textureRawBuffers,
-                mtl
-            );
-
-            if (texturePlan.missing.length) {
-                console.warn(
-                    `[assets] ${texturePlan.missing.length} texture(s) unavailable for ${userId}`
-                );
-            }
-
-            const textureFiles = texturePlan.textures;
-            mtl = texturePlan.mtl;
-
-            const plannedBytes =
-                Buffer.byteLength(obj) +
-                Buffer.byteLength(mtl) +
-                textureFiles.reduce((sum, texture) => sum + texture.buffer.length, 0);
-            if (plannedBytes > maxAvatarBytes) {
-                throw new DownloadTooLargeError();
-            }
-
-            if (/^mtllib\s+/m.test(obj)) {
-                obj = obj.replace(/^mtllib.*$/gm, "mtllib avatar.mtl");
-            } else {
-                obj = "mtllib avatar.mtl\n" + obj;
-            }
-
-            // Ground the model (Roblox keeps it ~100 units up) and mirror
-            // group names as objects so Blender imports every body part.
-            obj = normalizeObjForExport(obj);
-
-            // Build the complete avatar in a staging directory first, then
-            // swap it into place. This avoids both partial files visible via
-            // /assets and a failed re-download destroying a working cache.
-            const stagingDir = await fs.mkdtemp(
-                path.join(downloadsRoot, `.stage-${userId}-`)
-            );
-
-            try {
-                await fs.writeFile(path.join(stagingDir, "avatar.obj"), obj);
-                await fs.writeFile(path.join(stagingDir, "avatar.mtl"), mtl);
-
-                const robloxType = playerAvatar.playerAvatarType || null;
-
-                // Cache the hint (and type) so convert/explorer can read it without
-                // re-fetching, and keep a small record for debugging.
-                const avatarMeta = {
-                    userId,
-                    playerAvatarType: robloxType,
-                    assets: Array.isArray(playerAvatar.assets)
-                        ? playerAvatar.assets.map((a) => ({
-                            id: a.id,
-                            name: a.name,
-                            assetType: a.assetType
-                        }))
-                        : []
-                };
-                await fs
-                    .writeFile(
-                        path.join(stagingDir, "avatar.json"),
-                        JSON.stringify(avatarMeta, null, 2)
-                    )
-                    .catch(() => {});
-
-                // Rename PlayerN groups to readable body parts, then persist again.
-                const partInfo = applyBodyPartNames(stagingDir, obj, robloxType);
-                obj = partInfo.objText;
-                await fs.writeFile(path.join(stagingDir, "avatar.obj"), obj);
-
-                await Promise.all(
-                    textureFiles.map((texture) =>
-                        fs.writeFile(path.join(stagingDir, texture.filename), texture.buffer)
-                    )
-                );
-
-                await enforceCacheQuota(downloadsRoot, outputDir, downloadsMaxBytes, downloadsMinAgeMs);
-
-                const backupDir = path.join(
-                    downloadsRoot,
-                    `.old-${userId}-${Date.now()}`
-                );
-                let movedOld = false;
-
-                try {
-                    await fs.rename(outputDir, backupDir);
-                    movedOld = true;
-                } catch (error) {
-                    if (error.code !== "ENOENT") {
-                        throw error;
-                    }
+                if (
+                    Buffer.byteLength(obj) + Buffer.byteLength(mtl) > maxAvatarBytes
+                ) {
+                    throw new DownloadTooLargeError();
                 }
 
-                try {
-                    await fs.rename(stagingDir, outputDir);
-                } catch (error) {
-                    // Restore the previous cache rather than leaving the user
-                    // with nothing if the final swap fails.
-                    if (movedOld) {
-                        await fs.rename(backupDir, outputDir).catch(() => {});
-                    }
-                    throw error;
+                // Pair textures with their buffers, skipping any that failed.
+                const texturePlan = planTextures(
+                    metadata.textures,
+                    textureRawBuffers,
+                    mtl
+                );
+
+                if (texturePlan.missing.length) {
+                    console.warn(
+                        `[assets] ${texturePlan.missing.length} texture(s) unavailable for ${userId}`
+                    );
                 }
 
-                if (movedOld) {
-                    await fs.rm(backupDir, { recursive: true, force: true })
-                        .catch(() => {});
-                }
+                const textureFiles = texturePlan.textures;
+                mtl = texturePlan.mtl;
 
-                const files = [
-                    `/assets/${userId}/avatar.obj`,
-                    `/assets/${userId}/avatar.mtl`,
-                    ...textureFiles.map(
-                        (texture) => `/assets/${userId}/${texture.filename}`
-                    )
-                ];
-
-                const totalSize =
+                const plannedBytes =
                     Buffer.byteLength(obj) +
                     Buffer.byteLength(mtl) +
-                    textureFiles.reduce(
-                        (sum, texture) => sum + texture.buffer.length,
-                        0
+                    textureFiles.reduce((sum, texture) => sum + texture.buffer.length, 0);
+                if (plannedBytes > maxAvatarBytes) {
+                    throw new DownloadTooLargeError();
+                }
+
+                if (/^mtllib\s+/m.test(obj)) {
+                    obj = obj.replace(/^mtllib.*$/gm, "mtllib avatar.mtl");
+                } else {
+                    obj = "mtllib avatar.mtl\n" + obj;
+                }
+
+                // Ground the model and mirror group names as objects.
+                obj = normalizeObjForExport(obj);
+
+                // Build in a staging directory, then swap into place.
+                const stagingDir = await fs.mkdtemp(
+                    path.join(downloadsRoot, `.stage-${userId}-`)
+                );
+
+                try {
+                    await fs.writeFile(path.join(stagingDir, "avatar.obj"), obj);
+                    await fs.writeFile(path.join(stagingDir, "avatar.mtl"), mtl);
+
+                    const robloxType = playerAvatar.playerAvatarType || null;
+
+                    const avatarMeta = {
+                        userId,
+                        playerAvatarType: robloxType,
+                        assets: Array.isArray(playerAvatar.assets)
+                            ? playerAvatar.assets.map((a) => ({
+                                id: a.id,
+                                name: a.name,
+                                assetType: a.assetType
+                            }))
+                            : []
+                    };
+                    await fs
+                        .writeFile(
+                            path.join(stagingDir, "avatar.json"),
+                            JSON.stringify(avatarMeta, null, 2)
+                        )
+                        .catch(() => {});
+
+                    // Rename PlayerN groups, then persist again.
+                    const partInfo = applyBodyPartNames(stagingDir, obj, robloxType);
+                    obj = partInfo.objText;
+                    await fs.writeFile(path.join(stagingDir, "avatar.obj"), obj);
+
+                    await Promise.all(
+                        textureFiles.map((texture) =>
+                            fs.writeFile(path.join(stagingDir, texture.filename), texture.buffer)
+                        )
                     );
 
-                res.json({
-                    success: true,
-                    message: t(lang, "download.success"),
-                    textureCount: textureFiles.length,
-                    files,
-                    totalSize,
-                    rigType: partInfo.rigType,
-                    robloxType,
-                    compatibility: partInfo.compatibility
-                });
-            } catch (error) {
-                await fs.rm(stagingDir, { recursive: true, force: true })
-                    .catch(() => {});
-                throw error;
-            }
+                    await enforceCacheQuota(downloadsRoot, outputDir, downloadsMaxBytes, downloadsMinAgeMs);
 
+                    const backupDir = path.join(
+                        downloadsRoot,
+                        `.old-${userId}-${Date.now()}`
+                    );
+                    let movedOld = false;
+
+                    try {
+                        await fs.rename(outputDir, backupDir);
+                        movedOld = true;
+                    } catch (error) {
+                        if (error.code !== "ENOENT") {
+                            throw error;
+                        }
+                    }
+
+                    try {
+                        await fs.rename(stagingDir, outputDir);
+                    } catch (error) {
+                        // Restore the previous cache rather than leaving the
+                        // user with nothing if the final swap fails.
+                        if (movedOld) {
+                            await fs.rename(backupDir, outputDir).catch(() => {});
+                        }
+                        throw error;
+                    }
+
+                    if (movedOld) {
+                        await fs.rm(backupDir, { recursive: true, force: true })
+                            .catch(() => {});
+                    }
+
+                    const files = [
+                        `/assets/${userId}/avatar.obj`,
+                        `/assets/${userId}/avatar.mtl`,
+                        ...textureFiles.map(
+                            (texture) => `/assets/${userId}/${texture.filename}`
+                        )
+                    ];
+
+                    const totalSize =
+                        Buffer.byteLength(obj) +
+                        Buffer.byteLength(mtl) +
+                        textureFiles.reduce(
+                            (sum, texture) => sum + texture.buffer.length,
+                            0
+                        );
+
+                    return {
+                        textureCount: textureFiles.length,
+                        files,
+                        totalSize,
+                        rigType: partInfo.rigType,
+                        robloxType,
+                        compatibility: partInfo.compatibility
+                    };
+                } catch (error) {
+                    await fs.rm(stagingDir, { recursive: true, force: true })
+                        .catch(() => {});
+                    throw error;
+                }
             });
+        } finally {
+            clearTimeout(deadline);
+            release();
+        }
+    }
 
-            } finally {
-                clearTimeout(deadline);
-                res.off("close", abortOnDisconnect);
-                release();
-            }
+    app.get("/api/roblox/download/:userId", async (req, res) => {
+        const lang = getLang(req);
+        const { userId } = req.params;
 
-        } catch (error) {
-            if (res.headersSent || res.writableEnded) {
-                return;
-            }
-
-            console.error("Avatar Downloader:", error);
-            const isTimeout = isTimeoutError(error);
-            const isPermissionError =
-                error && ["EACCES", "EPERM", "EROFS"].includes(error.code);
-            const isTooLarge = isAssetTooLarge(error) || error.code === "EOBJTOOLARGE";
-            const isStorage = error && (
-                error.code === "ECACHEQUOTA" ||
-                error.code === "ENOSPC" ||
-                error.code === "EDQUOT"
-            );
-
-            let status = 500;
-            let key = "download.failed";
-
-            if (error && error.name === "AbortError" && error.code === "ECLIENTABORT") {
-                return;
-            } else if (isTooLarge) {
-                status = 413;
-                key = "download.too_large";
-            } else if (isStorage) {
-                status = 507;
-                key = "download.no_space";
-            } else if (isTimeout) {
-                status = 504;
-                key = "download.timeout";
-            } else if (isPermissionError) {
-                key = "download.write_failed";
-            }
-
-            res.status(status).json({
+        if (!/^\d+$/.test(userId)) {
+            return res.status(400).json({
                 success: false,
-                message: t(lang, key)
+                message: t(lang, "download.invalid_user_id")
             });
+        }
+
+        const apiKey = getApiKey();
+        if (!apiKey) {
+            return res.status(500).json({
+                success: false,
+                message: t(lang, "download.not_configured")
+            });
+        }
+
+        // Coalesce concurrent same-user downloads: the first request starts the
+        // shared download; later requests join it. The check-and-set is
+        // synchronous and runs BEFORE withUserLock (see runDownload).
+        let entry = inFlightDownloads.get(userId);
+        if (!entry) {
+            const controller = new AbortController();
+            entry = { controller, waiters: new Set(), promise: null };
+            inFlightDownloads.set(userId, entry);
+            const promise = runDownload(userId, apiKey, controller);
+            entry.promise = promise;
+            const cleanup = () => {
+                if (inFlightDownloads.get(userId) === entry) {
+                    inFlightDownloads.delete(userId);
+                }
+            };
+            promise.then(cleanup, cleanup);
+        }
+
+        entry.waiters.add(res);
+
+        // The shared download must NOT be tied to one requester's abort signal:
+        // if the first client disconnects, other waiters must still get their
+        // result. Only abort the upstream work once ALL waiters are gone.
+        const onClose = () => {
+            entry.waiters.delete(res);
+            if (entry.waiters.size === 0 && !entry.controller.signal.aborted) {
+                const error = new Error("All download requesters disconnected");
+                error.name = "AbortError";
+                error.code = "ECLIENTABORT";
+                entry.controller.abort(error);
+            }
+        };
+        res.on("close", onClose);
+
+        try {
+            const data = await entry.promise;
+            sendDownloadSuccess(res, lang, data);
+        } catch (error) {
+            sendDownloadError(res, lang, error);
+        } finally {
+            res.off("close", onClose);
+            entry.waiters.delete(res);
         }
     });
 };

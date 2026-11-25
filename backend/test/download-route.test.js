@@ -89,10 +89,10 @@ function makeFetch({ failAssets = false } = {}) {
     };
 }
 
-async function withServer({ failAssets = false } = {}, run) {
+async function withServer({ failAssets = false, fetchWithTimeout } = {}, run) {
     const app = express();
     registerDownloadRoutes(app, {
-        fetchWithTimeout: makeFetch({ failAssets }),
+        fetchWithTimeout: fetchWithTimeout || makeFetch({ failAssets }),
         getApiKey: () => "test-key"
     });
 
@@ -149,6 +149,120 @@ test("concurrent downloads for one user serialize and leave no staging dirs", as
         );
     } finally {
         await fs.rm(USER_DIR, { recursive: true, force: true });
+    }
+});
+
+// ---- Part 3: in-flight download coalescing ----
+
+function instrumentedFetch(counter, { delayMs = 0, failAssets = false } = {}) {
+    const base = makeFetch({ failAssets });
+    return async (url, options) => {
+        // One avatar-3d lookup per download sequence.
+        if (url.includes("avatar-3d")) counter.sequences += 1;
+        if (delayMs) await new Promise((resolve) => setTimeout(resolve, delayMs));
+        return base(url, options);
+    };
+}
+
+test("two simultaneous same-user downloads coalesce into one upstream sequence", async () => {
+    await fs.rm(USER_DIR, { recursive: true, force: true });
+    const counter = { sequences: 0 };
+
+    try {
+        await withServer({ fetchWithTimeout: instrumentedFetch(counter) }, async (base) => {
+            const url = `${base}/api/roblox/download/${USER_ID}`;
+            const [a, b] = await Promise.all([getJson(url), getJson(url)]);
+            assert.equal(a.status, 200);
+            assert.equal(b.status, 200);
+            assert.equal(a.body.textureCount, 1);
+            assert.equal(b.body.textureCount, 1);
+            assert.deepEqual(a.body.files, b.body.files);
+            assert.equal(counter.sequences, 1, "only one upstream download sequence");
+        });
+    } finally {
+        await fs.rm(USER_DIR, { recursive: true, force: true });
+    }
+});
+
+test("a failed shared download reaches every waiter", async () => {
+    await fs.rm(USER_DIR, { recursive: true, force: true });
+    const counter = { sequences: 0 };
+
+    try {
+        await withServer({ fetchWithTimeout: instrumentedFetch(counter, { failAssets: true }) }, async (base) => {
+            const url = `${base}/api/roblox/download/${USER_ID}`;
+            const [a, b] = await Promise.all([getJson(url), getJson(url)]);
+            assert.equal(a.status, 500);
+            assert.equal(b.status, 500);
+            assert.equal(counter.sequences, 1, "one shared (failed) sequence");
+        });
+    } finally {
+        await fs.rm(USER_DIR, { recursive: true, force: true });
+    }
+});
+
+test("a first-client abort does not fail the second waiter", async () => {
+    await fs.rm(USER_DIR, { recursive: true, force: true });
+    const counter = { sequences: 0 };
+
+    try {
+        await withServer({ fetchWithTimeout: instrumentedFetch(counter, { delayMs: 150 }) }, async (base) => {
+            const url = `${base}/api/roblox/download/${USER_ID}`;
+            const ac = new AbortController();
+            const first = fetch(url, { signal: ac.signal }).catch(() => null);
+            // Let the shared download start, then abort only the first client.
+            await new Promise((resolve) => setTimeout(resolve, 40));
+            ac.abort();
+            await first;
+
+            // The second waiter still gets the result of the shared download.
+            const second = await getJson(url);
+            assert.equal(second.status, 200);
+            assert.equal(counter.sequences, 1);
+        });
+    } finally {
+        await fs.rm(USER_DIR, { recursive: true, force: true });
+    }
+});
+
+test("a new request after completion starts a fresh download (no stale reuse)", async () => {
+    await fs.rm(USER_DIR, { recursive: true, force: true });
+    const counter = { sequences: 0 };
+
+    try {
+        await withServer({ fetchWithTimeout: instrumentedFetch(counter) }, async (base) => {
+            const url = `${base}/api/roblox/download/${USER_ID}`;
+            const first = await getJson(url);
+            assert.equal(first.status, 200);
+            const second = await getJson(url);
+            assert.equal(second.status, 200);
+            assert.equal(counter.sequences, 2, "each completed request re-downloads");
+        });
+    } finally {
+        await fs.rm(USER_DIR, { recursive: true, force: true });
+    }
+});
+
+test("different users are not coalesced", async () => {
+    const userA = String(9_930_000_000 + Math.floor(Math.random() * 100000));
+    const userB = String(9_940_000_000 + Math.floor(Math.random() * 100000));
+    const dirA = path.join(DOWNLOADS_DIR, userA);
+    const dirB = path.join(DOWNLOADS_DIR, userB);
+    const counter = { sequences: 0 };
+
+    try {
+        await withServer({ fetchWithTimeout: instrumentedFetch(counter) }, async (base) => {
+            const [a, b] = await Promise.all([
+                getJson(`${base}/api/roblox/download/${userA}`),
+                getJson(`${base}/api/roblox/download/${userB}`)
+            ]);
+            assert.equal(a.status, 200);
+            assert.equal(b.status, 200);
+            assert.equal(counter.sequences, 2, "one sequence per distinct user");
+        });
+    } finally {
+        await fs.rm(dirA, { recursive: true, force: true });
+        await fs.rm(dirB, { recursive: true, force: true });
     }
 });
 
