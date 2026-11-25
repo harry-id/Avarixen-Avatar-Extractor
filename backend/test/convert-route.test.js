@@ -667,7 +667,7 @@ test("worker EOBJTOOLARGE maps to 413", async () => {
     }
 });
 
-test("worker out-of-memory maps to 503 with Retry-After", async () => {
+test("worker out-of-memory maps to 503 without Retry-After", async () => {
     await writeSimpleAvatar(USER_DIR);
     const limiter = fakeLimiter();
     const pool = fakePool(async () => { const e = new Error("worker oom"); e.workerCode = "ERR_WORKER_OUT_OF_MEMORY"; throw e; });
@@ -675,12 +675,32 @@ test("worker out-of-memory maps to 503 with Retry-After", async () => {
         await withServer(async (base) => {
             const res = await fetch(`${base}/api/roblox/convert/${USER_ID}/glb?rig=1`);
             assert.equal(res.status, 503);
-            assert.equal(res.headers.get("retry-after"), "5");
+            // OOM is deterministic for the same request: no Retry-After.
+            assert.equal(res.headers.get("retry-after"), null);
             const body = await res.json();
             assert.match(body.message, /out of memory/i);
         }, { pool, conversionLimiter: limiter });
         assert.equal(limiter.releases, 1, "limiter released exactly once");
     } finally {
+        await fs.rm(USER_DIR, { recursive: true, force: true });
+    }
+});
+
+test("conversion queue overflow returns 503 with Retry-After", async () => {
+    await writeSimpleAvatar(USER_DIR);
+    const limiter = createConversionLimiter({ maxConcurrent: 1, maxQueue: 0 });
+    const release = await limiter.acquire();
+    try {
+        await withServer(async (base) => {
+            const res = await fetch(`${base}/api/roblox/convert/${USER_ID}/glb`);
+            assert.equal(res.status, 503);
+            // Busy is transient: Retry-After is present.
+            assert.equal(res.headers.get("retry-after"), "5");
+            const body = await res.json();
+            assert.equal(body.success, false);
+        }, { pool: fakePool(async () => OK_GLB), conversionLimiter: limiter });
+    } finally {
+        release();
         await fs.rm(USER_DIR, { recursive: true, force: true });
     }
 });

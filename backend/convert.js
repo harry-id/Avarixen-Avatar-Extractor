@@ -560,11 +560,12 @@ module.exports = function (app, options = {}) {
             }
 
             // A worker that exceeded its V8 heap limit dies alone; surface a
-            // clear, retryable 503 rather than a generic 500.
+            // clear 503 rather than a generic 500. An OOM is deterministic for
+            // the same request, so no Retry-After is sent (unlike the transient
+            // busy/fail-fast 503s).
             if (err && err.workerCode === "ERR_WORKER_OUT_OF_MEMORY") {
                 console.error("Conversion worker out of memory:", err);
                 if (!res.headersSent) {
-                    res.set("Retry-After", "5");
                     return res.status(503).json({
                         success: false,
                         message: t(lang, "convert.worker_oom")
