@@ -311,7 +311,17 @@ require("./avatar-downloader")(app, {
     downloadsMaxBytes,
     minFreeDiskBytes
 });
-require("./convert")(app);
+
+// Conversion worker pool, created on boot and closed on shutdown.
+const { ConversionPool } = require("./worker/conversion-pool");
+const conversionPool = new ConversionPool({
+    size: parsePositiveNumber(process.env.MAX_CONCURRENT_CONVERSIONS, 2),
+    recycleAfter: parsePositiveNumber(process.env.MAX_WORKER_RECYCLE_JOBS, 50),
+    resourceLimits: {
+        maxOldGenerationSizeMb: parsePositiveNumber(process.env.MAX_WORKER_HEAP_MB, 512)
+    }
+});
+require("./convert")(app, { pool: conversionPool });
 
 app.get("/", (req, res) => {
     res.json({
@@ -564,6 +574,15 @@ function shutdown(signal) {
     console.log(`Received ${signal}, shutting down...`);
 
     downloadsCleanup.stop();
+
+    // Stop the conversion pool: reject in-flight/pending runs and terminate
+    // workers. This is synchronous and bounded, so it stays well inside the
+    // 10s force-exit window below.
+    try {
+        conversionPool.close();
+    } catch (error) {
+        console.error("Error closing conversion pool:", error);
+    }
 
     server.close(() => process.exit(0));
 

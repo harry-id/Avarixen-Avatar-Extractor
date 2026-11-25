@@ -132,3 +132,40 @@ test("cancel while queued drops the job without spawning/leaking", async () => {
         pool.close();
     }
 });
+// ---- Step 5: server lifecycle (shutdown with an in-flight job) ----
+
+const { spawn } = require("child_process");
+const path = require("path");
+
+test("shutdown closes the pool with an in-flight job without hanging", async () => {
+    const backend = path.join(__dirname, "..");
+    const child = `
+        const { ConversionPool } = require(${JSON.stringify(path.join(backend, "worker/conversion-pool.js"))});
+        const pool = new ConversionPool({ size: 1, recycleAfter: 100, log: () => {} });
+        pool.run({ cmd: "sleep", ms: 60000 }).catch(() => {});
+        process.on("SIGTERM", () => {
+            const t = Date.now();
+            pool.close();
+            // Exit shortly after close; close() must not block the loop.
+            setTimeout(() => process.exit(0), 50);
+        });
+    `;
+    const childProc = spawn("node", ["-e", child], { stdio: ["ignore", "pipe", "pipe"] });
+    let exited = false;
+    childProc.on("exit", () => { exited = true; });
+
+    // Let the job start (worker busy), then request shutdown.
+    await delay(400);
+    const t0 = Date.now();
+    childProc.kill("SIGTERM");
+
+    const code = await new Promise((resolve) => {
+        const timer = setTimeout(() => { childProc.kill("SIGKILL"); resolve("timeout"); }, 5000);
+        childProc.on("exit", (c) => { clearTimeout(timer); resolve(c); });
+    });
+    const ms = Date.now() - t0;
+
+    assert.equal(exited, true, "child exited");
+    assert.notEqual(code, "timeout", "shutdown must not hang");
+    assert.ok(ms < 3000, `shutdown took ${ms}ms, expected prompt`);
+});
