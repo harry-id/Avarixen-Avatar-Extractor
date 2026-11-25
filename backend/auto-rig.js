@@ -5,6 +5,7 @@ const path = require("path");
 const crypto = require("crypto");
 const { Document, Accessor, Material } = require("@gltf-transform/core");
 const { parsePositiveNumber } = require("./config");
+const { deriveHasLayeredClothing, countAccessoryAssets } = require("./avatar-assets");
 
 const DEFAULT_MAX_OBJ_BYTES = 64 * 1024 * 1024;
 const DEFAULT_MAX_OBJ_VERTICES = 1_500_000;
@@ -2941,7 +2942,12 @@ function findHeadGroupName(parsed) {
  * bone hierarchy, and a per-vertex skin function. Shared by the glTF and FBX
  * exporters so both produce an identical skeleton.
  */
-function computeRig(parsed, { moreJoints = false, hint = null, bendAccessories = false } = {}) {
+function computeRig(parsed, {
+    moreJoints = false,
+    hint = null,
+    bendAccessories = false,
+    hasLayeredClothing = "unknown"
+} = {}) {
     const boxes = {};
     for (const g of parsed.groups) {
         boxes[g.name] = computeBox(g.vertexIndices, parsed.positions);
@@ -3064,6 +3070,11 @@ function computeRig(parsed, { moreJoints = false, hint = null, bendAccessories =
         a.zmin <= b.zmax && a.zmax >= b.zmin;
 
     const isClothingGroup = (name) => {
+        // Metadata gate: an avatar with no layered-clothing assets must keep
+        // every handle rigid. "unknown"/true preserve the geometric behavior.
+        if (hasLayeredClothing === false) {
+            return false;
+        }
         // "Bend accessories" off => every handle stays rigid.
         if (!bendAccessories || rigType !== "R15" || !/^handle/i.test(name)) {
             return false;
@@ -3202,6 +3213,33 @@ async function convertAvatar(assetDir, {
     parsed._mtls = mtl;
     parsed._assetDir = assetDir;
 
+    // Read cached Roblox metadata once. Missing/malformed metadata yields
+    // "unknown", which preserves the existing geometric behavior.
+    const cachedMeta = readCachedAvatarMeta(assetDir);
+    const cachedType =
+        cachedMeta &&
+        (cachedMeta.playerAvatarType === "R6" || cachedMeta.playerAvatarType === "R15")
+            ? cachedMeta.playerAvatarType
+            : null;
+    const hasLayeredClothing = deriveHasLayeredClothing(
+        cachedMeta ? cachedMeta.assets : undefined
+    );
+
+    // Lightweight diagnostics: counts only, never avatar data. A mismatch can
+    // happen when Roblox splits/merges accessories, so it is a warning only.
+    if (hasLayeredClothing !== "unknown") {
+        const counts = countAccessoryAssets(cachedMeta ? cachedMeta.assets : []);
+        const handleCount = parsed.groups.filter((g) => /^handle/i.test(g.name)).length;
+
+        if (counts.geometric > 0 && handleCount !== counts.geometric) {
+            console.warn(
+                `[accessory] hasLayeredClothing=${hasLayeredClothing} ` +
+                `recognized=${counts.recognized} layered=${counts.layered} ` +
+                `handles=${handleCount} geometricAssets=${counts.geometric} (count mismatch)`
+            );
+        }
+    }
+
     let rigType = null;
     let partMapping = {};
     let joints = {};
@@ -3217,8 +3255,9 @@ async function convertAvatar(assetDir, {
     if (rig) {
         rigData = computeRig(parsed, {
             moreJoints,
-            hint: readCachedRobloxType(assetDir),
-            bendAccessories
+            hint: cachedType,
+            bendAccessories,
+            hasLayeredClothing
         });
 
         rigType = rigData.rigType;
@@ -3240,7 +3279,7 @@ async function convertAvatar(assetDir, {
         const playerGroups = parsed.groups.filter(
             (g) => /^Player\d+$/i.test(g.name)
         );
-        const hint = readCachedRobloxType(assetDir);
+        const hint = cachedType;
         const resolvedRig = resolveRigType(parsed.groups, playerGroups.length, hint);
 
         if (resolvedRig.rigType) {
@@ -3306,20 +3345,30 @@ async function convertAvatar(assetDir, {
 }
 
 /**
+ * Read the cached Roblox avatar metadata (avatar.json) written at download
+ * time. Returns the parsed object, or null when the file is missing or
+ * malformed. Callers treat null as "no metadata" and keep the fallback path.
+ */
+function readCachedAvatarMeta(assetDir) {
+    try {
+        const raw = fs.readFileSync(path.join(assetDir, "avatar.json"), "utf8");
+        const data = JSON.parse(raw);
+        return data && typeof data === "object" ? data : null;
+    } catch {
+        return null;
+    }
+}
+
+/**
  * Read the cached Roblox avatar type ("R6"/"R15") written to
  * downloads/<userId>/avatar.json at download time. Returns null when the file
  * is missing or malformed — callers treat that as "no hint".
  */
 function readCachedRobloxType(assetDir) {
-    try {
-        const raw = fs.readFileSync(path.join(assetDir, "avatar.json"), "utf8");
-        const data = JSON.parse(raw);
-        return data && (data.playerAvatarType === "R6" || data.playerAvatarType === "R15")
-            ? data.playerAvatarType
-            : null;
-    } catch {
-        return null;
-    }
+    const data = readCachedAvatarMeta(assetDir);
+    return data && (data.playerAvatarType === "R6" || data.playerAvatarType === "R15")
+        ? data.playerAvatarType
+        : null;
 }
 
 /**
@@ -3462,6 +3511,8 @@ module.exports = {
     resolveRigType,
     computeCompatibility,
     readCachedRobloxType,
+    readCachedAvatarMeta,
+    deriveHasLayeredClothing,
     mappingFromPartNames,
     resolvePartMapping,
     matchBodyParts,

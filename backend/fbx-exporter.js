@@ -10,7 +10,13 @@ const path = require("path");
 const crypto = require("crypto");
 const { PNG } = require("pngjs");
 const { isBodyGroup } = require("./obj-utils");
-const { computeRig, parseObjString, readCachedRobloxType, assertObjTextLimits } = require("./auto-rig");
+const {
+    computeRig,
+    parseObjString,
+    readCachedAvatarMeta,
+    assertObjTextLimits
+} = require("./auto-rig");
+const { deriveHasLayeredClothing, countAccessoryAssets } = require("./avatar-assets");
 const profile = require("./profiler");
 
 let THREE = null;
@@ -273,6 +279,35 @@ async function buildFbx({
     const mtl = mtlText ? parseMtl(mtlText) : new Map();
     const excludeSubdivisionSet = new Set(excludeSubdivision || []);
 
+    // Read cached Roblox metadata once and derive the same layered-clothing
+    // gate the GLB/glTF path uses. Missing metadata => "unknown" => fallback.
+    const cachedMeta = readCachedAvatarMeta(assetDir);
+    const hint =
+        cachedMeta &&
+        (cachedMeta.playerAvatarType === "R6" || cachedMeta.playerAvatarType === "R15")
+            ? cachedMeta.playerAvatarType
+            : null;
+    const hasLayeredClothing = deriveHasLayeredClothing(
+        cachedMeta ? cachedMeta.assets : undefined
+    );
+
+    if (hasLayeredClothing !== "unknown") {
+        const counts = countAccessoryAssets(cachedMeta.assets);
+        const handleCount = new Set(
+            obj.polygons
+                .map((poly) => poly.group)
+                .filter((name) => typeof name === "string" && /^handle/i.test(name))
+        ).size;
+
+        if (counts.geometric > 0 && handleCount !== counts.geometric) {
+            console.warn(
+                `[accessory] hasLayeredClothing=${hasLayeredClothing} ` +
+                `recognized=${counts.recognized} layered=${counts.layered} ` +
+                `handles=${handleCount} geometricAssets=${counts.geometric} (count mismatch)`
+            );
+        }
+    }
+
     if (obj.polygons.length === 0) {
         throw new Error("FBX conversion failed: the OBJ has no faces.");
     }
@@ -283,8 +318,9 @@ async function buildFbx({
     const rigData = rig
         ? await profile.run("fbx_rig", () => computeRig(parseObjString(objText), {
             moreJoints,
-            hint: readCachedRobloxType(assetDir),
-            bendAccessories
+            hint,
+            bendAccessories,
+            hasLayeredClothing
         }))
         : null;
 
@@ -294,8 +330,9 @@ async function buildFbx({
         try {
             splitData = await profile.run("fbx_rig", () => computeRig(parseObjString(objText), {
                 moreJoints,
-                hint: readCachedRobloxType(assetDir),
-                bendAccessories
+                hint,
+                bendAccessories,
+                hasLayeredClothing
             }));
         } catch {
             splitData = null;

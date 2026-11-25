@@ -1756,3 +1756,221 @@ test("materials sharing an image embed a single texture", async () => {
     }
 });
 
+// ---- Layered-clothing metadata gate (GLB/glTF share convertAvatar) ----
+
+function writeAvatarMeta(dir, assets, playerAvatarType = "R15") {
+    fs.writeFileSync(
+        path.join(dir, "avatar.json"),
+        JSON.stringify({ userId: "1", playerAvatarType, assets })
+    );
+}
+
+const RIGID_ONLY_ASSETS = [{ assetType: { id: 8, name: "Hat" } }];
+const LAYERED_ASSETS = [{ assetType: { id: 68, name: "SweaterAccessory" } }];
+const MIXED_ASSETS = [
+    { assetType: { id: 8, name: "Hat" } },
+    { assetType: { id: 68, name: "SweaterAccessory" } }
+];
+
+// A connected panel spanning the torso and both arms: geometrically this looks
+// like multi-region clothing, so it is the case the metadata gate must control.
+const MULTI_REGION_GRID = { x0: -1.91, x1: 1.91, y0: 3.2, y1: 4.8, z: 0.0, cols: 24 };
+
+function handlePrimitives(doc) {
+    const primitives = [];
+    for (const node of handleMeshNodes(doc.getRoot())) {
+        for (const primitive of node.getMesh().listPrimitives()) {
+            primitives.push(primitive);
+        }
+    }
+    return primitives;
+}
+
+function bodyPrimitive(doc) {
+    const node = doc
+        .getRoot()
+        .listNodes()
+        .find((candidate) => candidate.getMesh() && !/^handle/i.test(candidate.getName()));
+    return node ? node.getMesh().listPrimitives()[0] : null;
+}
+
+async function convertR15(dir) {
+    return convertAvatar(dir, {
+        rig: true,
+        splitParts: true,
+        bendAccessories: true
+    });
+}
+
+test("rigid-only R15 metadata keeps every handle rigid", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "aae-test-"));
+
+    try {
+        writeR15Avatar(dir, MULTI_REGION_GRID);
+        writeAvatarMeta(dir, RIGID_ONLY_ASSETS);
+
+        const { doc } = await convertR15(dir);
+        const handles = handlePrimitives(doc);
+
+        assert.ok(handles.length > 0, "expected at least one handle primitive");
+        for (const primitive of handles) {
+            assert.ok(
+                !primitive.getAttribute("JOINTS_0"),
+                "rigid-only metadata must not skin handles"
+            );
+        }
+
+        // Body-part skinning is unaffected.
+        const body = bodyPrimitive(doc);
+        assert.ok(body, "expected a body primitive");
+        assert.ok(body.getAttribute("JOINTS_0"), "body parts must stay skinned");
+    } finally {
+        fs.rmSync(dir, { recursive: true, force: true });
+    }
+});
+
+test("layered R15 metadata keeps geometric clothing skinning", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "aae-test-"));
+
+    try {
+        writeR15Avatar(dir, MULTI_REGION_GRID);
+        writeAvatarMeta(dir, LAYERED_ASSETS);
+
+        const { doc } = await convertR15(dir);
+        const handles = handlePrimitives(doc);
+
+        assert.ok(handles.length > 0);
+        assert.ok(
+            handles.some((primitive) => primitive.getAttribute("JOINTS_0")),
+            "layered metadata must preserve geometric skinning"
+        );
+    } finally {
+        fs.rmSync(dir, { recursive: true, force: true });
+    }
+});
+
+test("mixed R15 metadata keeps existing geometric behavior", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "aae-test-"));
+
+    try {
+        writeR15Avatar(dir, MULTI_REGION_GRID);
+        writeAvatarMeta(dir, MIXED_ASSETS);
+
+        const { doc } = await convertR15(dir);
+        const handles = handlePrimitives(doc);
+
+        // Residual risk: with layered assets present the geometric heuristic
+        // still runs, so a rigid multi-region handle can be skinned.
+        assert.ok(handles.length > 0);
+        assert.ok(handles.some((primitive) => primitive.getAttribute("JOINTS_0")));
+    } finally {
+        fs.rmSync(dir, { recursive: true, force: true });
+    }
+});
+
+test("rigid multi-region accessory stays rigid with rigid-only metadata", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "aae-test-"));
+
+    try {
+        writeR15Avatar(dir, MULTI_REGION_GRID);
+        writeAvatarMeta(dir, RIGID_ONLY_ASSETS);
+
+        const { doc } = await convertR15(dir);
+
+        assert.equal(handlePrimitives(doc).length, 1);
+        assert.ok(!handlePrimitives(doc)[0].getAttribute("JOINTS_0"));
+    } finally {
+        fs.rmSync(dir, { recursive: true, force: true });
+    }
+});
+
+test("missing avatar.json preserves the geometric fallback", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "aae-test-"));
+
+    try {
+        writeR15Avatar(dir, MULTI_REGION_GRID);
+
+        const { doc } = await convertR15(dir);
+
+        assert.ok(
+            handlePrimitives(doc).some((primitive) => primitive.getAttribute("JOINTS_0")),
+            "missing metadata must keep the previous geometric behavior"
+        );
+    } finally {
+        fs.rmSync(dir, { recursive: true, force: true });
+    }
+});
+
+test("empty assets preserve the geometric fallback", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "aae-test-"));
+
+    try {
+        writeR15Avatar(dir, MULTI_REGION_GRID);
+        writeAvatarMeta(dir, []);
+
+        const { doc } = await convertR15(dir);
+
+        assert.ok(handlePrimitives(doc).some((primitive) => primitive.getAttribute("JOINTS_0")));
+    } finally {
+        fs.rmSync(dir, { recursive: true, force: true });
+    }
+});
+
+test("unknown asset type preserves the geometric fallback", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "aae-test-"));
+
+    try {
+        writeR15Avatar(dir, MULTI_REGION_GRID);
+        writeAvatarMeta(dir, [{ assetType: { id: 999, name: "FutureType" } }]);
+
+        const { doc } = await convertR15(dir);
+
+        assert.ok(handlePrimitives(doc).some((primitive) => primitive.getAttribute("JOINTS_0")));
+    } finally {
+        fs.rmSync(dir, { recursive: true, force: true });
+    }
+});
+
+test("thin layered ids 76/77 preserve the geometric fallback", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "aae-test-"));
+
+    try {
+        writeR15Avatar(dir, MULTI_REGION_GRID);
+        writeAvatarMeta(dir, [{ assetType: { id: 76, name: "EyebrowAccessory" } }]);
+
+        const { doc } = await convertR15(dir);
+
+        assert.ok(handlePrimitives(doc).some((primitive) => primitive.getAttribute("JOINTS_0")));
+    } finally {
+        fs.rmSync(dir, { recursive: true, force: true });
+    }
+});
+
+test("R6 layered metadata never skins accessories", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "aae-test-"));
+    const r6 = {
+        Head: makeBox(-0.5, 0.5, 9, 11, -0.5, 0.5),
+        Torso: makeBox(-1, 1, 5, 9, -0.5, 0.5),
+        "Left Arm": makeBox(-2, -1.2, 6, 9, -0.3, 0.3),
+        "Right Arm": makeBox(1.2, 2, 6, 9, -0.3, 0.3),
+        "Left Leg": makeBox(-0.8, -0.1, 0.5, 5, -0.3, 0.3),
+        "Right Leg": makeBox(0.1, 0.8, 0.5, 5, -0.3, 0.3),
+        Handle1: makeBox(-1.5, 1.5, 6, 8, -0.4, 0.4)
+    };
+
+    try {
+        fs.writeFileSync(path.join(dir, "avatar.obj"), objFromBoxes(r6));
+        fs.writeFileSync(path.join(dir, "avatar.mtl"), CLOTH_MTL);
+        writeAvatarMeta(dir, LAYERED_ASSETS, "R6");
+
+        const { doc } = await convertR15(dir);
+
+        assert.ok(handlePrimitives(doc).length > 0);
+        for (const primitive of handlePrimitives(doc)) {
+            assert.ok(!primitive.getAttribute("JOINTS_0"));
+        }
+    } finally {
+        fs.rmSync(dir, { recursive: true, force: true });
+    }
+});
+
