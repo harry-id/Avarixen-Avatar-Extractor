@@ -10,7 +10,7 @@ const { convertAvatar, getPartInfo } = require("./auto-rig");
 const { createConversionLimiter } = require("./conversion-limiter");
 const { createAdmissionLimiter } = require("./admission-limiter");
 const { parseNonNegativeNumber, parsePositiveNumber } = require("./config");
-const { withUserLock } = require("./user-lock");
+const { isUserLocked, tryWithUserLock, withUserLock } = require("./user-lock");
 const profile = require("./profiler");
 
 const SUPPORTED_FORMATS = ["glb", "gltf", "fbx"];
@@ -249,16 +249,28 @@ module.exports = function (app, options = {}) {
             });
         }
 
+        // Fail fast when this user's cache is already locked (a download or
+        // conversion is in progress): return 503 without taking a parts slot or
+        // waiting. Holding a slot while blocked on the per-user lock is what let
+        // one user's long download starve other users' parts requests.
+        const busyResponse = () => {
+            res.set("Retry-After", "5");
+            return res.status(503).json({
+                success: false,
+                message: t(lang, "parts.busy")
+            });
+        };
+
+        if (isUserLocked(userId)) {
+            return busyResponse();
+        }
+
         let release;
         try {
             release = await partsLimiter.acquire();
         } catch (error) {
             if (error && error.code === "EPARTSBUSY") {
-                res.set("Retry-After", "5");
-                return res.status(503).json({
-                    success: false,
-                    message: t(lang, "parts.busy")
-                });
+                return busyResponse();
             }
             throw error;
         }
@@ -267,12 +279,19 @@ module.exports = function (app, options = {}) {
             const moreJoints = parseBool(req.query.moreJoints);
             // Serialize with downloads/conversions for the same user so the
             // explorer cannot read avatar.json/avatar.obj across a cache swap.
-            // getPartInfo does not take the lock itself, so there is no
-            // re-entry/deadlock. This can add latency while a same-user
-            // download/conversion is in progress.
-            const info = await withUserLock(userId, () =>
+            // tryWithUserLock is non-blocking: if a same-user download/conversion
+            // grabbed the lock while we waited for a slot, fail fast instead of
+            // blocking while holding the slot. getPartInfo does not take the
+            // lock itself, so there is no re-entry/deadlock.
+            const attempt = tryWithUserLock(userId, () =>
                 getPartInfo(assetDir, { moreJoints })
             );
+
+            if (attempt.locked) {
+                return busyResponse();
+            }
+
+            const info = await attempt.promise;
             res.json({
                 success: true,
                 rigType: info.rigType,

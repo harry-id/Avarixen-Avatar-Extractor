@@ -504,45 +504,86 @@ test("GLB rig failure returns 422", async () => {
     }
 });
 
-test("parts waits for the same-user lock and then succeeds", async () => {
-    await fs.mkdir(USER_DIR, { recursive: true });
+test("parts fails fast when the same user's lock is held, and recovers after release", async () => {
+    const userId = String(9_920_000_000 + Math.floor(Math.random() * 100000));
+    const userDir = path.join(DOWNLOADS_DIR, userId);
+    await fs.mkdir(userDir, { recursive: true });
     await fs.writeFile(
-        path.join(USER_DIR, "avatar.obj"),
+        path.join(userDir, "avatar.obj"),
         ["g Torso", "v 0 0 0", "v 1 0 0", "v 0 1 0", "f 1 2 3", ""].join("\n")
     );
-    await fs.writeFile(path.join(USER_DIR, "avatar.mtl"), "");
+    await fs.writeFile(path.join(userDir, "avatar.mtl"), "");
 
     let releaseLock;
     const held = withUserLock(
-        USER_ID,
+        userId,
         () => new Promise((resolve) => { releaseLock = resolve; })
     );
 
     try {
         await withServer(async (base) => {
-            let settled = false;
-            const request = fetch(`${base}/api/roblox/parts/${USER_ID}`).then(
-                (response) => {
-                    settled = true;
-                    return response;
-                }
-            );
+            // While the lock is held, this user's parts request fails fast (503).
+            const busy = await fetch(`${base}/api/roblox/parts/${userId}`);
+            assert.equal(busy.status, 503);
+            assert.equal(busy.headers.get("retry-after"), "5");
+            const busyBody = await busy.json();
+            assert.equal(busyBody.success, false);
 
-            // The route must block on the lock rather than read mid-swap.
-            await new Promise((resolve) => setTimeout(resolve, 150));
-            assert.equal(settled, false, "parts must wait for the user lock");
-
+            // After release, the request returns 200 with groups.
             releaseLock();
-            const response = await request;
-            assert.equal(response.status, 200);
-
-            const body = await response.json();
+            const ok = await fetch(`${base}/api/roblox/parts/${userId}`);
+            assert.equal(ok.status, 200);
+            const body = await ok.json();
             assert.equal(body.success, true);
             assert.ok(Array.isArray(body.groups));
         });
     } finally {
         if (releaseLock) releaseLock();
         await held.catch(() => {});
-        await fs.rm(USER_DIR, { recursive: true, force: true });
+        await fs.rm(userDir, { recursive: true, force: true });
+    }
+});
+
+test("parts for another user is not delayed or rejected while user A's lock is held", async () => {
+    const userA = String(9_930_000_000 + Math.floor(Math.random() * 100000));
+    const userB = String(9_940_000_000 + Math.floor(Math.random() * 100000));
+    const dirA = path.join(DOWNLOADS_DIR, userA);
+    const dirB = path.join(DOWNLOADS_DIR, userB);
+    for (const dir of [dirA, dirB]) {
+        await fs.mkdir(dir, { recursive: true });
+        await fs.writeFile(
+            path.join(dir, "avatar.obj"),
+            ["g Torso", "v 0 0 0", "v 1 0 0", "v 0 1 0", "f 1 2 3", ""].join("\n")
+        );
+        await fs.writeFile(path.join(dir, "avatar.mtl"), "");
+    }
+
+    let releaseLock;
+    const held = withUserLock(
+        userA,
+        () => new Promise((resolve) => { releaseLock = resolve; })
+    );
+
+    try {
+        await withServer(async (base) => {
+            // User A is locked; A's own request fails fast.
+            const aRes = await fetch(`${base}/api/roblox/parts/${userA}`);
+            assert.equal(aRes.status, 503);
+
+            // User B is unaffected: not delayed (completes promptly) and not rejected.
+            const t0 = Date.now();
+            const bRes = await fetch(`${base}/api/roblox/parts/${userB}`);
+            const bMs = Date.now() - t0;
+            assert.equal(bRes.status, 200);
+            const bBody = await bRes.json();
+            assert.equal(bBody.success, true);
+            assert.ok(Array.isArray(bBody.groups));
+            assert.ok(bMs < 2000, `user B parts took ${bMs}ms, expected prompt`);
+        });
+    } finally {
+        if (releaseLock) releaseLock();
+        await held.catch(() => {});
+        await fs.rm(dirA, { recursive: true, force: true });
+        await fs.rm(dirB, { recursive: true, force: true });
     }
 });

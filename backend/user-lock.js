@@ -38,7 +38,30 @@ function isUserLocked(key) {
     return queues.has(String(key));
 }
 
+/**
+ * Non-blocking variant of withUserLock.
+ *
+ * If `key` is already locked, returns `{ locked: true }` without enqueuing, so
+ * callers can fail fast instead of waiting (and, in the parts route, without
+ * holding a global limiter slot while blocked). Otherwise runs `task` under the
+ * lock and returns `{ locked: false, promise }`.
+ *
+ * The check and the (synchronous) enqueue inside withUserLock happen in the
+ * same tick, so there is no await between them: a caller that sees
+ * `locked: false` will not then block on the lock.
+ */
+function tryWithUserLock(key, task) {
+    const name = String(key);
+
+    if (queues.has(name)) {
+        return { locked: true };
+    }
+
+    return { locked: false, promise: withUserLock(name, task) };
+}
+
 module.exports = {
     isUserLocked,
+    tryWithUserLock,
     withUserLock
 };

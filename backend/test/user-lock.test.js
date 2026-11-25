@@ -3,7 +3,7 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 
-const { isUserLocked, withUserLock } = require("../user-lock");
+const { isUserLocked, tryWithUserLock, withUserLock } = require("../user-lock");
 
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -66,4 +66,32 @@ test("a rejected task does not block the next waiter", async () => {
 
     const value = await withUserLock("7", async () => "next");
     assert.equal(value, "next");
+});
+
+test("tryWithUserLock runs immediately when the key is free", async () => {
+    const attempt = tryWithUserLock("free", async () => "ok");
+    assert.equal(attempt.locked, false);
+    assert.equal(await attempt.promise, "ok");
+    assert.equal(isUserLocked("free"), false);
+});
+
+test("tryWithUserLock fails fast (no enqueue) when the key is locked", async () => {
+    let release;
+    const held = withUserLock("busy", () => new Promise((resolve) => { release = resolve; }));
+    await delay(10); // let the task start and assign `release`
+
+    try {
+        const attempt = tryWithUserLock("busy", async () => "should not run");
+        assert.equal(attempt.locked, true);
+        assert.equal(attempt.promise, undefined);
+        // The queue is not poisoned: after release, a new task runs.
+        release();
+        await held;
+        const after = tryWithUserLock("busy", async () => "after");
+        assert.equal(after.locked, false);
+        assert.equal(await after.promise, "after");
+    } finally {
+        if (release) release();
+        await held.catch(() => {});
+    }
 });
