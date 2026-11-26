@@ -73,6 +73,30 @@ queue and starve another user (503).
 python3 tools/perf/starve_repro.py 10
 ```
 
+### `download_probe.py` — download protection (coalescing, rate limit, quota)
+
+Runs a deterministic TLS **mock** of the Roblox/CDN endpoints (so downloads
+return real 200s and upstream calls can be counted) plus the real backend
+container, both on the host network. Verifies:
+
+1. Five simultaneous same-user downloads coalesce into ONE upstream sequence
+   (mock `avatar-3d` counter == 1) and all five responses are 200.
+2. One source IP over the download limit gets 429 while a second source IP
+   (127.0.0.2) is unaffected.
+3. Under quota pressure an actively-used avatar is NOT evicted (new downloads
+   fail 507 and the protected entry survives).
+
+```bash
+# one-time: generate the mock CA + server cert into /tmp/opencode/aae-dl
+# (see the script header / repo docs); then:
+python3 tools/perf/download_probe.py all      # or: coalesce | ratelimit | quota
+```
+
+Requirements: Docker, the `avarixen/aae-backend:local` image, and the ability
+to run a container as root with `--network host` (the mock binds :443). The
+cert + `mock_upstream.js` live in `AAE_DL_DIR` (default `/tmp/opencode/aae-dl`).
+This is NOT part of `npm test`.
+
 ## Notes
 
 - Peak memory is read from the container's cgroup `memory.peak`, which is the
