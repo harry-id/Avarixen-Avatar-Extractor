@@ -6,7 +6,7 @@ const fs = require("fs");
 const os = require("os");
 const path = require("path");
 
-const { sweepDownloads, touchEntry } = require("../downloads-cleanup");
+const { sweepDownloads, touchEntry, ttlToMaxAgeMs } = require("../downloads-cleanup");
 
 function makeEntry(dir, name, contents, ageMs) {
     const full = path.join(dir, name);
@@ -97,4 +97,28 @@ test("sweepDownloads protects entries younger than minAgeMs from quota eviction"
 test("touchEntry is best-effort and never throws on a missing path", async () => {
     // A nonexistent path makes utimes fail; the helper must swallow it.
     await touchEntry(path.join(os.tmpdir(), "aae-does-not-exist-xyz"));
+});
+
+test("ttlToMaxAgeMs: 0 disables the age sweep, positive converts to ms", () => {
+    assert.equal(ttlToMaxAgeMs(0), Number.POSITIVE_INFINITY);
+    assert.equal(ttlToMaxAgeMs(24), 24 * 60 * 60 * 1000);
+    // Invalid/negative falls back to the default (24h).
+    assert.equal(ttlToMaxAgeMs(-1), 24 * 60 * 60 * 1000);
+    assert.equal(ttlToMaxAgeMs("nope"), 24 * 60 * 60 * 1000);
+});
+
+test("sweepDownloads with an infinite maxAge (TTL disabled) removes nothing by age", () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "aae-cache-"));
+
+    try {
+        makeEntry(dir, "1", "x", 10_000);
+        makeEntry(dir, "2", "y", 10_000);
+
+        // ttlToMaxAgeMs(0) => Infinity: even very old entries are kept.
+        const result = sweepDownloads(dir, ttlToMaxAgeMs(0), Date.now());
+        assert.equal(result.removed, 0);
+        assert.deepEqual(fs.readdirSync(dir).sort(), ["1", "2"]);
+    } finally {
+        fs.rmSync(dir, { recursive: true, force: true });
+    }
 });

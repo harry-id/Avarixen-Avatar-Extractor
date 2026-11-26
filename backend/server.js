@@ -14,7 +14,7 @@ const path = require("path");
 const { getLang, t } = require("./i18n");
 const { fetchAvatar3D } = require("./avatar-metadata");
 const { version: APP_VERSION } = require("./package.json");
-const { startDownloadsCleanup, isOldBackupOfMissingOutput } = require("./downloads-cleanup");
+const { startDownloadsCleanup, isOldBackupOfMissingOutput, ttlToMaxAgeMs } = require("./downloads-cleanup");
 const { recoverDownloads } = require("./avatar-downloader");
 const { fetchWithTimeout } = require("./fetch-utils");
 const { isUserLocked } = require("./user-lock");
@@ -205,9 +205,9 @@ app.use(
 );
 
 // Delete cached avatars older than DOWNLOADS_TTL_HOURS (default 24h) so the
-// cache does not grow without bound. The timer is unref'd, so it never keeps
-// the process alive on its own.
-const downloadsTtlHours = parsePositiveNumber(process.env.DOWNLOADS_TTL_HOURS, 24);
+// cache does not grow without bound. Set 0 to disable the age sweep. The timer
+// is unref'd, so it never keeps the process alive on its own.
+const downloadsTtlHours = parseNonNegativeNumber(process.env.DOWNLOADS_TTL_HOURS, 24);
 const downloadsMaxBytes = parseNonNegativeNumber(
     process.env.DOWNLOADS_MAX_BYTES,
     DEFAULT_DOWNLOADS_MAX_BYTES
@@ -231,7 +231,7 @@ recoverDownloads(downloadsDir, { log: (message) => console.log(message) });
 
 const downloadsCleanup = startDownloadsCleanup({
     dir: downloadsDir,
-    maxAgeMs: downloadsTtlHours * 60 * 60 * 1000,
+    maxAgeMs: ttlToMaxAgeMs(downloadsTtlHours),
     maxBytes: downloadsMaxBytes,
     minAgeMs: downloadsMinAgeMs,
     // Never delete a user's cache (or its staging/backup directory) while a

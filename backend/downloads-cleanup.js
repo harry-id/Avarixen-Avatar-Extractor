@@ -196,6 +196,22 @@ function sweepDownloads(
 }
 
 /**
+ * Convert a DOWNLOADS_TTL_HOURS value into a maxAgeMs for sweepDownloads.
+ * 0 disables the age sweep (Infinity: nothing is ever "older than" it); a
+ * positive value is hours in ms. Invalid/negative falls back to the default.
+ */
+function ttlToMaxAgeMs(hours) {
+    const h = Number(hours);
+    if (!Number.isFinite(h) || h < 0) {
+        return DEFAULTS.maxAgeMs;
+    }
+    if (h === 0) {
+        return Number.POSITIVE_INFINITY;
+    }
+    return h * 60 * 60 * 1000;
+}
+
+/**
  * Run sweepDownloads once now and then on a timer. The timer is unref'd so it
  * never keeps the process alive on its own.
  */
@@ -274,5 +290,6 @@ module.exports = {
     isOldBackupOfMissingOutput,
     sweepDownloads,
     startDownloadsCleanup,
-    touchEntry
+    touchEntry,
+    ttlToMaxAgeMs
 };
