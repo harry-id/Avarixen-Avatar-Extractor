@@ -3,15 +3,25 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const fs = require("fs/promises");
+const fsSync = require("node:fs");
+const os = require("node:os");
 const path = require("path");
 const http = require("node:http");
 const express = require("express");
 
 const registerDownloadRoutes = require("../avatar-downloader");
+const { after } = require("node:test");
 
 const USER_ID = String(9_900_000_000 + Math.floor(Math.random() * 100000));
-const DOWNLOADS_DIR = path.join(__dirname, "../../downloads");
+// Use a per-file temporary downloads directory so this file never shares the
+// repository downloads/ path with other test files. Some test files spawn a
+// real server.js, whose startup recoverDownloads() removes every `.stage-*`
+// directory under its downloads root; sharing that root would delete this
+// file's in-flight staging directory and cause a spurious ENOENT.
+const DOWNLOADS_DIR = fsSync.mkdtempSync(path.join(os.tmpdir(), "aae-download-route-"));
 const USER_DIR = path.join(DOWNLOADS_DIR, USER_ID);
+
+after(() => fs.rm(DOWNLOADS_DIR, { recursive: true, force: true }));
 
 const OBJ = [
     "mtllib avatar.mtl",
@@ -92,6 +102,7 @@ function makeFetch({ failAssets = false } = {}) {
 async function withServer({ failAssets = false, fetchWithTimeout, ...rest } = {}, run) {
     const app = express();
     registerDownloadRoutes(app, {
+        downloadsRoot: DOWNLOADS_DIR,
         fetchWithTimeout: fetchWithTimeout || makeFetch({ failAssets }),
         getApiKey: () => "test-key",
         ...rest
