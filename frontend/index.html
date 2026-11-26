@@ -1586,6 +1586,26 @@ renderer.setPixelRatio(
 
 viewer.appendChild(renderer.domElement);
 
+// WebGL context loss: show a localized message and let three.js re-initialize
+// on restore. We only surface the message; three.js handles the GPU rebuild.
+let preLossStatus = null;
+renderer.domElement.addEventListener("webglcontextlost", (event) => {
+    // Allow the browser to fire webglcontextrestored.
+    event.preventDefault();
+    preLossStatus = { key: currentStatusKey, raw: currentStatusRaw };
+    setStatusRaw(t("webglContextLost"), { isError: true });
+});
+renderer.domElement.addEventListener("webglcontextrestored", () => {
+    if (preLossStatus) {
+        if (preLossStatus.raw) {
+            setStatusRaw(preLossStatus.raw.message, { isError: preLossStatus.raw.isError });
+        } else if (preLossStatus.key) {
+            setStatus(preLossStatus.key);
+        }
+        preLossStatus = null;
+    }
+});
+
 
 const controls = new OrbitControls(
     camera,

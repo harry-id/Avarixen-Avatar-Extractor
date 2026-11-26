@@ -114,6 +114,7 @@ export const LANG = {
         apiOffline: "API Offline",
         errorApiOffline: "API sedang offline. Coba lagi sesaat lagi.",
         errorTimeout: "Permintaan melebihi batas waktu. Silakan coba lagi.",
+        webglContextLost: "Konteks WebGL hilang. Memulihkan tampilan...",
         apiChecking: "Checking..."
     },
     en: {
@@ -227,6 +228,7 @@ export const LANG = {
         apiOffline: "API Offline",
         errorApiOffline: "API is offline. Please try again shortly.",
         errorTimeout: "The request timed out. Please try again.",
+        webglContextLost: "WebGL context lost. Restoring the view...",
         apiChecking: "Checking..."
     }
 };
