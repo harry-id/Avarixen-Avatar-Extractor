@@ -89,11 +89,12 @@ function makeFetch({ failAssets = false } = {}) {
     };
 }
 
-async function withServer({ failAssets = false, fetchWithTimeout } = {}, run) {
+async function withServer({ failAssets = false, fetchWithTimeout, ...rest } = {}, run) {
     const app = express();
     registerDownloadRoutes(app, {
         fetchWithTimeout: fetchWithTimeout || makeFetch({ failAssets }),
-        getApiKey: () => "test-key"
+        getApiKey: () => "test-key",
+        ...rest
     });
 
     const server = app.listen(0, "127.0.0.1");
@@ -263,6 +264,59 @@ test("different users are not coalesced", async () => {
     } finally {
         await fs.rm(dirA, { recursive: true, force: true });
         await fs.rm(dirB, { recursive: true, force: true });
+    }
+});
+
+// ---- Part 4: optional cache-first window (default OFF) ----
+
+test("cache-first is disabled by default (always re-downloads)", async () => {
+    await fs.rm(USER_DIR, { recursive: true, force: true });
+    const counter = { sequences: 0 };
+
+    try {
+        await withServer({ fetchWithTimeout: instrumentedFetch(counter) }, async (base) => {
+            const url = `${base}/api/roblox/download/${USER_ID}`;
+            await getJson(url);
+            await getJson(url);
+            assert.equal(counter.sequences, 2, "no cache-first by default");
+        });
+    } finally {
+        await fs.rm(USER_DIR, { recursive: true, force: true });
+    }
+});
+
+test("cache-first returns the cache within the window, re-downloads after", async () => {
+    await fs.rm(USER_DIR, { recursive: true, force: true });
+    const counter = { sequences: 0 };
+
+    try {
+        // Large window: the second request is served from cache.
+        await withServer({
+            fetchWithTimeout: instrumentedFetch(counter),
+            downloadsCacheFirstMs: 600000
+        }, async (base) => {
+            const url = `${base}/api/roblox/download/${USER_ID}`;
+            const first = await getJson(url);
+            assert.equal(first.status, 200);
+            const second = await getJson(url);
+            assert.equal(second.status, 200);
+            assert.deepEqual(second.body.files, first.body.files);
+            assert.equal(counter.sequences, 1, "second served from cache");
+        });
+
+        // Zero window (disabled) on a fresh counter re-downloads every time.
+        const counter2 = { sequences: 0 };
+        await withServer({
+            fetchWithTimeout: instrumentedFetch(counter2),
+            downloadsCacheFirstMs: 0
+        }, async (base) => {
+            const url = `${base}/api/roblox/download/${USER_ID}`;
+            await getJson(url);
+            await getJson(url);
+            assert.equal(counter2.sequences, 2, "disabled window re-downloads");
+        });
+    } finally {
+        await fs.rm(USER_DIR, { recursive: true, force: true });
     }
 });
 

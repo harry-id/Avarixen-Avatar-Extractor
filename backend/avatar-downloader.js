@@ -571,6 +571,67 @@ function sendDownloadSuccess(res, lang, data) {
     });
 }
 
+// Build a success payload from an already-cached avatar directory (used by the
+// optional cache-first window). Returns null if the cache is not usable.
+async function readCachedResult(downloadsRoot, userId) {
+    const dir = path.join(downloadsRoot, userId);
+    let entries;
+    try {
+        entries = await fs.readdir(dir);
+    } catch {
+        return null;
+    }
+    if (!entries.includes("avatar.obj")) {
+        return null;
+    }
+    const textureFiles = entries
+        .filter((name) => /^texture\d+\.png$/i.test(name))
+        .sort();
+    let totalSize = 0;
+    for (const name of ["avatar.obj", "avatar.mtl", ...textureFiles]) {
+        try {
+            const stat = await fs.stat(path.join(dir, name));
+            totalSize += stat.size;
+        } catch {
+            // ignore a file that vanished
+        }
+    }
+    let rigType = null;
+    let robloxType = null;
+    let compatibility = null;
+    try {
+        const meta = JSON.parse(await fs.readFile(path.join(dir, "avatar.json"), "utf8"));
+        robloxType = meta.playerAvatarType || null;
+    } catch {
+        // avatar.json is optional
+    }
+    return {
+        textureCount: textureFiles.length,
+        files: [
+            `/assets/${userId}/avatar.obj`,
+            `/assets/${userId}/avatar.mtl`,
+            ...textureFiles.map((name) => `/assets/${userId}/${name}`)
+        ],
+        totalSize,
+        rigType,
+        robloxType,
+        compatibility
+    };
+}
+
+// True when a cached avatar.obj exists and is younger than maxAgeMs.
+async function isCacheFresh(downloadsRoot, userId, maxAgeMs) {
+    if (!(maxAgeMs > 0)) {
+        return false;
+    }
+    try {
+        const stat = await fs.stat(path.join(downloadsRoot, userId, "avatar.obj"));
+        return Date.now() - stat.mtimeMs < maxAgeMs;
+    } catch {
+        return false;
+    }
+}
+
 // Map a shared-download error to the same client response the old inline
 // handler produced, for every waiter.
 function sendDownloadError(res, lang, error) {
@@ -644,6 +705,13 @@ module.exports = function (app, options = {}) {
     const downloadsMinAgeMs = options.downloadsMinAgeMs !== undefined
         ? options.downloadsMinAgeMs
         : parseNonNegativeNumber(process.env.DOWNLOADS_MIN_AGE_MS, 5 * 60 * 1000);
+    // Optional cache-first freshness window (ms). Default 0 = disabled, so the
+    // download route always re-fetches upstream (the frontend deliberately
+    // re-downloads to show outfit changes). When > 0, a cached avatar.obj
+    // younger than this is returned without any upstream calls.
+    const downloadsCacheFirstMs = options.downloadsCacheFirstMs !== undefined
+        ? options.downloadsCacheFirstMs
+        : parseNonNegativeNumber(process.env.DOWNLOADS_CACHE_FIRST_MS, 0);
     const minFreeDiskBytes = options.minFreeDiskBytes !== undefined
         ? options.minFreeDiskBytes
         : parseNonNegativeNumber(process.env.MIN_FREE_DISK_BYTES, 512 * 1024 * 1024);
@@ -982,6 +1050,17 @@ module.exports = function (app, options = {}) {
                 success: false,
                 message: t(lang, "download.not_configured")
             });
+        }
+
+        // Optional cache-first window (default OFF). When enabled and the cached
+        // avatar.obj is younger than the window, return it without upstream
+        // calls. NOTE: the frontend deliberately re-downloads to show outfit
+        // changes, so enabling this can show a slightly stale avatar.
+        if (await isCacheFresh(downloadsRoot, userId, downloadsCacheFirstMs)) {
+            const cached = await readCachedResult(downloadsRoot, userId);
+            if (cached) {
+                return sendDownloadSuccess(res, lang, cached);
+            }
         }
 
         // Coalesce concurrent same-user downloads: the first request starts the
