@@ -1,0 +1,67 @@
+name: CI
+
+# Run on pushes to main and on pull requests. The weekly schedule re-runs only
+# the dependency audit so new advisories surface even without new commits.
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    - cron: "0 3 * * 1" # Mondays 03:00 UTC
+
+# Least privilege: the workflow only reads the repository.
+permissions:
+  contents: read
+
+jobs:
+  test:
+    # Push/PR only; the scheduled run is reserved for the audit job.
+    if: github.event_name != 'schedule'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node-version: [18, 20, 22, 26]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Node ${{ matrix.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - name: Install backend dependencies
+        working-directory: backend
+        run: npm ci
+      - name: Run backend tests
+        working-directory: backend
+        run: npm test
+
+  audit:
+    runs-on: ubuntu-latest
+    # Advisories must never block unrelated work, so the whole job is
+    # non-blocking and each audit step is too.
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Audit backend
+        working-directory: backend
+        run: npm audit --omit=dev
+        continue-on-error: true
+      - name: Audit frontend
+        working-directory: frontend
+        run: npm audit --omit=dev
+        continue-on-error: true
+
+  docker:
+    # Push/PR only; no scheduled image build.
+    if: github.event_name != 'schedule'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build image (no push)
+        run: docker build -t aae-backend:ci .
