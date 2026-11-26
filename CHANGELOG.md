@@ -6,9 +6,17 @@ All notable changes to Avarixen Avatar Extractor are documented here.
 
 ### Added
 - A `NODE_ENV=development` preset that applies friendlier local defaults for variables you have not set explicitly: `DOWNLOADS_TTL_HOURS=0` (disable the age sweep), `DOWNLOADS_MAX_BYTES=0` (no cache quota), `AAE_LOG_LEVEL=debug`, `LOG_REQUESTS=verbose`, `LOG_ASSETS=1`, effectively unlimited `RATE_LIMIT_MAX` and `DOWNLOAD_RATE_LIMIT_MAX`, and the stage profiler enabled (`AAE_PROFILE_STAGES=true`). Explicit variables always win, and a startup banner lists what was set and skipped. The preset does **not** change the SSRF allowlist, OBJ/body limits, `MAX_OUTPUT_FACES*`, worker heap/recycle limits, conversion/parts queues, or `DOWNLOADS_CACHE_FIRST_MS`.
+- A message when the WebGL context is lost (with a localized string in every supported language), cleared automatically when the context is restored.
+- The 3D viewer skips rendering while it is scrolled off-screen (via `IntersectionObserver`) and resumes when it becomes visible, avoiding wasted CPU/GPU.
+
+### Changed
+- The frontend now cancels superseded user-lookup, download, parts, and convert requests when a newer operation starts (in addition to the existing timeout and stale-response guards). Intentional cancellations are silent; a real timeout still shows its error. `AbortSignal.any` is feature-detected with a manual fallback when unavailable.
 
 ### Fixed
 - `DOWNLOADS_TTL_HOURS=0` now disables the cache age sweep (previously it fell back to the 24-hour default).
+
+### Removed
+- The raw origin IP address from the `tools/` example files (`.env.example`, `convert-bench.sh`).
 
 ## 1.3.0-beta.2
 

@@ -1287,6 +1287,48 @@ function acceptLanguageHeaders() {
     };
 }
 
+// Combine multiple AbortSignals into one, aborting when any input aborts.
+// Uses AbortSignal.any when available; otherwise falls back to a shared
+// controller that listens on each input and aborts with the first reason.
+function combineSignals(signals) {
+    const list = (signals || []).filter(Boolean);
+
+    if (list.length === 0) {
+        return undefined;
+    }
+    if (list.length === 1) {
+        return list[0];
+    }
+    if (typeof AbortSignal.any === "function") {
+        return AbortSignal.any(list);
+    }
+
+    const controller = new AbortController();
+    const attached = [];
+
+    const cleanup = () => {
+        for (const [sig, handler] of attached) {
+            sig.removeEventListener("abort", handler);
+        }
+    };
+
+    for (const sig of list) {
+        if (sig.aborted) {
+            controller.abort(sig.reason);
+            cleanup();
+            return controller.signal;
+        }
+        const handler = () => {
+            cleanup();
+            controller.abort(sig.reason);
+        };
+        sig.addEventListener("abort", handler, { once: true });
+        attached.push([sig, handler]);
+    }
+
+    return controller.signal;
+}
+
 // fetch() wrapper: convert network failures into a friendly "API offline"
 // error and optionally bound the whole request (headers + body).
 async function apiFetch(url, options = {}) {
@@ -1300,14 +1342,10 @@ async function apiFetch(url, options = {}) {
         timeoutSignal = AbortSignal.timeout(timeoutMs);
     }
 
-    let signal = manual;
-    if (manual && timeoutSignal) {
-        signal = typeof AbortSignal.any === "function"
-            ? AbortSignal.any([manual, timeoutSignal])
-            : manual;
-    } else if (!manual) {
-        signal = timeoutSignal;
-    }
+    // Combine the caller's signal (supersede) and the timeout signal. If
+    // AbortSignal.any is unavailable, combineSignals falls back to a manual
+    // shared controller so the timeout is still enforced.
+    const signal = combineSignals([manual, timeoutSignal]);
 
     try {
         return await fetch(url, { ...init, signal });
