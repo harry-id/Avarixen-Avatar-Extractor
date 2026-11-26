@@ -1,5 +1,8 @@
 # Development override for local work. Do NOT use in production.
 #
+# This is an override file only. It expects a local, untracked compose.yaml
+# (the base config, kept out of git) and is not usable on its own.
+#
 # Run with both files so the override is layered on top of the base config:
 #
 #   docker compose -f compose.yaml -f compose.dev.yaml up
