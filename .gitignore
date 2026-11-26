@@ -30,7 +30,7 @@ textures/
 temp/
 
 # Host deployment script (lives on the server, not in git)
-start.sh
+startup.sh
 
 # Build artifacts
 backend/backend.tar.gz
