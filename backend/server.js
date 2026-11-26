@@ -1,5 +1,11 @@
 require("dotenv").config();
 
+// Apply the development preset (NODE_ENV=development only) before any env var
+// is read, so its defaults take effect for unset variables. Explicit variables
+// always win.
+const { applyDevPreset, isLoopbackHost } = require("./dev-preset");
+const devPreset = applyDevPreset(process.env);
+
 // Start file logging before anything else logs. Tees console output to a log
 // file (ANSI stripped); disable with AAE_LOG_FILE=false.
 const { initLogger } = require("./logger");
@@ -31,6 +37,27 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 const HOST = resolveHost(process.env.HOST);
 const isProduction = process.env.NODE_ENV === "production";
+
+// Development preset banner: one clear block listing what was set and skipped.
+if (devPreset.active) {
+    const setList = Object.entries(devPreset.set)
+        .map(([key, value]) => `${key}=${value}`)
+        .join(", ");
+    console.log("[dev-preset] DEVELOPMENT PRESET ACTIVE (NODE_ENV=development)");
+    if (setList) {
+        console.log(`[dev-preset]   set: ${setList}`);
+    }
+    if (devPreset.skipped.length) {
+        console.log(`[dev-preset]   skipped (explicitly set): ${devPreset.skipped.join(", ")}`);
+    }
+    const host = String(process.env.HOST || "").trim().toLowerCase();
+    if (!isLoopbackHost(host)) {
+        console.warn(
+            `[dev-preset]   WARNING: HOST=${process.env.HOST} is not loopback. ` +
+            "The development preset is active and this server may be reachable from the network."
+        );
+    }
+}
 
 // Safe defaults: the cache is finite even when the environment forgets to set
 // a quota, and downloads stop before the filesystem becomes critically full.
