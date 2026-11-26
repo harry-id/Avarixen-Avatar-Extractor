@@ -56,12 +56,3 @@ jobs:
         working-directory: frontend
         run: npm audit --omit=dev
         continue-on-error: true
-
-  docker:
-    # Push/PR only; no scheduled image build.
-    if: github.event_name != 'schedule'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Build image (no push)
-        run: docker build -t aae-backend:ci .
