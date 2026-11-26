@@ -2,6 +2,14 @@
 
 All notable changes to Avarixen Avatar Extractor are documented here.
 
+## [Unreleased]
+
+### Added
+- A `NODE_ENV=development` preset that applies friendlier local defaults for variables you have not set explicitly: `DOWNLOADS_TTL_HOURS=0` (disable the age sweep), `DOWNLOADS_MAX_BYTES=0` (no cache quota), `AAE_LOG_LEVEL=debug`, `LOG_REQUESTS=verbose`, `LOG_ASSETS=1`, effectively unlimited `RATE_LIMIT_MAX` and `DOWNLOAD_RATE_LIMIT_MAX`, and the stage profiler enabled (`AAE_PROFILE_STAGES=true`). Explicit variables always win, and a startup banner lists what was set and skipped. The preset does **not** change the SSRF allowlist, OBJ/body limits, `MAX_OUTPUT_FACES*`, worker heap/recycle limits, conversion/parts queues, or `DOWNLOADS_CACHE_FIRST_MS`.
+
+### Fixed
+- `DOWNLOADS_TTL_HOURS=0` now disables the cache age sweep (previously it fell back to the 24-hour default).
+
 ## 1.3.0-beta.2
 
 ### Added
