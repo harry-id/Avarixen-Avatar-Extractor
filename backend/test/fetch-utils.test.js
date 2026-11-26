@@ -23,7 +23,10 @@ test("fetchWithTimeout returns a normal response body", async () => {
     const base = await listen(server);
 
     try {
-        const response = await fetchWithTimeout(`${base}/fast`, {}, 1000);
+        // Generous timeout: this only checks a normal body is returned, and a
+        // local request can exceed a tight limit when the suite runs test files
+        // in parallel under CPU contention.
+        const response = await fetchWithTimeout(`${base}/fast`, {}, 5000);
         assert.deepEqual(await response.json(), { ok: true });
     } finally {
         server.closeAllConnections?.();
