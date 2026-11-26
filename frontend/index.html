@@ -3352,9 +3352,27 @@ requestAnimationFrame(resizeViewer);
 
 
 
+// Skip rendering while the viewer is off-screen (e.g. scrolled away on mobile)
+// to avoid burning CPU/GPU on a canvas nobody can see. The rAF loop continues
+// so it resumes immediately when the viewer scrolls back into view.
+let viewerVisible = true;
+if (typeof IntersectionObserver !== "undefined") {
+    const viewerObserver = new IntersectionObserver(
+        (entries) => {
+            viewerVisible = entries.length > 0 && entries[0].isIntersecting;
+        },
+        { threshold: 0.01 }
+    );
+    viewerObserver.observe(viewer);
+}
+
 function animate() {
 
     requestAnimationFrame(animate);
+
+    if (!viewerVisible) {
+        return;
+    }
 
     controls.update();
 
