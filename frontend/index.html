@@ -1291,23 +1291,40 @@ function acceptLanguageHeaders() {
 // error and optionally bound the whole request (headers + body).
 async function apiFetch(url, options = {}) {
     const { timeoutMs, ...init } = options;
-    let signal = init.signal;
+    const manual = init.signal;
 
-    if (!signal && timeoutMs > 0 &&
+    let timeoutSignal = null;
+    if (timeoutMs > 0 &&
         typeof AbortSignal !== "undefined" &&
         typeof AbortSignal.timeout === "function") {
-        signal = AbortSignal.timeout(timeoutMs);
+        timeoutSignal = AbortSignal.timeout(timeoutMs);
+    }
+
+    let signal = manual;
+    if (manual && timeoutSignal) {
+        signal = typeof AbortSignal.any === "function"
+            ? AbortSignal.any([manual, timeoutSignal])
+            : manual;
+    } else if (!manual) {
+        signal = timeoutSignal;
     }
 
     try {
         return await fetch(url, { ...init, signal });
     } catch (error) {
+        // An intentional supersede abort (a newer operation started) is not an
+        // error the user should see; surface it as a cancellation.
+        if (manual && manual.aborted) {
+            const cancel = new Error("Request superseded");
+            cancel.name = "AbortError";
+            cancel.code = "ECANCELLED";
+            throw cancel;
+        }
         if (error && (error.name === "TimeoutError" || error.name === "AbortError")) {
             const timeoutError = new Error(t("errorTimeout"));
             timeoutError.isTimeout = true;
             throw timeoutError;
         }
-
         throw apiFetchError();
     }
 }
@@ -1660,6 +1677,23 @@ let explorerLoadToken = 0;
 // alone are not enough: a slow search can call loadModel() after a newer
 // search has already finished, which would make the old request the newest.
 let operationToken = 0;
+
+// Per-operation AbortControllers. Starting a new operation of a kind aborts the
+// previous in-flight one (in addition to the timeout and the token checks), so
+// superseded upstream work is actually cancelled. An intentional abort surfaces
+// as ECANCELLED and is never shown to the user.
+let userAbort = null;
+let downloadAbort = null;
+let partsAbort = null;
+let convertAbort = null;
+let convertSeq = 0;
+
+function newAbort(previous) {
+    if (previous) {
+        try { previous.abort(); } catch (e) { /* ignore */ }
+    }
+    return new AbortController();
+}
 
 
 
@@ -2529,6 +2563,8 @@ async function buildExplorer(userId) {
     }
 
     const requestToken = ++explorerLoadToken;
+    // A new explorer request supersedes any in-flight parts lookup.
+    partsAbort = newAbort(partsAbort);
     let groups = null;
     let bones = null;
     let compatibility = null;
@@ -2546,7 +2582,7 @@ async function buildExplorer(userId) {
 
             partsUrl,
 
-            { headers: acceptLanguageHeaders(), timeoutMs: 30000 }
+            { headers: acceptLanguageHeaders(), timeoutMs: 30000, signal: partsAbort.signal }
 
         );
 
@@ -2581,7 +2617,9 @@ async function buildExplorer(userId) {
 
     } catch (e) {
 
-        console.warn("Parts endpoint failed, falling back to client-side parse", e);
+        if (!(e && e.code === "ECANCELLED")) {
+            console.warn("Parts endpoint failed, falling back to client-side parse", e);
+        }
 
     }
 
@@ -2597,7 +2635,8 @@ async function buildExplorer(userId) {
             const assetPath = `${BACKEND_URL}/assets/${encodeURIComponent(userId)}/`;
 
             const response = await apiFetch(assetPath + "avatar.obj", {
-                timeoutMs: 60000
+                timeoutMs: 60000,
+                signal: partsAbort.signal
             });
 
             if (!response.ok) throw new Error("Failed to fetch OBJ");
@@ -2656,6 +2695,9 @@ async function buildExplorer(userId) {
 
         } catch (e) {
 
+            if (e && e.code === "ECANCELLED") {
+                return;
+            }
             console.error(e);
 
             groups = [];
@@ -2695,6 +2737,9 @@ searchButton.addEventListener(
         clearPreview();
 
         const requestToken = ++operationToken;
+        // A new search supersedes any in-flight user lookup and download.
+        userAbort = newAbort(userAbort);
+        downloadAbort = newAbort(downloadAbort);
         searchButton.disabled = true;
 
         searchButton.textContent = t("searchButtonSearching");
@@ -2711,6 +2756,7 @@ searchButton.addEventListener(
                     method: "POST",
                     headers: apiHeaders(),
                     timeoutMs: 30000,
+                    signal: userAbort.signal,
                     body: JSON.stringify({
                         username: username
                     })
@@ -2747,7 +2793,7 @@ searchButton.addEventListener(
                 BACKEND_URL +
                 "/api/roblox/download/" +
                 encodeURIComponent(user.id),
-                { headers: acceptLanguageHeaders(), timeoutMs: 300000 }
+                { headers: acceptLanguageHeaders(), timeoutMs: 300000, signal: downloadAbort.signal }
             );
 
             const downloadResult = await downloadResponse.json();
@@ -2786,6 +2832,9 @@ searchButton.addEventListener(
         } catch (error) {
 
             if (requestToken === operationToken) {
+                if (error && error.code === "ECANCELLED") {
+                    return;
+                }
                 console.error(error);
                 setStatusError(error);
             }
@@ -2843,6 +2892,7 @@ reloadButton.addEventListener(
 
         const requestToken = ++operationToken;
         const userId = currentUserId;
+        downloadAbort = newAbort(downloadAbort);
         reloadButton.disabled = true;
 
         try {
@@ -2855,7 +2905,7 @@ reloadButton.addEventListener(
                 BACKEND_URL +
                 "/api/roblox/download/" +
                 encodeURIComponent(userId),
-                { headers: acceptLanguageHeaders(), timeoutMs: 300000 }
+                { headers: acceptLanguageHeaders(), timeoutMs: 300000, signal: downloadAbort.signal }
             );
 
             const result = await response.json();
@@ -2888,6 +2938,9 @@ reloadButton.addEventListener(
         } catch (error) {
 
             if (requestToken === operationToken) {
+                if (error && error.code === "ECANCELLED") {
+                    return;
+                }
                 console.error(error);
                 setStatusError(error);
             }
@@ -3021,6 +3074,11 @@ async function runDownload(format) {
 
     }
 
+    // A new export supersedes any in-flight one; only the latest run re-enables
+    // the buttons in finally.
+    const seq = ++convertSeq;
+    convertAbort = newAbort(convertAbort);
+
     downloadButton.disabled = true;
     downloadToggle.disabled = true;
 
@@ -3033,6 +3091,11 @@ async function runDownload(format) {
         }
 
     } catch (error) {
+
+        // An intentional supersede abort is not shown to the user.
+        if (error && error.code === "ECANCELLED") {
+            return;
+        }
 
         // Backend errors already carry a full, localized sentence; show it
         // verbatim instead of double-wrapping it.
@@ -3050,10 +3113,12 @@ async function runDownload(format) {
 
     } finally {
 
-        downloadButton.disabled = false;
-        downloadToggle.disabled = false;
-        setDownloadButtonLabel();
-        refreshControls();
+        if (seq === convertSeq) {
+            downloadButton.disabled = false;
+            downloadToggle.disabled = false;
+            setDownloadButtonLabel();
+            refreshControls();
+        }
 
     }
 
@@ -3097,7 +3162,8 @@ async function downloadZip() {
 
             const check = await apiFetch(assetPath + filename, {
                 method: "HEAD",
-                timeoutMs: 15000
+                timeoutMs: 15000,
+                signal: convertAbort.signal
             });
 
             if (!check.ok) break;
@@ -3113,7 +3179,7 @@ async function downloadZip() {
 
         const response = await apiFetch(
             assetPath + file,
-            { timeoutMs: 60000 }
+            { timeoutMs: 60000, signal: convertAbort.signal }
         );
 
         if (!response.ok) {
@@ -3215,7 +3281,8 @@ async function downloadConverted(format) {
 
     const response = await apiFetch(url, {
         headers: acceptLanguageHeaders(),
-        timeoutMs: 300000
+        timeoutMs: 300000,
+        signal: convertAbort.signal
     });
 
     if (!response.ok) {
