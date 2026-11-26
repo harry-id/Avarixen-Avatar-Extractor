@@ -102,6 +102,19 @@ Press `Ctrl+C` to stop both servers.
 
 Open `http://localhost:3001`, enter a Roblox username, and load/export the avatar.
 
+### Development preset (`NODE_ENV=development`)
+
+Set `NODE_ENV=development` to apply friendlier defaults for local work. The preset fills in only variables you have **not** set explicitly (explicit values always win):
+
+- `DOWNLOADS_TTL_HOURS=0` (disable the cache age sweep) and `DOWNLOADS_MAX_BYTES=0` (no cache quota)
+- `AAE_LOG_LEVEL=debug`, `LOG_REQUESTS=verbose`, `LOG_ASSETS=1`
+- `RATE_LIMIT_MAX` and `DOWNLOAD_RATE_LIMIT_MAX` effectively unlimited
+- Stage profiler enabled (`AAE_PROFILE_STAGES=true`)
+
+At startup it prints one `DEVELOPMENT PRESET ACTIVE (NODE_ENV=development)` block listing what it set and what it skipped, and warns if `HOST` is not loopback.
+
+It does **not** change the SSRF allowlist, OBJ/body limits, `MAX_OUTPUT_FACES*`, worker heap/recycle limits, conversion/parts queues, or `DOWNLOADS_CACHE_FIRST_MS`. The preset applies only when `NODE_ENV` is exactly `development`; unset, `test`, and `production` behave exactly as before. In Docker, use `docker compose -f compose.yaml -f compose.dev.yaml up` (the dev override sets `NODE_ENV=development` and keeps the port bound to `127.0.0.1`).
+
 ### Security and resource-limit regression tests
 
 ```bash

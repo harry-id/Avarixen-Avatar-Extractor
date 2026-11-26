@@ -4,10 +4,16 @@
 #
 #   docker compose -f compose.yaml -f compose.dev.yaml up
 #
-# It only relaxes resource limits (more CPUs, optionally more memory) so local
-# conversions are faster. All other settings come from compose.yaml.
+# It relaxes resource limits (more CPUs, optionally more memory) so local
+# conversions are faster, and activates the development preset
+# (NODE_ENV=development). All other settings come from compose.yaml.
+#
+# Port publishing is inherited from compose.yaml, which binds to
+# 127.0.0.1 only (127.0.0.1:7860:7860); this override does not widen it.
 services:
   backend:
+    environment:
+      NODE_ENV: development
     deploy:
       resources:
         limits:
