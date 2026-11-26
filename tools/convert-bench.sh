@@ -5,7 +5,7 @@
 # Usage:
 #   ./tools/convert-bench.sh                      # defaults
 #   USER_ID=156 FORMATS="glb gltf fbx" ./tools/convert-bench.sh
-#   BASE_URL=http://162.19.133.164:7860 ./tools/convert-bench.sh
+#   BASE_URL=http://localhost:7860 ./tools/convert-bench.sh
 #   DOWNLOAD=0 ./tools/convert-bench.sh           # skip the download step
 #
 # Configuration comes from (lowest to highest precedence):
